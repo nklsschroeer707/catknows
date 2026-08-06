@@ -4,38 +4,51 @@
 
 # `catknows`
 
-### ▸ the documented, unofficial client for Skool's private API ◂
+### ▸ get your own Skool data out — free & open source ◂
 
 ```text
 $ catknows pull your-community --vault ./MyVault
-  ↳ members · posts · comments · likes → clean Markdown ✓
+  ↳ members · posts · comments · likes · DMs · leaderboards → your Obsidian vault ✓
+  no subscription · no middleman · you own it
+  the foundation — you build the rest.
   You have been served by catknows. — you are welcome.
 ```
 
-`#skool` &nbsp;·&nbsp; `#reverse-engineered` &nbsp;·&nbsp; `#no-official-api` &nbsp;·&nbsp; `#obsidian` &nbsp;·&nbsp; `#your-data-your-rules`
+`#skool` &nbsp;·&nbsp; `#open-source` &nbsp;·&nbsp; `#free-forever` &nbsp;·&nbsp; `#own-your-data` &nbsp;·&nbsp; `#build-it-yourself`
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=flat-square)](LICENSE)
+[![Price](https://img.shields.io/badge/price-%240%20forever-22c55e.svg?style=flat-square)](#why-its-free)
 [![Python](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Playwright](https://img.shields.io/badge/playwright-driven-2EAD33.svg?style=flat-square&logo=playwright&logoColor=white)](https://playwright.dev)
 [![Platform](https://img.shields.io/badge/macOS%20·%20Linux%20·%20Windows-lightgrey.svg?style=flat-square)](#quick-start)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](#contributing)
 [![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/catnose/about)
 
-**Pull your own Skool community data into Obsidian, a plain folder, or any CRM — in one command.**
+**Stop paying to read your own Skool data. Pull it yourself — members, posts, comments, DMs, the discovery leaderboard — into a clean Obsidian vault. The foundation; what you build on top is up to you (and the community). Free, open source, yours.**
 
 </div>
 
-Skool has no public API. This is a small, documented, open-source client for
-Skool's *private* internal API (the same endpoints skool.com's own site uses).
-You log in with your normal Skool account in a real browser window, and the tool
-pulls your community's members, posts, comments and likes into clean Markdown
-notes you can do anything with.
+You're running a Skool community and you want your data — who's engaged, who's
+fading, what's happening. So the pitch goes: pay **Skoot, Skooly, Panda,
+SkoolKit, Wingman** (or whatever's next) a monthly fee, just to have someone else
+pull and hand **your own data** back to you.
 
-- 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON
-  field documented. Hand it to Claude/Codex and it can build a client in any language.
-- 🧩 **Works from a GitHub link** — clone, install, run. No account or key with us.
-- 🗂️ **Obsidian-native output** — Markdown notes with YAML frontmatter, ready for
-  Dataview or an AI "librarian" to sort and cross-link.
+catknows says: don't. Skool has no public API, but its site talks to a private
+one — the same endpoints skool.com uses. catknows is a documented, open-source
+client for exactly those endpoints. Log in with your normal Skool account in a
+real browser, and pull your community's data into a clean Obsidian vault (or raw
+JSON for anything else). **No subscription. No middleman. You own it.**
+
+Today catknows does one thing well: **it gets your data out.** That's the
+foundation — the reports, automations, and dashboards you'd normally rent are
+now things *you* can build on top of it. And because it's open source, where
+catknows goes next is decided by the people who use it, not a pricing page.
+
+- 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
+- 🧱 **The foundation, not a walled garden.** It hands you your data in the open — you (and the community) decide what gets built on it.
+- 🧑‍💻 **For everyone.** Can drive an AI with two left hands? You can use catknows. Can code a little? Even better — take the data and build whatever you want.
+- 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
+- 🗂️ **Obsidian-native output** — clean Markdown + YAML frontmatter out of the box, or take the raw JSON into Notion, a CSV, a spreadsheet, your own tooling.
 
 > ⚠️ **Unofficial & unstable.** This talks to Skool's undocumented endpoints by
 > driving your own logged-in browser session. It is not affiliated with Skool
@@ -51,7 +64,7 @@ Needs **Python 3.10+** and **git**. Works on macOS, Linux, and Windows.
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/<you>/catknows.git
+git clone https://github.com/nklsschroeer707/catknows.git
 cd catknows
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
@@ -61,7 +74,7 @@ playwright install chromium          # on Linux: playwright install --with-deps 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/<you>/catknows.git
+git clone https://github.com/nklsschroeer707/catknows.git
 cd catknows
 py -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -e .
@@ -179,6 +192,28 @@ The Python client here is read-only for now; the write path is documented so you
 
 ---
 
+## Why it's free
+
+Paid Skool tools charge you a monthly fee to hand back data that was already
+yours. catknows removes the fee and the middleman — it just gives you the access:
+
+- **$0, forever.** No trial that expires, no seat limits, no "premium" endpoints
+  held back. Everything in this repo is MIT-licensed and free to use, fork, and
+  ship.
+- **Your data stays yours.** It runs on *your* machine with *your* login. Nothing
+  is sent to us — there's no "us" server in the loop at all.
+- **You decide where it goes.** Today it pulls your data into a vault. Whether it
+  grows churn reports, outreach drafts, dashboards — or stays a clean data tap —
+  is up to the people who use it. File an issue, open a PR, or say what you need
+  in the [Skool community](https://www.skool.com/catnose/about). No pricing page
+  decides for you.
+
+If catknows saves you a subscription and you *want* to buy the maintainers a
+coffee (or a bagel 🥯), the door's open — but it is never required. Use it free,
+no strings.
+
+---
+
 ## How it works (30 seconds)
 
 1. **Login** — a real browser (Playwright) so we can read the `httpOnly`
@@ -204,9 +239,10 @@ source of truth; keep it in sync with the code.
 
 ## Community
 
-Built by the folks behind **catknows** — the PRM that turns invisible Skool
-community data into daily actions. Come say hi, ask questions, or tell us what
-you built:
+catknows is built in the open, and where it goes next is decided by the people
+who use it. The Skool community is the workshop: ask questions, request features,
+show what you built on top of your data, or help shape the roadmap. You're not a
+customer here — you're a co-builder.
 
 ### ▸ [**Visit us here → skool.com/catnose**](https://www.skool.com/catnose/about) ◂
 
