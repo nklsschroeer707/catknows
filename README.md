@@ -1,8 +1,29 @@
-# catknows
+<div align="center">
+
+<img src="docs/assets/banner.jpg" alt="catknows" width="560">
+
+# `catknows`
+
+### ▸ the documented, unofficial client for Skool's private API ◂
+
+```text
+$ catknows pull your-community --vault ./MyVault
+  ↳ members · posts · comments · likes → clean Markdown ✓
+  You have been served by catknows. — you are welcome.
+```
+
+`#skool` &nbsp;·&nbsp; `#reverse-engineered` &nbsp;·&nbsp; `#no-official-api` &nbsp;·&nbsp; `#obsidian` &nbsp;·&nbsp; `#your-data-your-rules`
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Playwright](https://img.shields.io/badge/playwright-driven-2EAD33.svg?style=flat-square&logo=playwright&logoColor=white)](https://playwright.dev)
+[![Platform](https://img.shields.io/badge/macOS%20·%20Linux%20·%20Windows-lightgrey.svg?style=flat-square)](#quick-start)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](#contributing)
+[![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/catnose/about)
 
 **Pull your own Skool community data into Obsidian, a plain folder, or any CRM — in one command.**
 
-*The documented client for Skool's private API. You have been served by catknows. — you are welcome.*
+</div>
 
 Skool has no public API. This is a small, documented, open-source client for
 Skool's *private* internal API (the same endpoints skool.com's own site uses).
@@ -181,6 +202,22 @@ PRs welcome — new endpoints, other output targets (Notion, CSV, a CRM),
 other languages ported from [docs/API.md](docs/API.md). The API reference is the
 source of truth; keep it in sync with the code.
 
+## Community
+
+Built by the folks behind **catknows** — the PRM that turns invisible Skool
+community data into daily actions. Come say hi, ask questions, or tell us what
+you built:
+
+### ▸ [**Visit us here → skool.com/catnose**](https://www.skool.com/catnose/about) ◂
+
 ## License
 
 MIT. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for the ToS caveats.
+
+<div align="center">
+
+<img src="docs/assets/logo-mark.png" alt="catknows" width="120">
+
+*You have been served by catknows. — you are welcome.*
+
+</div>
