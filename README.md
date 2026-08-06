@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo-mark.png" alt="catknows" width="150">
 
-# `catknows`
+# `catknows.`
 
 ### ▸ get your own Skool data out — free & open source ◂
 
