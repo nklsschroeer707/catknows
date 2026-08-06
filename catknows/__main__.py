@@ -1,6 +1,6 @@
 """CLI: pull a whole Skool community into an Obsidian vault as Markdown.
 
-    python -m skoolapi pull my-community --vault ./MyVault
+    python -m catknows pull my-community --vault ./MyVault
 
 Runs the full flow: browser login (first time only) -> fetch members, posts,
 comments, likes -> normalize -> write Markdown notes with frontmatter.
@@ -18,7 +18,7 @@ from . import normalize, vault
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="skoolapi",
+        prog="catknows",
         description="Pull a Skool community into an Obsidian vault as Markdown.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -84,6 +84,7 @@ def _pull(args) -> int:
     print(f"  {written_posts} posts written.")
 
     print(f"\n✓ Done. Vault at: {vault_dir}")
+    print("\nYou have been served by catknows. — you are welcome.")
     return 0
 
 

@@ -7,8 +7,8 @@ Run from the repo root after `pip install -e .` and `playwright install chromium
 
 import sys
 
-from skoolapi import SkoolClient, login
-from skoolapi import normalize
+from catknows import SkoolClient, login
+from catknows import normalize
 
 if len(sys.argv) < 2:
     print("usage: python examples/quickstart.py <community-slug>")

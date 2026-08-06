@@ -174,7 +174,7 @@ def _slugs(groups) -> list[str]:
 
 if __name__ == "__main__":
     # ponytail: self-check for the quirky bits — ns timestamps, mixed-case
-    # likes, recursive comment parenting. Runs with `python -m skoolapi.normalize`.
+    # likes, recursive comment parenting. Runs with `python -m catknows.normalize`.
     ns = 1_700_000_000_000_000_000
     assert _ns_or_iso_to_dt(ns).year == 2023, "nanosecond parse failed"
     assert _ns_or_iso_to_dt("2024-01-15T10:00:00Z").year == 2024, "ISO parse failed"

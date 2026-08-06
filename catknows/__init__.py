@@ -1,6 +1,6 @@
-"""skoolapi — an unofficial, documented Python client for Skool's private API.
+"""catknows — an unofficial, documented client for Skool's private API.
 
-    from skoolapi import SkoolClient, login
+    from catknows import SkoolClient, login
 
     client = SkoolClient(login())
     members = client.members("my-community")
@@ -8,6 +8,8 @@
 See docs/API.md for the full endpoint reference. This talks to Skool's
 undocumented internal endpoints by driving a real browser session — it is not
 an official API and may break when Skool changes their frontend.
+
+You have been served by catknows. — you are welcome.
 """
 
 __version__ = "0.1.0"
@@ -21,8 +23,8 @@ __all__ = [
 
 # `normalize` and `vault` are stdlib-only on purpose (pure JSON→record→Markdown).
 # The client/http/auth layer needs `requests` + `playwright`. Import the heavy
-# names lazily so `from skoolapi import normalize` works before those deps are
-# installed — and so `python -m skoolapi.normalize` (the self-check) runs clean.
+# names lazily so `from catknows import normalize` works before those deps are
+# installed — and so `python -m catknows.normalize` (the self-check) runs clean.
 def __getattr__(name: str):
     if name in ("SkoolClient",):
         from .client import SkoolClient

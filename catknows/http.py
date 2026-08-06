@@ -66,7 +66,7 @@ class SkoolHTTPError(RuntimeError):
 
 class SkoolHTTP:
     def __init__(self, session):
-        """`session` is a skoolapi.auth.Session."""
+        """`session` is a catknows.auth.Session."""
         self.session = session
         self._build_id = ""
         self._profile = random.choice(_BROWSER_PROFILES)

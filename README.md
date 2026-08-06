@@ -1,6 +1,8 @@
-# skoolapi
+# catknows
 
 **Pull your own Skool community data into Obsidian, a plain folder, or any CRM — in one command.**
+
+*The documented client for Skool's private API. You have been served by catknows. — you are welcome.*
 
 Skool has no public API. This is a small, documented, open-source client for
 Skool's *private* internal API (the same endpoints skool.com's own site uses).
@@ -21,18 +23,41 @@ notes you can do anything with.
 
 ---
 
-## Quick start (3 commands)
+## Quick start
+
+Needs **Python 3.10+** and **git**. Works on macOS, Linux, and Windows.
+
+**macOS / Linux**
 
 ```bash
-git clone https://github.com/<you>/skoolapi.git
-cd skoolapi
-pip install -e . && playwright install chromium
+git clone https://github.com/<you>/catknows.git
+cd catknows
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+playwright install chromium          # on Linux: playwright install --with-deps chromium
 ```
 
-Then pull a community into a vault:
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/<you>/catknows.git
+cd catknows
+py -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -e .
+playwright install chromium
+```
+
+> **Why the venv?** Recent macOS (Homebrew) and Linux (Debian/Ubuntu/Fedora)
+> ship an "externally managed" Python that refuses a bare `pip install`
+> ([PEP 668](https://peps.python.org/pep-0668/)). The virtual environment above
+> is the portable fix and keeps this tool's deps off your system Python.
+> On Linux, `--with-deps` also pulls the OS libraries Chromium needs (otherwise
+> run `sudo playwright install-deps` once).
+
+Then pull a community into a vault (with the venv active):
 
 ```bash
-python -m skoolapi pull your-community-slug --vault ./MyVault
+python -m catknows pull your-community-slug --vault ./MyVault
 ```
 
 A browser window opens **the first time** — log in to Skool normally (email or
@@ -40,6 +65,10 @@ Google/Apple). The window closes itself once you're signed in, and your session
 is remembered for next time. Output lands in `./MyVault/your-community-slug/`.
 
 The slug is the bit in the URL: `skool.com/`**`your-community-slug`**.
+
+> **No display (SSH / headless server / CI)?** The first-run browser login needs
+> a screen. On a headless box, skip it with [No-browser mode](#no-browser-mode)
+> below — paste a `Cookie` header and pass `--cookie`.
 
 ### For an AI agent (Claude / Codex)
 
@@ -55,8 +84,8 @@ Everything it needs — endpoints, auth, quirks, the runnable CLI — is in the 
 ## Use it as a library
 
 ```python
-from skoolapi import SkoolClient, login
-from skoolapi import normalize
+from catknows import SkoolClient, login
+from catknows import normalize
 
 client = SkoolClient(login())          # opens browser first time, reuses after
 
@@ -80,7 +109,7 @@ Don't want Playwright? Copy your `Cookie` header from DevTools (logged-in
 skool.com → Network tab → any request → Request Headers → `cookie`) and:
 
 ```bash
-python -m skoolapi pull my-community --vault ./MyVault --cookie "auth_token=...; aws-waf-token=..."
+python -m catknows pull my-community --vault ./MyVault --cookie "auth_token=...; aws-waf-token=..."
 ```
 
 You'll re-copy it whenever the session expires. The browser flow is smoother for
@@ -111,8 +140,21 @@ everything however you like.
 
 Members · posts · comments (full nested threads) · likes/upvoters · single-member
 profiles · community About · calendar · classroom · discovery · admin metrics
-(owner only) · chat channels & messages. Full list and JSON shapes in
-**[docs/API.md](docs/API.md)**.
+(owner only) · chat channels & messages · your communities & roles · pending
+join requests (with the applicants' survey answers). Full list and JSON shapes
+in **[docs/API.md](docs/API.md)**.
+
+**Market research from the discovery pages** ([docs/API.md §6](docs/API.md#6-discovery-the-global-leaderboard--scraping-any-community)):
+the global **revenue leaderboard** (top 100 communities with real monthly
+recurring revenue), the top-1000 board, and — for *any* community without
+joining — its price, plan, size, active plugins, and owner. Plus any member's
+public profile stats.
+
+The reference also documents Skool's **write** endpoints — creating posts (with
+GIFs, images, videos, polls, attachments, category labels, and email broadcast)
+and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-skool-posts-polls-gifs-images-videos-dms).
+The Python client here is read-only for now; the write path is documented so you
+(or an AI) can build on it.
 
 ---
 

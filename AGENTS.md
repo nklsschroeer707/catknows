@@ -15,25 +15,28 @@ headers, and writes the results as Obsidian Markdown.
    source of truth. Every endpoint, header, auth detail, and JSON field is here,
    including the two hard parts (§0): the `httpOnly` auth cookie and the AWS-WAF
    headers. **Do not guess field paths — they're all documented.**
-2. **[skoolapi/http.py](skoolapi/http.py)** — the request layer (WAF headers,
+2. **[catknows/http.py](catknows/http.py)** — the request layer (WAF headers,
    buildId discovery, retries). The working implementation of API.md §0.
-3. **[skoolapi/client.py](skoolapi/client.py)** — one method per endpoint,
+3. **[catknows/client.py](catknows/client.py)** — one method per endpoint,
    pagination handled.
-4. **[skoolapi/normalize.py](skoolapi/normalize.py)** — the quirks (ns/µs
-   timestamps, snake/camelCase). Has a runnable self-check: `python -m skoolapi.normalize`.
+4. **[catknows/normalize.py](catknows/normalize.py)** — the quirks (ns/µs
+   timestamps, snake/camelCase). Has a runnable self-check: `python -m catknows.normalize`.
 
 ## To fulfil "pull my community into a vault"
 
 The whole flow already exists — don't rebuild it:
 
 ```bash
-pip install -e . && playwright install chromium
-python -m skoolapi pull <slug> --vault ./vault
+python3 -m venv .venv && source .venv/bin/activate   # Windows: py -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -e .
+playwright install chromium                          # Linux: playwright install --with-deps chromium
+python -m catknows pull <slug> --vault ./vault
 ```
 
-The first run opens a browser for login. If a browser can't be shown (headless
-environment), ask the user for their Skool `Cookie` header and use
-`--cookie "..."` instead.
+The venv matters: recent macOS/Linux Python is "externally managed" (PEP 668)
+and rejects a bare `pip install`. The first run opens a browser for login. If a
+browser can't be shown (headless environment / no display), ask the user for
+their Skool `Cookie` header and use `--cookie "..."` instead.
 
 ## To add a new endpoint
 

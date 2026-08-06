@@ -5,7 +5,7 @@ maps to one documented endpoint in docs/API.md and returns the raw Skool JSON,
 so nothing is hidden or lossy. Pagination walks (members, posts, comments) are
 handled for you and yield every page merged.
 
-    from skoolapi import SkoolClient, login
+    from catknows import SkoolClient, login
 
     client = SkoolClient(login())
     for member in client.members("my-community"):

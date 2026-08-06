@@ -80,7 +80,7 @@ def login(
     Raises:
         RuntimeError: if login didn't complete (no auth_token cookie found).
     """
-    # Imported lazily so `import skoolapi` works even before `playwright
+    # Imported lazily so `import catknows` works even before `playwright
     # install` has been run — only login() actually needs the browser.
     from playwright.sync_api import sync_playwright
 

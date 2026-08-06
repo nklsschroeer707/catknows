@@ -2,7 +2,7 @@
 
 **Read this before using or forking.**
 
-`skoolapi` is an independent, unofficial tool. It is **not affiliated with,
+`catknows` is an independent, unofficial tool. It is **not affiliated with,
 endorsed by, or connected to Skool** in any way. "Skool" is a trademark of its
 respective owner.
 
@@ -25,6 +25,11 @@ accept no liability.
 ## Responsible use
 
 - Only pull communities you have legitimate access to.
+- The discovery/leaderboard endpoints (docs/API.md §6) expose public data about
+  *other* communities and their owners. Reading Skool's public directory is one
+  thing; systematically harvesting it, rebuilding their directory, or profiling
+  owners/members is another — scrape gently, and don't do anything you couldn't
+  defend under Skool's ToS and applicable law.
 - Only export data you have a lawful basis to process (members' names, emails,
   etc. are **personal data** — GDPR/CCPA and similar laws apply to what you do
   with them).
