@@ -1,0 +1,214 @@
+"""The low-level Skool HTTP client — WAF-faithful requests + buildId discovery.
+
+Everything that makes Skool's private API answer instead of returning 403.
+The public API methods (members, posts, comments, ...) live in `client.py` and
+call through this layer.
+
+Two request "shapes", because Skool has two backends:
+  - Next.js data endpoints  (www.skool.com/_next/data/{buildId}/...)  -> `get_next`
+  - api2.skool.com endpoints (comments, likes, groups, ...)           -> `get_api2`
+
+The header sets differ. The Next.js shape sends `x-nextjs-data: 1`; the api2
+shape sends `Authorization: Bearer` + `Origin` + the `x-aws-waf-token` header.
+Getting these wrong is the difference between 200 and a WAF 403.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import re
+import time
+
+import requests
+
+SKOOL_BASE = "https://www.skool.com"
+SKOOL_API2 = "https://api2.skool.com"
+
+FETCH_TIMEOUT_S = 30
+MAX_RETRIES_202 = 3          # Skool ISR returns 202 while a page is still building
+RETRY_202_DELAY_S = 2
+
+# One browser profile is picked per client session (not per request), matching
+# what a real browser looks like. Each pairs a UA with the sec-ch-ua headers
+# that browser actually sends — a Chrome UA with no sec-ch-ua is a tell.
+_BROWSER_PROFILES = [
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "lang": "en-US,en;q=0.9",
+        "sec_ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"Windows"',
+    },
+    {
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "lang": "en-US,en;q=0.9",
+        "sec_ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"macOS"',
+    },
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "lang": "en-US,en;q=0.5",
+        "sec_ch_ua": "",  # Firefox sends no sec-ch-ua
+        "platform": "",
+    },
+]
+
+
+class SkoolHTTPError(RuntimeError):
+    """A Skool request failed after retries. `.status` is the HTTP code (0 = network)."""
+
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
+
+
+class SkoolHTTP:
+    def __init__(self, session):
+        """`session` is a skoolapi.auth.Session."""
+        self.session = session
+        self._build_id = ""
+        self._profile = random.choice(_BROWSER_PROFILES)
+        self._http = requests.Session()
+
+    # -- buildId ---------------------------------------------------------------
+
+    def build_id(self, community_slug: str) -> str:
+        """The Next.js buildId, discovered from any community page's HTML.
+
+        Skool embeds `"buildId":"XXXX"` in the __NEXT_DATA__ script on every
+        page (even 404s). It changes on every Skool deploy, so we discover it
+        rather than hardcode it, and cache it for the client's lifetime.
+        """
+        if self._build_id:
+            return self._build_id
+
+        url = f"{SKOOL_BASE}/{community_slug}"
+        resp = self._http.get(
+            url,
+            headers={
+                "Cookie": self._cookie_header(),
+                "User-Agent": self._profile["ua"],
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            timeout=FETCH_TIMEOUT_S,
+        )
+        self._build_id = _extract_build_id(resp.text)
+        if not self._build_id:
+            raise SkoolHTTPError(
+                f"Could not find buildId in {url} (HTTP {resp.status_code}). "
+                "Is the community slug correct and are you logged in?",
+                resp.status_code,
+            )
+        return self._build_id
+
+    # -- request shapes --------------------------------------------------------
+
+    def get_next(self, path_and_query: str, community_slug: str = "") -> dict:
+        """GET a www.skool.com/_next/data/... endpoint (Next.js shape).
+
+        `path_and_query` is everything after the buildId, e.g.
+        "/{slug}/-/members.json?t=active&...". Retries on Skool's 202/empty
+        (ISR deferred) responses.
+        """
+        build_id = self.build_id(community_slug) if community_slug else self._build_id
+        url = f"{SKOOL_BASE}/_next/data/{build_id}{path_and_query}"
+        referer = f"{SKOOL_BASE}/{community_slug}" if community_slug else f"{SKOOL_BASE}/"
+
+        headers = {
+            "Cookie": self._cookie_header(),
+            "User-Agent": self._profile["ua"],
+            "Accept": "*/*",
+            "Accept-Language": self._profile["lang"],
+            "Accept-Encoding": "identity",
+            "Referer": referer,
+            "x-nextjs-data": "1",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        }
+        self._add_sec_ch_ua(headers)
+        return self._get_with_retry(url, headers)
+
+    def get_api2(self, path_and_query: str) -> dict:
+        """GET an api2.skool.com endpoint (Bearer + WAF-header shape).
+
+        Used for comments, likes, groups, discovery, admin-metrics, chat.
+        `path_and_query` is everything after the host, e.g.
+        "/posts/{id}/comments?group-id={gid}&limit=25".
+        """
+        url = f"{SKOOL_API2}{path_and_query}"
+        headers = {
+            "Cookie": self._cookie_header(),
+            "Content-Type": "application/json",
+            "User-Agent": self._profile["ua"],
+            "Origin": SKOOL_BASE,
+            "Referer": f"{SKOOL_BASE}/",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": self._profile["lang"],
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-site",  # www.skool.com -> api2.skool.com
+        }
+        if self.session.auth_token:
+            headers["Authorization"] = f"Bearer {self.session.auth_token}"
+        if self.session.waf_token:
+            headers["x-aws-waf-token"] = self.session.waf_token
+        self._add_sec_ch_ua(headers)
+        return self._get_with_retry(url, headers)
+
+    # -- internals -------------------------------------------------------------
+
+    def _cookie_header(self) -> str:
+        return self.session.cookie_header
+
+    def _add_sec_ch_ua(self, headers: dict) -> None:
+        if self._profile["sec_ch_ua"]:
+            headers["sec-ch-ua"] = self._profile["sec_ch_ua"]
+            headers["sec-ch-ua-mobile"] = "?0"
+            headers["sec-ch-ua-platform"] = self._profile["platform"]
+
+    def _get_with_retry(self, url: str, headers: dict) -> dict:
+        last_err = "unknown"
+        for attempt in range(1, MAX_RETRIES_202 + 1):
+            try:
+                resp = self._http.get(url, headers=headers, timeout=FETCH_TIMEOUT_S)
+            except requests.RequestException as e:
+                raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+
+            code = resp.status_code
+            body = resp.text
+
+            if code == 401 or code == 403:
+                raise SkoolHTTPError(
+                    f"HTTP {code} on {url} — auth or WAF rejected. "
+                    "Re-login (delete the profile dir) if this persists.",
+                    code,
+                )
+            if code == 202 or not body.strip():
+                # ISR deferred: page still building. Wait and retry.
+                last_err = f"HTTP {code} deferred/empty"
+                if attempt < MAX_RETRIES_202:
+                    time.sleep(RETRY_202_DELAY_S)
+                    continue
+                break
+            if not (200 <= code < 300):
+                raise SkoolHTTPError(f"HTTP {code} on {url}: {body[:300]}", code)
+
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError as e:
+                raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {body[:200]}", code) from e
+
+        raise SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {url}")
+
+
+def _extract_build_id(html: str) -> str:
+    """Pull the Next.js buildId out of a Skool page's HTML."""
+    m = re.search(r'"buildId":"([^"]+)"', html)
+    if m:
+        return m.group(1)
+    # Fallback: /_next/static/{buildId}/_buildManifest.js
+    m = re.search(r"/_next/static/([^/]+)/", html)
+    return m.group(1) if m else ""

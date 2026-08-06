@@ -1,0 +1,19 @@
+# Browser login profile — holds your Skool session, NEVER commit
+.skool-profile/
+
+# Output vaults
+vault/
+*.vault/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db

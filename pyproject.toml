@@ -1,0 +1,21 @@
+[project]
+name = "skoolapi"
+version = "0.1.0"
+description = "Unofficial documented Python client for Skool's private API — pull your community data into Obsidian, a vault, or any CRM."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "requests>=2.31",
+    "playwright>=1.40",
+]
+
+[project.scripts]
+skoolapi = "skoolapi.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["skoolapi"]
