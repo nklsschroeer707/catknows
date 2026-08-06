@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.jpg" alt="catknows" width="560">
+<img src="docs/assets/logo-mark.png" alt="catknows" width="150">
 
 # `catknows`
 
@@ -215,8 +215,6 @@ you built:
 MIT. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for the ToS caveats.
 
 <div align="center">
-
-<img src="docs/assets/logo-mark.png" alt="catknows" width="120">
 
 *You have been served by catknows. — you are welcome.*
 
