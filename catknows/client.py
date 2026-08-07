@@ -179,9 +179,19 @@ class SkoolClient:
         """Group metadata by UUID (raw api2 response)."""
         return self.http.get_api2(f"/groups/{group_skool_id}")
 
-    def discovery(self, group_skool_id: str) -> dict:
-        """Related/discovered communities (raw api2 response)."""
-        return self.http.get_api2(f"/groups/{group_skool_id}/discovery")
+    def discovery(self, page: int = 1) -> dict:
+        """Skool's global discovery board (docs/API.md §6.2), one page of ~30.
+
+        Uses the Next.js ``discovery.json`` route — the api2
+        ``/groups/{gid}/discovery`` endpoint is WAF-blocked (403). Returns raw
+        ``pageProps`` with ``groups[]`` (each ``{group, rank, tags}``),
+        ``numGroups`` (1000), and ``categories[]``. Query params other than
+        ``p`` are ignored server-side; filter/sort locally.
+        """
+        self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
+        q = "/discovery.json" if page <= 1 else f"/discovery.json?p={page}"
+        data = self.http.get_next(q, "")
+        return data.get("pageProps", data)
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
         """Admin dashboard metrics (owner/admin only, raw api2 response)."""

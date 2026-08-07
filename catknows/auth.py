@@ -113,7 +113,11 @@ def login(
 
             # Re-visit home so the WAF challenge JS runs and writes a fresh
             # aws-waf-token before we snapshot the cookies for real.
-            page.goto(SKOOL_HOME_URL, wait_until="networkidle")
+            # NOT wait_until="networkidle": Skool holds long-lived telemetry /
+            # pubsub connections open, so the network never goes idle and goto
+            # times out. domcontentloaded + a short settle for the WAF JS works.
+            page.goto(SKOOL_HOME_URL, wait_until="domcontentloaded")
+            page.wait_for_timeout(2500)  # let the WAF challenge JS set the token
             session = _cookies_to_session(ctx.cookies())
 
             if not session.is_valid:

@@ -16,6 +16,7 @@ You have been served by catknows. — you are welcome.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from contextlib import redirect_stdout
@@ -68,6 +69,19 @@ def _get_client():
     return _client
 
 
+def _cap(limit: int, raw: bool) -> int:
+    """Bound a list limit so results don't blow past the tool-result size cap.
+
+    Raw records are far bigger than normalized ones, so cap them harder.
+    """
+    ceiling = 30 if raw else 200
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = ceiling
+    return max(1, min(limit, ceiling))
+
+
 def _jsonable(obj: Any) -> Any:
     """normalize.* records carry datetimes — make them JSON-safe."""
     if isinstance(obj, datetime):
@@ -87,24 +101,27 @@ def login_to_skool() -> str:
 
 
 @mcp.tool()
-def list_members(community_slug: str, limit: int = 100, raw: bool = False) -> list[dict]:
-    """List members of a Skool community: name, role, points, last-active, and more.
+def list_members(community_slug: str, limit: int = 25, raw: bool = False) -> list[dict]:
+    """List members of a Skool community: name, role, points, level, last-active, and more.
 
-    community_slug is the part after skool.com/ in the community URL.
-    raw=True returns Skool's unmodified JSON instead of flat records.
+    Sorted by Skool DESC on last-active, so the default (limit=25) is the most
+    recently active members. community_slug is the part after skool.com/ in the
+    URL. raw=True returns Skool's unmodified JSON (large — keep limit small, it's
+    hard-capped to avoid exceeding the tool-result size limit).
     """
     # ponytail: fetches all pages then slices; per-page limits if huge communities hurt.
-    users = _get_client().members(community_slug)[:limit]
+    users = _get_client().members(community_slug)[: _cap(limit, raw)]
     return users if raw else [_jsonable(normalize.member(u)) for u in users]
 
 
 @mcp.tool()
-def list_posts(community_slug: str, limit: int = 50, raw: bool = False) -> list[dict]:
+def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[dict]:
     """List posts of a Skool community (title, author, likes, comment count, content).
 
-    raw=True returns Skool's unmodified post trees.
+    raw=True returns Skool's unmodified post trees. Keep limit small — raw trees
+    are large and can exceed the tool-result size cap.
     """
-    trees = _get_client().posts(community_slug)[:limit]
+    trees = _get_client().posts(community_slug)[: _cap(limit, raw)]
     return trees if raw else [_jsonable(normalize.post(t)) for t in trees]
 
 
@@ -133,16 +150,71 @@ def get_member_profile(user_name: str, community_slug: str, raw: bool = False) -
 
 
 @mcp.tool()
-def get_community_about(community_slug: str) -> dict:
-    """Get a community's public About info (description, pricing, size, owner) — works without joining it."""
-    return _get_client().community_about(community_slug)
+def get_community_about(community_slug: str, raw: bool = False) -> dict:
+    """Get a community's public About info (description, pricing, size, owner) — works without joining it.
+
+    Returns a compact summary by default. raw=True returns Skool's full page
+    payload, which is very large and may exceed the tool-result size limit.
+    """
+    data = _get_client().community_about(community_slug)
+    if raw:
+        return data
+    g = (((data.get("pageProps") or {}).get("currentGroup")) or {})
+    md = g.get("metadata") or {}
+    price = md.get("displayPrice")
+    if isinstance(price, str):
+        try:
+            price = json.loads(price)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return {
+        "slug": g.get("name", community_slug),
+        "display_name": md.get("displayName", ""),
+        "description": md.get("description", ""),
+        "membership_model": md.get("membershipModel"),  # 1=free, 2=paid
+        "plan": md.get("plan"),
+        "price": price,
+        "total_members": md.get("totalMembers"),
+        "total_online": md.get("totalOnlineMembers"),
+        "total_admins": md.get("totalAdmins"),
+        "total_posts": md.get("totalPosts"),
+        "num_courses": md.get("numCourses"),
+        "privacy": md.get("privacy"),  # 1=private, 2=public
+        "owner": (md.get("owner") or {}).get("name"),
+        "created_by": md.get("createdBy"),
+    }
 
 
 @mcp.tool()
-def get_discovery(community_slug: str) -> dict:
-    """Get Skool discovery/leaderboard data for a community (rankings, categories)."""
-    client = _get_client()
-    return client.discovery(client.group_id_for(community_slug))
+def get_discovery(page: int = 1) -> dict:
+    """Get one page (~30) of Skool's global discovery board — ranked communities across all categories.
+
+    Returns rank, slug, name, price, members and category-tags per community,
+    plus the list of categories. Skool ranks the top 1000 (page 1–34). Query
+    filters other than page are ignored by Skool, so pull pages and filter
+    locally. (The old per-community api2 discovery endpoint is WAF-blocked.)
+    """
+    pp = _get_client().discovery(page)
+    cats = [{"slug": c.get("slug"), "name": c.get("name")} for c in (pp.get("categories") or [])]
+    groups = []
+    for row in pp.get("groups") or []:
+        g = row.get("group") or {}
+        md = g.get("metadata") or {}
+        price = md.get("displayPrice")
+        if isinstance(price, str):
+            try:
+                price = json.loads(price)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        groups.append({
+            "rank": row.get("rank"),
+            "slug": g.get("name"),
+            "display_name": md.get("displayName", ""),
+            "members": md.get("totalMembers"),
+            "price": price,
+            "tags": row.get("tags"),
+        })
+    return {"page": page, "total_ranked": pp.get("numGroups"), "categories": cats, "communities": groups}
 
 
 @mcp.tool()

@@ -226,6 +226,16 @@ class SkoolHTTP:
                     time.sleep(RETRY_202_DELAY_S)
                     continue
                 break
+            if code == 404 and '"notFound":true' in body:
+                # Skool returns notFound for gated data you can't see — almost
+                # always: the logged-in account isn't a member of this community.
+                raise SkoolHTTPError(
+                    f"HTTP 404 on {url}: not found. The logged-in Skool account "
+                    "is likely not a member of this community (member/post data "
+                    "is members-only). Join it, or use an account that's in it. "
+                    "Public info (about, discovery) works without membership.",
+                    code,
+                )
             if not (200 <= code < 300):
                 raise SkoolHTTPError(f"HTTP {code} on {url}: {body[:300]}", code)
 

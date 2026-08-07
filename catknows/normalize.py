@@ -11,6 +11,7 @@ extractors, so a normalized record here matches what the graph app stored.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 
@@ -41,11 +42,24 @@ def _micros_to_dt(raw) -> datetime | None:
     return None
 
 
+def _sp_data(meta: dict) -> dict:
+    """Parse the ``spData`` JSON-string blob (points/level/role live here)."""
+    raw = meta.get("spData")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return {}
+
+
 def member(user: dict) -> dict:
     """Flatten one raw ``pageProps.users[]`` object into a member record."""
     m = user.get("member") or {}
     meta = user.get("metadata") or {}
-    mmeta = (m.get("metadata") if isinstance(m, dict) else None) or {}
+    sp = _sp_data(meta)
 
     last_offline = meta.get("lastOffline")  # nanoseconds
     return {
@@ -56,7 +70,10 @@ def member(user: dict) -> dict:
         "last_name": user.get("lastName", ""),
         "role": m.get("role", ""),
         "group_id": m.get("groupId", ""),
-        "points": int(mmeta.get("points", 0) or 0),
+        # Points live in metadata.spData.pts (a JSON string), NOT in
+        # member.metadata.points (which is absent → always read as 0).
+        "points": int(sp.get("pts", 0) or 0),
+        "level": int(sp.get("lv", 0) or 0),
         "is_online": bool(meta.get("online")),
         "last_active": _ns_or_iso_to_dt(last_offline),
         "picture_url": meta.get("pictureProfile") or meta.get("picture", ""),
@@ -179,10 +196,11 @@ if __name__ == "__main__":
     assert _ns_or_iso_to_dt(ns).year == 2023, "nanosecond parse failed"
     assert _ns_or_iso_to_dt("2024-01-15T10:00:00Z").year == 2024, "ISO parse failed"
 
-    m = member({"id": "u1", "name": "Ann", "member": {"role": "admin",
-                "metadata": {"points": 42}}, "metadata": {"online": True,
-                "lastOffline": ns}})
-    assert m["points"] == 42 and m["is_online"] and m["role"] == "admin"
+    m = member({"id": "u1", "name": "Ann", "member": {"role": "admin"},
+                "metadata": {"online": True, "lastOffline": ns,
+                             "spData": '{"pts":42,"lv":3}'}})
+    assert m["points"] == 42 and m["level"] == 3, "spData points/level parse failed"
+    assert m["is_online"] and m["role"] == "admin"
 
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"
