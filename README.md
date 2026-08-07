@@ -4,17 +4,18 @@
 
 # `catknows.`
 
-### ▸ get your own Skool data out — free & open source ◂
+### ▸ the free, open-source bridge between Skool and any AI ◂
 
 ```text
-$ catknows pull your-community --vault ./MyVault
-  ↳ members · posts · comments · likes · DMs · leaderboards → your Obsidian vault ✓
-  no subscription · no middleman · you own it
-  the foundation — you build the rest.
+Skool has no API. catknows is the one.
+  members · posts · comments · likes · DMs · leaderboards
+  → straight into Claude, ChatGPT, Notion, a vault, or raw JSON
+  now you can finally talk to your own data.
+  no subscription · no middleman · you own it.
   You have been served by catknows. — you are welcome.
 ```
 
-`#skool` &nbsp;·&nbsp; `#open-source` &nbsp;·&nbsp; `#free-forever` &nbsp;·&nbsp; `#own-your-data` &nbsp;·&nbsp; `#build-it-yourself`
+`#skool` &nbsp;·&nbsp; `#mcp` &nbsp;·&nbsp; `#open-source` &nbsp;·&nbsp; `#free-forever` &nbsp;·&nbsp; `#own-your-data`
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=flat-square)](LICENSE)
 [![Price](https://img.shields.io/badge/price-%240%20forever-22c55e.svg?style=flat-square)](#why-its-free)
@@ -24,7 +25,13 @@ $ catknows pull your-community --vault ./MyVault
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](#contributing)
 [![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/catnose/about)
 
-**Stop paying to read your own Skool data. Pull it yourself — members, posts, comments, DMs, the discovery leaderboard — into a clean Obsidian vault. The foundation; what you build on top is up to you (and the community). Free, open source, yours.**
+**Stop paying to read your own Skool data. catknows is the bridge between Skool and every AI tool — pull your members, posts, comments, DMs and the discovery leaderboard straight into Claude, ChatGPT, Notion, a clean Obsidian vault, or raw JSON. Now you can finally talk to your own data. Free, open source, yours.**
+
+<br>
+
+### ▸ [**Join the community → skool.com/catnose**](https://www.skool.com/catnose/about) ◂
+
+*You're not a customer here — you're a co-builder. Ask, request features, show what you built.* 🐈
 
 </div>
 
@@ -34,21 +41,23 @@ SkoolKit, Wingman** (or whatever's next) a monthly fee, just to have someone els
 pull and hand **your own data** back to you.
 
 catknows says: don't. Skool has no public API, but its site talks to a private
-one — the same endpoints skool.com uses. catknows is a documented, open-source
-client for exactly those endpoints. Log in with your normal Skool account in a
-real browser, and pull your community's data into a clean Obsidian vault (or raw
-JSON for anything else). **No subscription. No middleman. You own it.**
+one — the same endpoints skool.com uses. **catknows is the bridge to exactly
+those endpoints.** Log in with your normal Skool account, and it hands your data
+to whatever you already use: through [MCP](#plug-it-into-your-ai-mcp) it plugs
+straight into **Claude, ChatGPT, Notion, Cursor** and any other AI tool, so you
+can *talk* to your community data — or dump it into a clean Obsidian vault or raw
+JSON for anything else. **No subscription. No middleman. You own it.**
 
-Today catknows does one thing well: **it gets your data out.** That's the
-foundation — the reports, automations, and dashboards you'd normally rent are
-now things *you* can build on top of it. And because it's open source, where
-catknows goes next is decided by the people who use it, not a pricing page.
+catknows is the **foundation, not a finished product** — the reports,
+automations, and dashboards you'd normally rent are now things *you* build on
+top of it. And because it's open source, where catknows goes next is decided by
+the people who use it, not a pricing page.
 
+- 🧠 **Talk to your own data in the AI you already use.** MCP server for Claude, ChatGPT, Notion, Cursor & co. — [plug it in](#plug-it-into-your-ai-mcp).
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
-- 🧱 **The foundation, not a walled garden.** It hands you your data in the open — you (and the community) decide what gets built on it.
-- 🧑‍💻 **For everyone.** Can drive an AI with two left hands? You can use catknows. Can code a little? Even better — take the data and build whatever you want.
+- 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
+- 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
-- 🗂️ **Obsidian-native output** — clean Markdown + YAML frontmatter out of the box, or take the raw JSON into Notion, a CSV, a spreadsheet, your own tooling.
 
 > ⚠️ **Unofficial & unstable.** This talks to Skool's undocumented endpoints by
 > driving your own logged-in browser session. It is not affiliated with Skool
