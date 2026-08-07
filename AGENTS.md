@@ -58,6 +58,17 @@ over `SkoolClient`; don't duplicate client logic in it.
   or a project `.mcp.json` (gitignored — holds machine paths).
 - `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
   Anything a tool prints to stdout would corrupt the stream.
+- **Size cap:** tool results have a max token size. `list_members`/`list_posts`
+  hard-cap their `limit` (`_cap()`, raw capped harder); `get_community_about` and
+  `get_discovery` return compact summaries, not the raw payload. Don't return big
+  raw blobs by default — mobile clients have no filesystem fallback.
+- **Points quirk:** member points/level come from `metadata.spData` (a JSON
+  string), NOT `member.metadata.points` (always 0). Handled in `normalize.member`.
+- **Discovery:** `get_discovery` uses the Next.js `discovery.json` board (global
+  top-1000, paged). The api2 `/groups/{gid}/discovery` endpoint is WAF-blocked (403).
+- **Gated 404:** member/post data is members-only. If the logged-in account isn't
+  in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
+  member" error. `about`/`discovery` are public and work without membership.
 - Remote/mobile hosting (streamable-http transport + auth) is planned, not built:
   see [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md). The two-doors model
   (open repo self-host, no auth / hosted with login-auth) lives there.

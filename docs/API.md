@@ -102,16 +102,22 @@ for pagination. Each user:
   "createdAt": "2024-...", "updatedAt": "...",
   "member": {                          // membership in THIS community
     "id": "member-uuid", "role": "admin", "groupId": "group-uuid",
-    "metadata": { "points": 42 }
+    "metadata": { }                    // ⚠ NO usable "points" here — see spData below
   },
   "metadata": {
     "online": true,
     "lastOffline": 1700000000000000000, // ⚠ NANOSECONDS since epoch
     "pictureProfile": "https://...",
-    "bio": "..."
+    "bio": "...",
+    "spData": "{\"pts\":42,\"lv\":3,\"pcl\":0,\"pnl\":5,\"role\":4}"  // ⚠ points/level here!
   }
 }
 ```
+
+> **⚠ Points & level live in `metadata.spData`, a JSON *string*.** There is no
+> usable `points` field on `member.metadata` (reading it always yields 0 — a
+> common trap). Parse `spData` (`pts` = points, `lv` = level) to rank members by
+> activity.
 
 ### 1.2 Posts — Next.js shape
 
