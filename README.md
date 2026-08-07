@@ -137,6 +137,48 @@ flattens it into tidy records. See [`examples/quickstart.py`](examples/quickstar
 
 ---
 
+## Plug it into your AI (MCP)
+
+catknows ships an [MCP](https://modelcontextprotocol.io) server — the standard
+that lets Claude Desktop, Claude Code, Cursor & co. use external tools. One
+registration, and your AI can query members, posts, comments, DMs, leaderboards,
+or pull the whole vault — you just ask in plain language.
+
+```bash
+pip install -e ".[mcp]"
+claude mcp add catknows -- python -m catknows.mcp_server   # Claude Code
+```
+
+For other MCP clients, register `python -m catknows.mcp_server` as a stdio
+server (in Claude Desktop: Settings → Developer → Edit Config). On the first
+tool call a browser window opens once for the Skool login; after that the
+session is reused silently. Headless machine? Set the `CATKNOWS_COOKIE` env var
+to your Cookie header instead.
+
+Then just talk to your AI:
+
+> "Pull my community `my-slug` into a vault" · "Who are my 10 most active
+> members?" · "Send this week's new posts to my Notion" (via your Notion
+> connector — your AI is the router, catknows is the data tap.)
+
+**Writing (posting & DMs) is off by default.** The server only registers
+`create_post` and `send_dm` when you opt in with an env var in the MCP config:
+
+```json
+"catknows": {
+  "command": "python", "args": ["-m", "catknows.mcp_server"],
+  "env": { "CATKNOWS_ALLOW_WRITE": "1" }
+}
+```
+
+Without the flag your AI can't even see the write tools. With it, three guards
+remain: your MCP client asks permission before every tool call, the tools are
+draft-first (the AI must show you the draft, then call again with
+`confirm=true`), and emailing all members (`notify_members`) is a separate
+explicit switch. Test in a private community first — these post as *you*.
+
+---
+
 ## No-browser mode
 
 Don't want Playwright? Copy your `Cookie` header from DevTools (logged-in
@@ -187,8 +229,11 @@ public profile stats.
 The reference also documents Skool's **write** endpoints — creating posts (with
 GIFs, images, videos, polls, attachments, category labels, and email broadcast)
 and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-skool-posts-polls-gifs-images-videos-dms).
-The Python client here is read-only for now; the write path is documented so you
-(or an AI) can build on it.
+The client implements the two everyday ones: `create_post` and `send_dm`
+(plain posts with optional category label and video link; the rich-media
+upload flows stay documented for you to build on). **Write carefully** — these
+act as *you*, visible to real members; see the MCP section for the safety
+switch.
 
 ---
 

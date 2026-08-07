@@ -10,8 +10,12 @@ dependencies = [
     "playwright>=1.40",
 ]
 
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+
 [project.scripts]
 catknows = "catknows.__main__:main"
+catknows-mcp = "catknows.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

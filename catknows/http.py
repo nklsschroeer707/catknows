@@ -139,6 +139,39 @@ class SkoolHTTP:
         "/posts/{id}/comments?group-id={gid}&limit=25".
         """
         url = f"{SKOOL_API2}{path_and_query}"
+        return self._get_with_retry(url, self._api2_headers())
+
+    def post_api2(self, path_and_query: str, body: dict) -> dict:
+        """POST to an api2.skool.com endpoint — the write shape (docs/API.md §5).
+
+        Same header set as `get_api2`, JSON body. Deliberately NO automatic
+        retry: a retried write could double-post. Callers handle failures.
+        """
+        url = f"{SKOOL_API2}{path_and_query}"
+        try:
+            resp = self._http.post(
+                url, headers=self._api2_headers(), json=body, timeout=FETCH_TIMEOUT_S
+            )
+        except requests.RequestException as e:
+            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+
+        code = resp.status_code
+        if code == 401 or code == 403:
+            raise SkoolHTTPError(
+                f"HTTP {code} on {url} — auth or WAF rejected. "
+                "Re-login (delete the profile dir) if this persists.",
+                code,
+            )
+        if not (200 <= code < 300):
+            raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
+        if not resp.text.strip():
+            return {}
+        try:
+            return json.loads(resp.text)
+        except json.JSONDecodeError as e:
+            raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {resp.text[:200]}", code) from e
+
+    def _api2_headers(self) -> dict:
         headers = {
             "Cookie": self._cookie_header(),
             "Content-Type": "application/json",
@@ -156,7 +189,7 @@ class SkoolHTTP:
         if self.session.waf_token:
             headers["x-aws-waf-token"] = self.session.waf_token
         self._add_sec_ch_ua(headers)
-        return self._get_with_retry(url, headers)
+        return headers
 
     # -- internals -------------------------------------------------------------
 

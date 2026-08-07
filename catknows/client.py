@@ -203,6 +203,59 @@ class SkoolClient:
             f"/{community_slug}/classroom.json?group={community_slug}", community_slug
         )
 
+    # -- chat ------------------------------------------------------------------
+
+    def chat_channels(self, *, offset: int = 0, limit: int = 30) -> dict:
+        """Your DM channels (docs/API.md §1.6) — the channel ids `send_dm` needs."""
+        return self.http.get_api2(
+            f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only=false"
+        )
+
+    # -- writing (docs/API.md §5) ----------------------------------------------
+    # These act as YOU, visible to real members. Test in a private community
+    # first; notify_members emails everyone in the group.
+
+    def create_post(
+        self,
+        community_slug: str,
+        title: str,
+        content: str,
+        *,
+        labels: str = "",
+        video_links: str = "",
+        notify_members: bool = False,
+    ) -> dict:
+        """Create a normal feed post (§5.1). Returns the created post object.
+
+        `labels` is a category id, `video_links` a YouTube/Loom/Vimeo URL —
+        both optional. `notify_members=True` is Skool's email broadcast: it
+        emails every member and is subject to the group's cooldown.
+        """
+        metadata: dict = {"title": title, "content": content, "action": 0}
+        if labels:
+            metadata["labels"] = labels
+        if video_links:
+            metadata["video_links"] = video_links
+        query = "?notify=members&follow=true" if notify_members else "?follow=true"
+        return self.http.post_api2(
+            f"/posts{query}",
+            {
+                "post_type": "generic",
+                "group_id": self.group_id_for(community_slug),
+                "metadata": metadata,
+            },
+        )
+
+    def send_dm(self, channel_id: str, content: str) -> dict:
+        """Send a direct message into an existing chat channel (§5.7).
+
+        `channel_id` comes from `chat_channels()`. Returns the created message.
+        """
+        return self.http.post_api2(
+            f"/channels/{channel_id}/messages?ct=wdm",
+            {"content": content, "attachments": []},
+        )
+
     # -- convenience -----------------------------------------------------------
 
     def group_id_for(self, community_slug: str) -> str:

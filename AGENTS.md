@@ -38,6 +38,30 @@ and rejects a bare `pip install`. The first run opens a browser for login. If a
 browser can't be shown (headless environment / no display), ask the user for
 their Skool `Cookie` header and use `--cookie "..."` instead.
 
+## MCP server (plug catknows into any AI)
+
+`catknows/mcp_server.py` exposes the client as an [MCP](https://modelcontextprotocol.io)
+server over stdio — this is catknows' primary direction: **the bridge between
+Skool and any MCP-capable tool** (Claude, Codex, Cursor, …). It's a thin wrapper
+over `SkoolClient`; don't duplicate client logic in it.
+
+- Read tools (always on): members, posts, comments, likes, member profile,
+  community about, discovery, admin metrics, calendar, classroom, chat channels,
+  and `pull_to_vault`.
+- Write tools (`create_post`, `send_dm`): **only registered when
+  `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first — `confirm=false` returns the
+  draft without posting; `confirm=true` actually writes. `notify_members` (email
+  broadcast) is a separate explicit flag. Never weaken this: writes act as the
+  user, visible to real members.
+- Install/run: `pip install -e ".[mcp]"` then `python -m catknows.mcp_server`
+  (stdio). Register with `claude mcp add catknows -- python -m catknows.mcp_server`,
+  or a project `.mcp.json` (gitignored — holds machine paths).
+- `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
+  Anything a tool prints to stdout would corrupt the stream.
+- Remote/mobile hosting (streamable-http transport + auth) is planned, not built:
+  see [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md). The two-doors model
+  (open repo self-host, no auth / hosted with login-auth) lives there.
+
 ## To add a new endpoint
 
 1. Document it in `docs/API.md` first (URL, shape, JSON fields, quirks).

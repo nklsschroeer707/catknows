@@ -5,6 +5,9 @@
 vault/
 *.vault/
 
+# Local MCP registration (holds machine-specific absolute paths)
+.mcp.json
+
 # Python
 __pycache__/
 *.py[cod]
