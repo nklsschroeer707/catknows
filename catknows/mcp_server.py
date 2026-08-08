@@ -121,7 +121,7 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[
     raw=True returns Skool's unmodified post trees. Keep limit small — raw trees
     are large and can exceed the tool-result size cap.
     """
-    trees = _get_client().posts(community_slug)[: _cap(limit, raw)]
+    trees = _get_client().posts(community_slug, limit=_cap(limit, raw))
     return trees if raw else [_jsonable(normalize.post(t)) for t in trees]
 
 

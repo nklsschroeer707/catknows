@@ -67,25 +67,44 @@ class SkoolClient:
 
     # -- posts -----------------------------------------------------------------
 
-    def posts(self, community_slug: str, *, all_pages: bool = True) -> list[dict]:
+    def posts(self, community_slug: str, *, all_pages: bool = True,
+              limit: int | None = None) -> list[dict]:
         """All top-level posts of a community (raw ``pageProps.postTrees[]``).
 
         Each tree has a ``post`` object (id, name, postType, groupId, userId,
         rootId, metadata.comments, metadata.upvotes) plus the author ``user``.
         Default sort = last activity (posts with new comments bubble up).
+
+        Unlike the members endpoint, the feed sends NO ``totalPages`` — we walk
+        ``p`` until a page comes back empty. Results are deduped by post id:
+        pinned posts appear twice on page 1 (once up top, once in the feed),
+        and the activity sort can shift a post between pages mid-walk.
+
+        ``limit`` stops paginating once that many unique posts are collected —
+        callers that only need the first N shouldn't pay for the full walk.
         """
         out: list[dict] = []
+        seen: set[str] = set()
         page = 1
         while True:
             q = (f"/{community_slug}.json?group={community_slug}"
                  + (f"&p={page}" if page > 1 else ""))
             data = self.http.get_next(q, community_slug)
             trees = _dig(data, "pageProps", "postTrees") or []
-            out.extend(trees)
-            if not all_pages or not trees:
-                break
-            total_pages = _dig(data, "pageProps", "totalPages")
-            if not total_pages or page >= int(total_pages):
+            fresh = []
+            for tree in trees:
+                post_id = (tree.get("post") or {}).get("id")
+                if post_id in seen:
+                    continue
+                if post_id:
+                    seen.add(post_id)
+                fresh.append(tree)
+            out.extend(fresh)
+            if limit is not None and len(out) >= limit:
+                return out[:limit]
+            # Empty page = past the end; all-duplicates = feed is repeating
+            # itself (also an end signal, and guards against looping forever).
+            if not all_pages or not trees or not fresh:
                 break
             page += 1
             time.sleep(_INTER_PAGE_DELAY_S)

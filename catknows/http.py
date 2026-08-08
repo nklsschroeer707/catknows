@@ -11,6 +11,11 @@ Two request "shapes", because Skool has two backends:
 The header sets differ. The Next.js shape sends `x-nextjs-data: 1`; the api2
 shape sends `Authorization: Bearer` + `Origin` + the `x-aws-waf-token` header.
 Getting these wrong is the difference between 200 and a WAF 403.
+
+Headers alone are not enough for api2: AWS WAF fingerprints the TLS handshake
+(JA3/JA4), so plain `requests` gets a CloudFront 403 even with a valid token
+and browser-identical headers. `curl_cffi` with `impersonate="chrome"` sends
+a real Chrome TLS handshake, which is what actually gets api2 to answer.
 """
 
 from __future__ import annotations
@@ -20,7 +25,8 @@ import random
 import re
 import time
 
-import requests
+from curl_cffi import requests
+from curl_cffi.requests.exceptions import RequestException
 
 SKOOL_BASE = "https://www.skool.com"
 SKOOL_API2 = "https://api2.skool.com"
@@ -32,6 +38,9 @@ RETRY_202_DELAY_S = 2
 # One browser profile is picked per client session (not per request), matching
 # what a real browser looks like. Each pairs a UA with the sec-ch-ua headers
 # that browser actually sends — a Chrome UA with no sec-ch-ua is a tell.
+# Chrome-only: the TLS handshake is impersonated as Chrome (see module
+# docstring), so a Firefox UA on a Chrome handshake would be a fingerprint
+# mismatch.
 _BROWSER_PROFILES = [
     {
         "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -46,12 +55,6 @@ _BROWSER_PROFILES = [
         "lang": "en-US,en;q=0.9",
         "sec_ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         "platform": '"macOS"',
-    },
-    {
-        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-        "lang": "en-US,en;q=0.5",
-        "sec_ch_ua": "",  # Firefox sends no sec-ch-ua
-        "platform": "",
     },
 ]
 
@@ -70,7 +73,9 @@ class SkoolHTTP:
         self.session = session
         self._build_id = ""
         self._profile = random.choice(_BROWSER_PROFILES)
-        self._http = requests.Session()
+        # impersonate="chrome": real Chrome TLS handshake — required, AWS WAF
+        # rejects the default python TLS fingerprint on api2 regardless of headers.
+        self._http = requests.Session(impersonate="chrome")
 
     # -- buildId ---------------------------------------------------------------
 
@@ -152,7 +157,7 @@ class SkoolHTTP:
             resp = self._http.post(
                 url, headers=self._api2_headers(), json=body, timeout=FETCH_TIMEOUT_S
             )
-        except requests.RequestException as e:
+        except RequestException as e:
             raise SkoolHTTPError(f"Network error on {url}: {e}") from e
 
         code = resp.status_code
@@ -207,7 +212,7 @@ class SkoolHTTP:
         for attempt in range(1, MAX_RETRIES_202 + 1):
             try:
                 resp = self._http.get(url, headers=headers, timeout=FETCH_TIMEOUT_S)
-            except requests.RequestException as e:
+            except RequestException as e:
                 raise SkoolHTTPError(f"Network error on {url}: {e}") from e
 
             code = resp.status_code

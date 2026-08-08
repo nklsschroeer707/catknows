@@ -37,19 +37,27 @@ Two cookies matter:
 ### 0.2 Skool sits behind AWS-WAF
 
 Requests that don't look like a real browser get **HTTP 403** from AWS-WAF,
-especially the paginated api2 endpoints. To get through you must:
+especially the api2 endpoints. To get through you must:
 
-1. Send a **realistic `User-Agent`** plus matching `sec-ch-ua*` headers (a Chrome
-   UA with no `sec-ch-ua` is a tell). Pick one browser profile per session and
-   keep it consistent.
-2. Send the **`x-aws-waf-token`** header (the bare `aws-waf-token` value) on
+1. **Send a real Chrome TLS handshake.** AWS-WAF fingerprints TLS (JA3/JA4):
+   api2 returns a CloudFront 403 ("Request blocked") for python `requests` /
+   `httpx` / `curl` **even with a valid token and browser-identical headers**.
+   Use `curl_cffi` with `impersonate="chrome"` (what catknows does), or tunnel
+   the call through an actual browser. This check is on the *handshake*, so no
+   header work can compensate for it.
+2. Send a **realistic `User-Agent`** plus matching `sec-ch-ua*` headers (a Chrome
+   UA with no `sec-ch-ua` is a tell — and so is a Firefox UA on a Chrome TLS
+   handshake). Pick one browser profile per session and keep it consistent.
+3. Send the **`x-aws-waf-token`** header (the bare `aws-waf-token` value) on
    api2 requests, not just the cookie.
-3. Set `Origin: https://www.skool.com`, `Referer`, and the `sec-fetch-*` headers
+4. Set `Origin: https://www.skool.com`, `Referer`, and the `sec-fetch-*` headers
    that a real cross-origin `fetch()` would carry.
 
 The `aws-waf-token` is produced by JavaScript solving a WAF challenge — which is
 exactly why a **real browser** (Playwright) is the robust way to obtain it. It
 expires roughly every 24h; re-visit skool.com in the browser to refresh it.
+(With a correct Chrome TLS handshake, api2 has been observed answering even
+without the token — but keep sending it; how strictly it's enforced varies.)
 
 ### 0.3 The Next.js `buildId`
 
@@ -126,8 +134,17 @@ GET /_next/data/{buildId}/{slug}.json?group={slug}          # page 1
 GET /_next/data/{buildId}/{slug}.json?group={slug}&p={page} # page N
 ```
 
-Sorted by last activity. Response: `pageProps.postTrees[]`. Each tree has a
-`post`:
+Sorted by last activity. Response: `pageProps.postTrees[]`.
+
+> **⚠ Pagination quirks (unlike members):** the feed sends **no
+> `totalPages`** — walk `p` upward until a page returns an empty
+> `postTrees[]` (page 1 holds ~30 + pinned, later pages ~30). And **pinned
+> posts appear twice on page 1**: once at the top, once again in their feed
+> position — dedupe by `post.id`. Stopping on a missing `totalPages` (or
+> skipping the dedupe) is how you end up with "32 posts, some duplicated"
+> no matter how big the community is.
+
+Each tree has a `post`:
 
 ```jsonc
 {
@@ -304,7 +321,7 @@ back to camelCase.
 | 202 | ISR deferred — page still building | wait ~2s, retry (up to 3×) |
 | empty body, 2xx | same as 202 | retry |
 | 401 | `auth_token` invalid/expired | re-login |
-| 403 | AWS-WAF blocked you | refresh `aws-waf-token` (re-visit skool.com in browser); check headers |
+| 403 | AWS-WAF blocked you | most likely your **TLS fingerprint** (§0.2 — use `curl_cffi`/a browser, headers can't fix it); else refresh `aws-waf-token` and check headers |
 | 429 / repeated 202 | rate-limited | back off (this repo pauses ~1h after 5 consecutive 202s) |
 
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
@@ -314,7 +331,10 @@ loops. Skool will rate-limit aggressive clients.
 
 ## 4. Minimal request example (any language)
 
-Pseudocode for one api2 call, showing the full header set that gets past WAF:
+Pseudocode for one api2 call, showing the full header set that gets past WAF.
+Remember §0.2: these headers only work when sent over a **Chrome TLS
+handshake** (`curl_cffi`, a browser, …) — from a default python/curl TLS
+stack, api2 answers 403 no matter what you send:
 
 ```
 GET https://api2.skool.com/posts/{postId}/vote-users?group-id={gid}
