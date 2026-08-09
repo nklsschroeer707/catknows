@@ -1,5 +1,5 @@
 # Runtime dependencies. These mirror [project.dependencies] in pyproject.toml.
 # Prefer `pip install -e .` (reads pyproject.toml) over installing this file;
 # it's kept for tooling that expects a requirements.txt.
-requests>=2.31
+curl_cffi>=0.7
 playwright>=1.40

@@ -13,10 +13,13 @@ headers, and writes the results as Obsidian Markdown.
 
 1. **[docs/API.md](docs/API.md)** — the complete endpoint reference. This is the
    source of truth. Every endpoint, header, auth detail, and JSON field is here,
-   including the two hard parts (§0): the `httpOnly` auth cookie and the AWS-WAF
-   headers. **Do not guess field paths — they're all documented.**
-2. **[catknows/http.py](catknows/http.py)** — the request layer (WAF headers,
-   buildId discovery, retries). The working implementation of API.md §0.
+   including the three hard parts (§0): the `httpOnly` auth cookie, the AWS-WAF
+   headers, and — the subtle one — the **TLS handshake**. AWS-WAF fingerprints
+   TLS (JA3/JA4), so plain `requests` gets a 403 on api2 *even with a valid token
+   and perfect headers*; the client uses `curl_cffi` with `impersonate="chrome"`.
+   **Headers can't fix a TLS 403.** Do not guess field paths — they're all documented.
+2. **[catknows/http.py](catknows/http.py)** — the request layer (Chrome TLS via
+   `curl_cffi`, WAF headers, buildId discovery, retries). The working implementation of API.md §0.
 3. **[catknows/client.py](catknows/client.py)** — one method per endpoint,
    pagination handled.
 4. **[catknows/normalize.py](catknows/normalize.py)** — the quirks (ns/µs
