@@ -20,7 +20,9 @@ a real Chrome TLS handshake, which is what actually gets api2 to answer.
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 import random
 import re
 import time
@@ -34,6 +36,13 @@ SKOOL_API2 = "https://api2.skool.com"
 FETCH_TIMEOUT_S = 30
 MAX_RETRIES_202 = 3          # Skool ISR returns 202 while a page is still building
 RETRY_202_DELAY_S = 2
+
+# Successful GETs are cached in-process so repeated research doesn't re-hit
+# Skool. CATKNOWS_CACHE_TTL (seconds) overrides; 0 disables. Chat channels are
+# never cached (unread state must be live), and any write clears the cache.
+CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
+_CACHE_MAX_ENTRIES = 128
+_NEVER_CACHE = ("/self/chat-channels",)
 
 # One browser profile is picked per client session (not per request), matching
 # what a real browser looks like. Each pairs a UA with the sec-ch-ua headers
@@ -72,6 +81,7 @@ class SkoolHTTP:
         """`session` is a catknows.auth.Session."""
         self.session = session
         self._build_id = ""
+        self._cache: dict[str, tuple[float, dict]] = {}  # url -> (fetched_at, data)
         self._profile = random.choice(_BROWSER_PROFILES)
         # impersonate="chrome": real Chrome TLS handshake — required, AWS WAF
         # rejects the default python TLS fingerprint on api2 regardless of headers.
@@ -169,6 +179,7 @@ class SkoolHTTP:
             )
         if not (200 <= code < 300):
             raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
+        self._cache.clear()  # a write invalidates anything we read before it
         if not resp.text.strip():
             return {}
         try:
@@ -207,7 +218,17 @@ class SkoolHTTP:
             headers["sec-ch-ua-mobile"] = "?0"
             headers["sec-ch-ua-platform"] = self._profile["platform"]
 
+    def _cacheable(self, url: str) -> bool:
+        return CACHE_TTL_S > 0 and not any(p in url for p in _NEVER_CACHE)
+
     def _get_with_retry(self, url: str, headers: dict) -> dict:
+        if self._cacheable(url):
+            hit = self._cache.get(url)
+            if hit and time.time() - hit[0] < CACHE_TTL_S:
+                # deepcopy: callers may mutate (pagination merges) — the cached
+                # original must stay pristine.
+                return copy.deepcopy(hit[1])
+
         last_err = "unknown"
         for attempt in range(1, MAX_RETRIES_202 + 1):
             try:
@@ -245,9 +266,16 @@ class SkoolHTTP:
                 raise SkoolHTTPError(f"HTTP {code} on {url}: {body[:300]}", code)
 
             try:
-                return json.loads(body)
+                data = json.loads(body)
             except json.JSONDecodeError as e:
                 raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {body[:200]}", code) from e
+
+            if self._cacheable(url):
+                if len(self._cache) >= _CACHE_MAX_ENTRIES:
+                    # ponytail: drop the oldest entry; LRU if this ever matters
+                    self._cache.pop(min(self._cache, key=lambda k: self._cache[k][0]))
+                self._cache[url] = (time.time(), copy.deepcopy(data))
+            return data
 
         raise SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {url}")
 

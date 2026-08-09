@@ -45,6 +45,47 @@ def _safe_filename(name: str, fallback: str) -> str:
     return (cleaned or fallback)[:120]
 
 
+# Dropped into every new vault (once, never overwritten) so ANY user's vault
+# is librarian-ready out of the box. Deliberately community-neutral.
+_VAULT_CLAUDE_MD = """\
+# This vault — your Skool knowledge base
+
+An Obsidian-compatible vault fed by catknows. It is the SOURCE OF TRUTH:
+agents read knowledge from here, and results only count once they are filed
+here. If you are an AI working in this folder: you are the librarian.
+
+## Layout
+
+- `<community>/members/`, `<community>/posts/` — the raw Skool mirror,
+  machine-written by `pull_to_vault`. Never edit by hand; the next pull
+  overwrites.
+- `<community>/research/` — distilled analyses and findings. This is where
+  knowledge accumulates: one note per finding, YAML frontmatter,
+  `[[wikilinks]]` to member and post notes, and an `_index.md` per folder
+  (one line per note, append-only).
+- `trends/` — append-only JSONL time series from `python -m
+  catknows.snapshot`. Data, not prose: analyze it, chart it, never edit it.
+
+## Librarian rules
+
+1. Distill, don't dump. Big raw payloads stay out — file the insight, link
+   the source.
+2. Never delete or rewrite history. Research notes and index lines are
+   append-only; corrections are new notes that link the old one.
+3. Cross-link everything: people → `[[member notes]]`, communities → their
+   folders.
+4. The mirror belongs to the machines; research belongs to the librarian.
+"""
+
+
+def ensure_scaffold(vault_dir: Path) -> None:
+    """Make a vault librarian-ready: write CLAUDE.md once if it's missing."""
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    claude_md = vault_dir / "CLAUDE.md"
+    if not claude_md.exists():
+        claude_md.write_text(_VAULT_CLAUDE_MD, encoding="utf-8")
+
+
 def write_member(vault_dir: Path, community: str, rec: dict) -> Path:
     """Write a member as `<vault>/<community>/members/<name>.md`."""
     folder = vault_dir / community / "members"

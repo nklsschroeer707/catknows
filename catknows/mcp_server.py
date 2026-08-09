@@ -11,6 +11,11 @@ session persists in ~/.catknows/skool-profile so every later call runs
 silently. Set CATKNOWS_COOKIE to a raw Cookie header to skip the browser
 entirely (headless machines), or CATKNOWS_PROFILE_DIR to move the profile.
 
+Speed knobs: reads are cached in-process for CATKNOWS_CACHE_TTL seconds
+(default 600, 0 disables; chat channels never cached, writes clear it), and
+CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
+(default 0.8 s — lowering it is your 403 risk).
+
 You have been served by catknows. — you are welcome.
 """
 
@@ -231,9 +236,29 @@ def get_calendar(community_slug: str, cal_date: int = 0) -> dict:
 
 
 @mcp.tool()
-def get_classroom(community_slug: str) -> dict:
-    """Get the community classroom structure (courses, modules)."""
-    return _get_client().classroom(community_slug)
+def get_classroom(community_slug: str, raw: bool = False) -> dict:
+    """Get the community classroom: the course list with titles, descriptions, module counts and access flags.
+
+    Compact by default. raw=True returns Skool's full page payload, which is
+    very large and may exceed the tool-result size limit.
+    """
+    data = _get_client().classroom(community_slug)
+    if raw:
+        return data
+    courses = []
+    for c in ((data.get("pageProps") or {}).get("allCourses")) or []:
+        md = c.get("metadata") or {}
+        desc = (md.get("desc") or "").strip()
+        courses.append(
+            {
+                "title": md.get("title", ""),
+                "description": desc[:300] + ("…" if len(desc) > 300 else ""),
+                "num_modules": md.get("numModules"),
+                "has_access": bool(md.get("hasAccess")),
+                "privacy": md.get("privacy"),  # 0=open, 1=locked/paid, 2=level-locked
+            }
+        )
+    return {"num_courses": len(courses), "courses": courses}
 
 
 @mcp.tool()
@@ -249,6 +274,7 @@ def pull_to_vault(
     """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
+    vault.ensure_scaffold(out)
 
     members = client.members(community_slug)
     for u in members:

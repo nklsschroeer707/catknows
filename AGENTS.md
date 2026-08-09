@@ -9,6 +9,10 @@ An unofficial Python client for Skool's private API. It logs in via a real
 browser (Playwright), calls Skool's undocumented endpoints with WAF-faithful
 headers, and writes the results as Obsidian Markdown.
 
+If you were asked to *run a Skool job* (pull members, digest posts, build a
+report, …) rather than work on the code: stop here and go to
+[workspaces/START-HERE.md](workspaces/START-HERE.md) — the ICM job catalog.
+
 ## Read these first, in order
 
 1. **[docs/API.md](docs/API.md)** — the complete endpoint reference. This is the

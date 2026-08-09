@@ -52,6 +52,7 @@ def _pull(args) -> int:
 
     client = SkoolClient(session)
     vault_dir = Path(args.vault).expanduser().resolve()
+    vault.ensure_scaffold(vault_dir)
     community = args.community
 
     print(f"→ Fetching members of '{community}' ...")

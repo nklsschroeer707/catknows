@@ -14,6 +14,7 @@ handled for you and yield every page merged.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Iterator
 
@@ -21,7 +22,9 @@ from .auth import Session
 from .http import SkoolHTTP, SkoolHTTPError
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
-_INTER_PAGE_DELAY_S = 0.8
+# CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
+# you carry the 403/ban risk yourself.
+_INTER_PAGE_DELAY_S = float(os.environ.get("CATKNOWS_PAGE_DELAY", "0.8"))
 _COMMENT_PAGE_LIMIT = 25
 _MAX_COMMENT_PAGES = 400  # safety cap: 400 * 25 = 10k comments per post
 
