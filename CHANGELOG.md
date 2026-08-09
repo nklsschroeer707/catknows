@@ -4,7 +4,7 @@ All notable user-facing changes. To update your install: `/catknows-update`
 (Claude Code) or `git pull && pip install -e ".[mcp]"`, then restart your
 MCP client — a long-running MCP server keeps old code until reconnected.
 
-## Unreleased
+## 2026-08-09
 
 ### Added
 - **Updates from ANY AI client**: new `update_catknows` MCP tool — ask
@@ -12,10 +12,6 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   only shows what's new, nothing changes. Same engine as the new
   `python -m catknows.update` one-liner. Both refuse to touch local
   changes and remind you to reconnect afterwards.
-
-## 2026-08-09
-
-### Added
 - **Agent workspace catalog** (`workspaces/`): 21 ready-to-use agents for
   Skool jobs — members, posts, classroom, research, calendar, reports
   (`read/`, look-only) and acting agents (`write/`: feedback triage → GitHub
