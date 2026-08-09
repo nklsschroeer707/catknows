@@ -46,7 +46,7 @@ filing plan.
 | [write/collect-feedback/](write/collect-feedback/) | Tester thread → sorted feedback → GitHub issues |
 | [write/publish-a-post/](write/publish-a-post/) | Draft a community post with you, then publish it |
 | [write/send-a-message/](write/send-a-message/) | Draft a DM with you, then send it |
-| [write/report-a-bug/](write/report-a-bug/) | Document errors → GitHub issues, or a Feedback post tagging Niklas |
+| [write/report-a-bug/](write/report-a-bug/) | Document errors → GitHub issues, or a Skool post tagging the maintainer |
 
 Skool write tools only exist when the MCP server runs with
 `CATKNOWS_ALLOW_WRITE=1` — without it, `publish-a-post` and `send-a-message`
@@ -69,3 +69,8 @@ will tell you so and stop.
 Shared knowledge (tool cheatsheet, Skool quirks, output style) lives in
 [_shared/references/](_shared/references/) — each workspace's CONTEXT.md
 says when to load what.
+
+**Make it yours:** copy [_config/me.example.md](_config/me.example.md) to
+`_config/me.md` (gitignored) and fill in your communities, your vault path,
+your maintainer handle. The standard ships neutral — everything personal
+lives in that one local file.

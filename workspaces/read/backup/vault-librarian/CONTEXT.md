@@ -4,8 +4,9 @@
 research index growing — session after session.
 **Stages:** `01_sweep` `[gate]` → `02_file`
 
-## Config (filled in once, on the first run)
-- Vault path: _ask the human, then record it here_
+## Config
+- Vault path: the "Vault" section of `workspaces/_config/me.md`; not set →
+  ask the human once and record it there
 
 ## Load
 | Resource | When | Why |

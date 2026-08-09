@@ -2,8 +2,8 @@
 
 ## Inputs
 - (parameter) `community_slug` — ask if not given
-- (parameter) who — a handle (`schaad`) or a display name; a display name must
-  first be resolved to a handle via `list_members`
+- (parameter) who — a handle (`janedoe`) or a display name; a display name
+  must first be resolved to a handle via `list_members`
 
 ## Process
 1. `get_member_profile(user_name, community_slug)` → bio, socials, stats.

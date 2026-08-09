@@ -1,7 +1,7 @@
 # report-a-bug — routing
 
-**Purpose:** errors → clean bug reports → GitHub issues, or a Feedback post
-tagging Niklas when GitHub isn't available.
+**Purpose:** errors → clean bug reports → GitHub issues, or a Skool feedback
+post tagging the maintainer when GitHub isn't available.
 **Stages:** `01_document` `[gate]` → `02_deliver`
 
 ## Load

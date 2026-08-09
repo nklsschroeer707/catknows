@@ -16,11 +16,11 @@
 **Skool path** (needs `CATKNOWS_ALLOW_WRITE=1`; tool missing → stop after
 writing latest.md and tell the human the reports are local-only)
 2. Build ONE post: title "catknows bug report <date>", body = the summary
-   plus the reports, opening line tags Niklas:
-   `[@Niklas](obj://user/a97f89358e2e49cca94ff677385830f3)` — so he can fix
-   and push to GitHub himself.
-3. Resolve the "Feedback" category id of the target community (default
-   `catnose`): pull one existing Feedback-category post with
+   plus the reports. The opening line tags the maintainer using the
+   "Maintainer mention" section of `workspaces/_config/me.md`:
+   `[@<display name>](obj://user/<user id>)` — plain @text notifies nobody.
+3. Resolve the feedback category id (community + category name from the
+   config): pull one existing post of that category with
    `list_posts(raw=true)` and reuse its label id; can't resolve → ask the
    human, never guess.
 4. `create_post` WITHOUT confirm → show the human the exact draft.

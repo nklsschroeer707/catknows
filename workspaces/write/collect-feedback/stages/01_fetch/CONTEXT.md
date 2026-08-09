@@ -1,9 +1,9 @@
 # Stage 01 — fetch the tester thread
 
 ## Inputs
-- (parameter) `community_slug` — default `catnose`
-- (parameter) thread — default: the post titled "Catknows × ChatGPT Testing"
-  (Dan Schaad's test log)
+- (parameter) `community_slug` and thread — defaults come from the
+  "Feedback thread" section of `workspaces/_config/me.md`; no config and no
+  parameter → ask the human
 
 ## Process
 1. `list_posts(community_slug)` → find the thread by title, note its post id.

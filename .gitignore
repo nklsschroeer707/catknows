@@ -8,6 +8,10 @@ vault/
 # Local MCP registration (holds machine-specific absolute paths)
 .mcp.json
 
+# Workspace runs are personal: results stay local, only the structure ships
+workspaces/**/output/
+workspaces/_config/me.md
+
 # Python
 __pycache__/
 *.py[cod]

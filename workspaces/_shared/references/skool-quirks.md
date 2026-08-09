@@ -19,12 +19,12 @@
   pulls (all members + all comments) take minutes — that's normal, don't
   parallelize harder to "fix" it.
 - **Handles vs names:** `get_member_profile` wants the handle (e.g.
-  `schaad`), not the display name ("Dan Schaad"). Handles are in
+  `janedoe`), not the display name ("Jane Doe"). Handles are in
   `list_members` output.
 - **@-mentions in post/comment content** are
   `[@Display Name](obj://user/{userId})` — plain `@name` text does NOT
-  notify anyone. Niklas: handle `niklas`, userId
-  `a97f89358e2e49cca94ff677385830f3`.
+  notify anyone. A userId is in `get_member_profile(..., raw=true)`; your
+  own is in `workspaces/_config/me.md` once you've set it up.
 - **Post categories ("labels")** are ids, not names. To find one, pull an
   existing post of that category with `list_posts(raw=true)` and reuse its
   label id.
