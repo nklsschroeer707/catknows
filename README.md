@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo-mark.png" alt="catknows" width="150">
+<img src="docs/assets/Logo%20Square.png" alt="catknows" width="280">
 
 # `catknows.`
 
