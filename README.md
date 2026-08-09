@@ -57,6 +57,7 @@ the people who use it, not a pricing page.
 - 🤖 **21 ready-made agent jobs.** [`workspaces/`](workspaces/START-HERE.md) — every job is a folder your AI can run: member lists, digests, fan rankings, classroom research, backups, one big report. Acting jobs (posting, DMs, issues) never fire without your explicit approval.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
+- 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk.
 - 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
 - 📜 **[Changelog →](CHANGELOG.md)** — what shipped, in plain words.
