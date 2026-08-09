@@ -98,6 +98,28 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
+def _maybe_json(val: Any) -> Any:
+    """Skool nests JSON as *strings* inside metadata (displayPrice, owner,
+    event location, ...). Parse when it is one, pass through otherwise."""
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            return val
+    return val
+
+
+def _safe_raw(payload):
+    """Strip credential-class fields from any payload we return with raw=True.
+
+    Every ``raw=True`` path routes through here so account secrets (Zapier
+    keys, Stripe payout ids, billing/payment, affiliate, and Skool's own
+    client-side platform keys — docs/API.md §6.6) never reach an AI context or
+    a log. The scrub list lives in one place: normalize.SECRET_KEYS.
+    """
+    return normalize.scrub(payload)
+
+
 @mcp.tool()
 def login_to_skool() -> str:
     """Log in to Skool (opens a browser window on first use). Call this if other tools report auth errors; afterwards the session is persisted and reused silently."""
@@ -116,7 +138,7 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False) -> lis
     """
     # ponytail: fetches all pages then slices; per-page limits if huge communities hurt.
     users = _get_client().members(community_slug)[: _cap(limit, raw)]
-    return users if raw else [_jsonable(normalize.member(u)) for u in users]
+    return _safe_raw(users) if raw else [_jsonable(normalize.member(u)) for u in users]
 
 
 @mcp.tool()
@@ -127,7 +149,7 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[
     are large and can exceed the tool-result size cap.
     """
     trees = _get_client().posts(community_slug, limit=_cap(limit, raw))
-    return trees if raw else [_jsonable(normalize.post(t)) for t in trees]
+    return _safe_raw(trees) if raw else [_jsonable(normalize.post(t)) for t in trees]
 
 
 @mcp.tool()
@@ -135,22 +157,27 @@ def get_post_comments(community_slug: str, post_id: str, raw: bool = False) -> A
     """Get the full nested comment thread of a post. post_id is the post's Skool id (from list_posts)."""
     client = _get_client()
     merged = client.comments(post_id, client.group_id_for(community_slug))
-    return merged if raw else _jsonable(normalize.comments(merged))
+    return _safe_raw(merged) if raw else _jsonable(normalize.comments(merged))
 
 
 @mcp.tool()
 def get_post_likes(community_slug: str, post_id: str) -> list[dict]:
-    """List the users who liked/upvoted a post."""
+    """List the users who liked/upvoted a post (id, handle, first/last name)."""
     client = _get_client()
-    return client.likes(post_id, client.group_id_for(community_slug))
+    users = client.likes(post_id, client.group_id_for(community_slug))
+    # Raw liker objects carry full user metadata — including the caller's own
+    # payout/affiliate ids on their own like. Only names leave this tool.
+    return [normalize.like(u, post_id) for u in users]
 
 
 @mcp.tool()
 def get_member_profile(user_name: str, community_slug: str, raw: bool = False) -> dict | None:
     """Get one member's profile (bio, socials, stats). user_name is their Skool handle."""
     user = _get_client().profile(user_name, community_slug)
-    if user is None or raw:
-        return user
+    if user is None:
+        return None
+    if raw:
+        return _safe_raw(user)
     return _jsonable(normalize.profile(user))
 
 
@@ -163,15 +190,12 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
     """
     data = _get_client().community_about(community_slug)
     if raw:
-        return data
+        return _safe_raw(data)
     g = (((data.get("pageProps") or {}).get("currentGroup")) or {})
     md = g.get("metadata") or {}
-    price = md.get("displayPrice")
-    if isinstance(price, str):
-        try:
-            price = json.loads(price)
-        except (json.JSONDecodeError, ValueError):
-            pass
+    price = _maybe_json(md.get("displayPrice"))
+    # owner arrives as a JSON *string* since ~Aug 2026 — .get() on it crashed.
+    owner = _maybe_json(md.get("owner"))
     return {
         "slug": g.get("name", community_slug),
         "display_name": md.get("displayName", ""),
@@ -185,7 +209,7 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         "total_posts": md.get("totalPosts"),
         "num_courses": md.get("numCourses"),
         "privacy": md.get("privacy"),  # 1=private, 2=public
-        "owner": (md.get("owner") or {}).get("name"),
+        "owner": owner.get("name") if isinstance(owner, dict) else owner,
         "created_by": md.get("createdBy"),
     }
 
@@ -205,12 +229,7 @@ def get_discovery(page: int = 1) -> dict:
     for row in pp.get("groups") or []:
         g = row.get("group") or {}
         md = g.get("metadata") or {}
-        price = md.get("displayPrice")
-        if isinstance(price, str):
-            try:
-                price = json.loads(price)
-            except (json.JSONDecodeError, ValueError):
-                pass
+        price = _maybe_json(md.get("displayPrice"))
         groups.append({
             "rank": row.get("rank"),
             "slug": g.get("name"),
@@ -230,9 +249,29 @@ def get_admin_metrics(community_slug: str, range: str = "30d") -> dict:
 
 
 @mcp.tool()
-def get_calendar(community_slug: str, cal_date: int = 0) -> dict:
-    """Get the community calendar/events."""
-    return _get_client().calendar(community_slug, cal_date=cal_date)
+def get_calendar(community_slug: str, cal_date: int = 0, raw: bool = False) -> dict:
+    """Get the community calendar: a compact list of events (title, start/end, description, location).
+
+    cal_date is a unix timestamp inside another month (0 = current month).
+    raw=True returns Skool's full page payload, which is very large and may
+    exceed the tool-result size limit.
+    """
+    data = _get_client().calendar(community_slug, cal_date=cal_date)
+    if raw:
+        return _safe_raw(data)
+    events = []
+    for ev in ((data.get("pageProps") or {}).get("events")) or []:
+        md = ev.get("metadata") or {}
+        desc = (md.get("description") or "").strip()
+        events.append({
+            "title": md.get("title", ""),
+            "start": ev.get("startTime"),
+            "end": ev.get("endTime"),
+            "timezone": md.get("timezone", ""),
+            "description": desc[:300] + ("…" if len(desc) > 300 else ""),
+            "location": _maybe_json(md.get("location")),
+        })
+    return {"num_events": len(events), "events": events}
 
 
 @mcp.tool()
@@ -244,7 +283,7 @@ def get_classroom(community_slug: str, raw: bool = False) -> dict:
     """
     data = _get_client().classroom(community_slug)
     if raw:
-        return data
+        return _safe_raw(data)
     courses = []
     for c in ((data.get("pageProps") or {}).get("allCourses")) or []:
         md = c.get("metadata") or {}
@@ -264,7 +303,9 @@ def get_classroom(community_slug: str, raw: bool = False) -> dict:
 @mcp.tool()
 def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
     """List your Skool DM/chat channels (ids, participants, last message). Channel ids are what send_dm needs."""
-    return _get_client().chat_channels(offset=offset, limit=limit)
+    # Channel objects embed the other participant's full metadata (and, on your
+    # own entries, afl/payout secrets) — scrub before returning.
+    return _safe_raw(_get_client().chat_channels(offset=offset, limit=limit))
 
 
 @mcp.tool()

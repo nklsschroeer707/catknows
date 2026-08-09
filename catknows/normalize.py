@@ -202,6 +202,50 @@ def _slugs(groups) -> list[str]:
     return out
 
 
+# -- secret scrubbing (docs/API.md §6.6) --------------------------------------
+# Skool's page/api payloads carry credential-class fields that must NEVER leave
+# a raw=True tool result or land in a log: cleartext Zapier keys, Stripe payout
+# ids, billing/payment details, affiliate secrets, and Skool's own client-side
+# platform API keys. `scrub` walks any payload and drops every such key by name,
+# camelCase AND snake_case, at any depth. It is the single guard every raw path
+# routes through — add a name here, not a pop() at each call site.
+
+SECRET_KEYS = frozenset({
+    # per-group / per-account secrets (§6.6)
+    "apiKeys", "api_keys",
+    "paymentCard", "payment_card",
+    "billingEmail", "billing_email",
+    "billingCycleEnd", "billing_cycle_end",
+    "payoutAccountId", "payout_account_id",
+    "aflCode", "afl_code",
+    "aflSetup", "afl_setup", "aflSetupStatus", "afl_setup_status",
+    "aflUser", "afl_user", "aflPctAtJoin", "afl_pct_at_join",
+    # the whole self-context blob (self.* holds all of the above, plus more)
+    "self",
+    # Skool's own client-side platform keys leaked via pageProps.env
+    "env",
+})
+
+
+def scrub(obj):
+    """Recursively strip SECRET_KEYS from a payload (in place where possible).
+
+    Returns the same object with credential-class keys removed at every depth,
+    so a raw=True tool result can be handed to an AI or written to disk without
+    leaking account secrets. Idempotent; safe on any JSON-shaped structure.
+    """
+    if isinstance(obj, dict):
+        for key in list(obj.keys()):
+            if key in SECRET_KEYS:
+                del obj[key]
+            else:
+                scrub(obj[key])
+    elif isinstance(obj, list):
+        for item in obj:
+            scrub(item)
+    return obj
+
+
 if __name__ == "__main__":
     # ponytail: self-check for the quirky bits — ns timestamps, mixed-case
     # likes, recursive comment parenting. Runs with `python -m catknows.normalize`.
@@ -234,4 +278,30 @@ if __name__ == "__main__":
     assert cs[0]["text"] == "hi" and cs[1]["text"] == "re", "comment body must come from metadata.content"
     assert cs[0]["created_at"].year == 2026, "ISO comment timestamp must parse"
     assert cs[1]["created_at"].year == 2025, "microsecond comment timestamp must parse"
+
+    # scrub: credential-class keys must vanish at every depth, both cases,
+    # while ordinary data survives. This is the raw=True safety net.
+    payload = {
+        "pageProps": {
+            "self": {"metadata": {"payoutAccountId": "acct_X"}},
+            "env": {"STRIPE_PUBLISHABLE_KEY": "pk_live_X"},
+            "currentGroup": {"metadata": {
+                "displayName": "keep me", "billingEmail": "a@b.c",
+                "apiKeys": ["zap_secret"], "paymentCard": {"last4": "4242"},
+            }},
+            "users": [{"name": "keep", "metadata": {
+                "afl_code": "x", "payout_account_id": "acct_Y", "bio": "keep"}}],
+        }
+    }
+    scrub(payload)
+    pp = payload["pageProps"]
+    assert "self" not in pp and "env" not in pp, "self/env must be dropped whole"
+    md = pp["currentGroup"]["metadata"]
+    assert md == {"displayName": "keep me"}, f"only non-secret group keys survive, got {md}"
+    umd = pp["users"][0]["metadata"]
+    assert umd == {"bio": "keep"}, f"user afl/payout must be dropped, got {umd}"
+    import json as _json
+    blob = _json.dumps(payload)
+    for leak in ("acct_", "pk_live_", "zap_secret", "billingEmail", "4242"):
+        assert leak not in blob, f"scrub leaked {leak!r}"
     print("normalize self-check OK")
