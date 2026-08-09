@@ -268,6 +268,25 @@ def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
 
 
 @mcp.tool()
+def update_catknows(confirm: bool = False) -> dict:
+    """Update the local catknows install from GitHub (pull + reinstall + self-check).
+
+    confirm=false (default) only reports the current version and what's new —
+    nothing is changed. Call again with confirm=true to install. Afterwards
+    the AI client must reconnect: this running server keeps the old code
+    until restarted. Works from any MCP client (ChatGPT, Claude, Cursor, …).
+    """
+    from . import update as _update
+
+    if not confirm:
+        state = _update.check()
+        state["next_step"] = ("Nothing changed. Call again with confirm=true "
+                              "to install what's listed in new_commits.")
+        return state
+    return _update.update()
+
+
+@mcp.tool()
 def pull_to_vault(
     community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
 ) -> dict:

@@ -4,6 +4,15 @@ All notable user-facing changes. To update your install: `/catknows-update`
 (Claude Code) or `git pull && pip install -e ".[mcp]"`, then restart your
 MCP client — a long-running MCP server keeps old code until reconnected.
 
+## Unreleased
+
+### Added
+- **Updates from ANY AI client**: new `update_catknows` MCP tool — ask
+  ChatGPT (or any connected AI) to update catknows; without `confirm` it
+  only shows what's new, nothing changes. Same engine as the new
+  `python -m catknows.update` one-liner. Both refuse to touch local
+  changes and remind you to reconnect afterwards.
+
 ## 2026-08-09
 
 ### Added

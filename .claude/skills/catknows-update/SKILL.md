@@ -85,9 +85,13 @@ Also run the pure-stdlib self-check (no network, fast):
 ```bash
 <python> -m catknows.normalize
 ```
-Expect a version line, a tool count (13 read-only, or 15 with
+Expect a version line, a tool count (14 read-only, or 16 with
 `CATKNOWS_ALLOW_WRITE=1`), and `normalize self-check OK`. Any traceback → report it
 verbatim and stop; the update left something broken.
+
+> Shortcut: `python -m catknows.update` runs steps 1–4 in one command (same
+> guards). This skill stays useful for the judgment calls (stash vs. commit,
+> divergence) — the module refuses those cases instead of deciding.
 
 ## 5. Remind about the MCP client restart
 

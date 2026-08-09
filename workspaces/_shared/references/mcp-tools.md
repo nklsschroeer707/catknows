@@ -20,6 +20,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_admin_metrics` | slug, range="30d" | growth/engagement — owner/admin only |
 | `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread |
 | `pull_to_vault` | slug, vault_dir, include_comments | full community → Obsidian Markdown vault |
+| `update_catknows` | confirm=false | update the local install from GitHub — draft-first: without confirm it only reports what's new; after an update the human must reconnect their AI client |
 
 ## Write tools (exist only when the server runs with CATKNOWS_ALLOW_WRITE=1)
 
