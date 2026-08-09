@@ -35,6 +35,32 @@ Skool has no API. catknows is the one.
 
 </div>
 
+## 🐈 catknows, explained like you're 5
+
+You have a clubhouse on Skool. 🏠 Lots of friends, lots of talking, lots of stuff happening every day.
+
+But looking through all of it yourself? Boring. Slow. Too much.
+
+So you get a **cat.** 🐈 The cat has a *super* good nose.
+
+You say: *"Cat, who came to my clubhouse today?"* The cat runs in, sniffs everything, runs back — and tells your robot friend (Claude, ChatGPT, Notion…) the answer. Fast. 🐾
+
+**Three things. That's it:**
+
+1. 🔌 **Plug the cat in.** One time. Like a lamp.
+2. 🗣️ **Ask the cat stuff.** Normal words — *"Who's new?" "What did everyone like?" "Who's leaving?"*
+3. 📎 **The cat brings it back.** Neat and tidy. And it remembers — so it gets smarter every day.
+
+The cat also **hides your secret stuff** (money things, passwords) so no one bad ever sees it. 🛡️
+
+It costs **nothing.** 🆓 Only *you* see your things. The cat works for you, in your own house, forever.
+
+*You have been served. 🐈*
+
+<br>
+
+*(Want the grown-up version? Keep reading. 👇)*
+
 You're running a Skool community and you want your data — who's engaged, who's
 fading, what's happening. So the pitch goes: pay **Skoot, Skooly, Panda,
 SkoolKit, Wingman** (or whatever's next) a monthly fee, just to have someone else
