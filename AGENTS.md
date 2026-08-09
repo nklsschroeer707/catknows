@@ -69,6 +69,18 @@ over `SkoolClient`; don't duplicate client logic in it.
   hard-cap their `limit` (`_cap()`, raw capped harder); `get_community_about` and
   `get_discovery` return compact summaries, not the raw payload. Don't return big
   raw blobs by default — mobile clients have no filesystem fallback.
+- **Secret scrubbing (SECURITY — never weaken):** Skool page/api payloads embed
+  credential-class fields (cleartext Zapier `apiKeys`, Stripe `payoutAccountId`,
+  `paymentCard`, `billingEmail`, affiliate secrets, `pageProps.self`, and Skool's
+  own client-side keys in `pageProps.env` — docs/API.md §6.6). These ride along
+  in *otherwise innocuous* payloads (about, calendar, classroom, members, posts,
+  comments, profile, chat channels) and land on your OWN user object even on
+  other people's data. **Every `raw=True` path and anything returning a Skool
+  payload verbatim MUST route through `_safe_raw()` (→ `normalize.scrub`).** The
+  scrub list lives in one place: `normalize.SECRET_KEYS` — add a field name
+  there, never a one-off `pop()` at a call site. `normalize.scrub` mutates in
+  place; that's safe because the HTTP cache stores/returns `copy.deepcopy`
+  (never hand a scrubbed object back into the cache).
 - **Points quirk:** member points/level come from `metadata.spData` (a JSON
   string), NOT `member.metadata.points` (always 0). Handled in `normalize.member`.
 - **Discovery:** `get_discovery` uses the Next.js `discovery.json` board (global
@@ -82,15 +94,23 @@ over `SkoolClient`; don't duplicate client logic in it.
 
 ## To add a new endpoint
 
-1. Document it in `docs/API.md` first (URL, shape, JSON fields, quirks).
+1. Document it in `docs/API.md` first (URL, shape, JSON fields, quirks) —
+   including any credential-class fields it carries (§6.6).
 2. Add a method to `SkoolClient` in `client.py` (return raw JSON).
 3. If callers want it flat, add a `normalize.*` function and a self-check assert.
-4. Keep API.md and the code in sync — the docs are the contract.
+4. **If the MCP tool can return the payload raw (a `raw=True` param, or a
+   verbatim passthrough), send it through `_safe_raw()` — no exceptions.** New
+   secret field names go in `normalize.SECRET_KEYS`.
+5. Keep API.md and the code in sync — the docs are the contract.
 
 ## Guardrails
 
 - **Don't remove the rate-limit safeguards** (inter-page sleeps, 202 back-off).
   Skool will block aggressive clients and can put the user's account at risk.
+- **Never leak account secrets in tool output.** Any Skool payload returned raw
+  goes through `_safe_raw()` / `normalize.scrub` first (see the MCP-server
+  section). This matters most for the planned Cloud MCP, where output crosses a
+  network to a third party — treat scrub as load-bearing, not cosmetic.
 - **Never commit `.skool-profile/`** — it holds the user's live session.
 - This is not an official API; write code defensively (endpoints may 403/change).
 - Personal data (member emails/names) is being exported — see [LEGAL.md](LEGAL.md).
