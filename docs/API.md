@@ -317,7 +317,7 @@ back to camelCase.
 
 | Code | Meaning | What to do |
 |---|---|---|
-| 200 | OK | parse JSON |
+| 200 | OK | parse JSON — but any server-side redirect answers 200 with a **stub** (`pageProps` holds only `__N_REDIRECT`/`__N_REDIRECT_STATUS`). A stub targeting `…/about` is the membership gate ("not a member", not "empty community"); a stub targeting deeper into the route (e.g. classroom `?md=…`) is normal navigation — follow it |
 | 202 | ISR deferred — page still building | wait ~2s, retry (up to 3×) |
 | empty body, 2xx | same as 202 | retry |
 | 401 | `auth_token` invalid/expired | re-login |
@@ -671,7 +671,7 @@ GET /_next/data/{buildId}/{slug}/about.json?group={slug}
 | `plan` | `basic` ($9/mo tier) or `pro` ($99/mo tier) |
 | `totalMembers`, `totalOnlineMembers`, `totalAdmins`, `totalPosts` | community size & activity |
 | `numCourses`, `numModules`, `totalRules` | classroom & rules footprint |
-| `owner` | `{id, name, metadata.bio}` of the owner; `createdBy` = creator UUID |
+| `owner` | `{id, name, metadata.bio}` of the owner — arrives as a JSON **string** (parse it, like `displayPrice`); `createdBy` = creator UUID |
 | `aflPercent` | affiliate commission % |
 | `privacy` | 1 = private, 2 = public |
 | `tabs` | which features are enabled (`classroom`, `calendar`, `audio-chat`, …) |

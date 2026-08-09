@@ -144,7 +144,28 @@ class SkoolHTTP:
             "sec-fetch-site": "same-origin",
         }
         self._add_sec_ch_ua(headers)
-        return self._get_with_retry(url, headers)
+        data = self._get_with_retry(url, headers)
+        # Members-only routes answer 200 with a redirect stub (pageProps holds
+        # ONLY __N_REDIRECT*) when the account isn't in the community. Without
+        # this check callers see an empty list and think "0 members". Next.js
+        # emits the same stub shape for ANY server-side redirect though — the
+        # membership gate always bounces to the about page, while navigation
+        # redirects (classroom course -> first lesson ?md=...) point deeper
+        # into the route and must pass through untouched.
+        pp = data.get("pageProps") if isinstance(data, dict) else None
+        if (isinstance(pp, dict) and "__N_REDIRECT" in pp
+                and set(pp) <= {"__N_REDIRECT", "__N_REDIRECT_STATUS"}):
+            target = str(pp.get("__N_REDIRECT") or "")
+            if target.split("?", 1)[0].rstrip("/").endswith("/about"):
+                where = f"'{community_slug}'" if community_slug else "this community"
+                raise SkoolHTTPError(
+                    f"Skool redirected this members-only page — the logged-in "
+                    f"account is not a member of {where}. Join it on skool.com, "
+                    "or use an account that's in it. Public info (about, "
+                    "discovery) works without membership.",
+                    307,
+                )
+        return data
 
     def get_api2(self, path_and_query: str) -> dict:
         """GET an api2.skool.com endpoint (Bearer + WAF-header shape).
