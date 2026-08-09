@@ -555,11 +555,35 @@ POST https://api2.skool.com/channels/{channelId}/messages?ct=wdm
 `{channelId}` comes from the chat-channels list (§1.6). Response is the created
 message object (with `id`). Group-DM and 1:1 channels use the same shape.
 
-### 5.8 What's *not* here
+### 5.8 Create a comment / reply
+
+Comments are posts with `post_type: "comment"` — same `POST /posts` endpoint
+as §5.1 (captured from live traffic while replying to a comment):
+
+```
+POST https://api2.skool.com/posts?follow=false
+```
+
+```jsonc
+{
+  "post_type": "comment",
+  "group_id":  "{gid}",
+  "root_id":   "{postId}",     // the post the thread belongs to
+  "parent_id": "{commentId}",  // the comment being replied to;
+                               // for a top-level comment this is the post id too
+  "metadata": { "title": "", "content": "reply text" }
+}
+```
+
+`content` supports Skool's markdown-ish syntax; an @-mention is
+`[@Display Name](obj://user/{userId})`. Response is the created comment
+object. (`?follow=true` subscribes you to the thread.)
+
+### 5.9 What's *not* here
 
 These were never observed in the reverse-engineered traffic, so they're left
-undocumented rather than guessed: creating a **comment**, casting a **like/vote**,
-and **editing/deleting** a post. The read side (§1.4, §1.5) exists; the
+undocumented rather than guessed: casting a **like/vote** and
+**editing/deleting** a post. The read side (§1.4, §1.5) exists; the
 corresponding write verbs likely follow the same `api2` conventions
 (`POST`/`PUT`/`DELETE` on `/posts/{id}/...`) but confirm them from your own
 browser's Network tab before relying on them.
