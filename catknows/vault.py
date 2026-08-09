@@ -82,6 +82,8 @@ def write_post(vault_dir: Path, community: str, rec: dict, comments: list[dict] 
         "type": "skool-post",
         "community": community,
         "skool_id": rec.get("skool_id"),
+        "title": rec.get("title"),
+        "slug": rec.get("name"),
         "author": rec.get("user_name"),
         "post_type": rec.get("post_type"),
         "comments": rec.get("comments"),
@@ -89,7 +91,10 @@ def write_post(vault_dir: Path, community: str, rec: dict, comments: list[dict] 
         "created_at": rec.get("created_at"),
         "tags": ["skool/post", f"community/{community}"],
     })
-    body = f"\n# {rec.get('name', 'Post')}\n\nby [[{rec.get('user_name', 'unknown')}]]\n"
+    heading = rec.get("title") or rec.get("name") or "Post"
+    body = f"\n# {heading}\n\nby [[{rec.get('user_name', 'unknown')}]]\n"
+    if rec.get("content"):
+        body += f"\n{rec['content']}\n"
     if comments:
         body += f"\n## Comments ({len(comments)})\n\n"
         for c in comments:

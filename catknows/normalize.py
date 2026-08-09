@@ -36,10 +36,17 @@ def _ns_or_iso_to_dt(raw) -> datetime | None:
 
 
 def _micros_to_dt(raw) -> datetime | None:
-    """api2 created_at on comments is microseconds."""
+    """api2 comment timestamps: microseconds as a number, or an ISO string.
+
+    The cursor field (``last``) is microseconds, but ``post.created_at`` comes
+    back as ISO ("2026-08-08T16:59:44.650886Z") — falling through to None on
+    strings is what made every normalized comment show ``created_at: null``.
+    """
+    if isinstance(raw, bool):
+        return None
     if isinstance(raw, (int, float)) and raw > 0:
         return datetime.fromtimestamp(raw / 1_000_000, tz=timezone.utc)
-    return None
+    return _ns_or_iso_to_dt(raw)
 
 
 def _sp_data(meta: dict) -> dict:
@@ -90,7 +97,11 @@ def post(tree: dict) -> dict:
     root_id = p.get("rootId", "")
     return {
         "skool_id": skool_id,
-        "name": p.get("name", ""),
+        "name": p.get("name", ""),  # URL slug, NOT the display title
+        # The human-readable title and body live in metadata; without them a
+        # post record is just a slug and an AI can't summarize anything.
+        "title": meta.get("title", ""),
+        "content": meta.get("content", ""),
         "post_type": p.get("postType", ""),
         "group_id": p.get("groupId", ""),
         "user_id": p.get("userId", ""),
@@ -128,7 +139,9 @@ def _walk_comments(nodes: list, explicit_parent: str, out: list) -> None:
         parent_id = explicit_parent or root_id
         out.append({
             "skool_id": skool_id,
-            "text": p.get("name", ""),  # comment body lives in `name`
+            # Body is in metadata.content; `name` is a slug-ish title that is
+            # None on real comments (only the self-check's fixtures set it).
+            "text": meta.get("content") or p.get("name") or "",
             "user_id": p.get("user_id") or p.get("userId") or "",
             "user_name": u.get("name", ""),
             "root_id": root_id,
@@ -205,11 +218,20 @@ if __name__ == "__main__":
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"
 
+    # Shaped like real api2 comments: body in metadata.content (`name` is
+    # None there), created_at an ISO string — both were silently dropped once.
     tree = {"post_tree": {"children": [
-        {"post": {"id": "c1", "name": "hi", "user_id": "u1", "root_id": "p1"},
-         "children": [{"post": {"id": "c2", "name": "re", "user_id": "u2"}}]}]}}
+        {"post": {"id": "c1", "name": None, "user_id": "u1", "root_id": "p1",
+                  "created_at": "2026-08-08T16:59:44.650886Z",
+                  "metadata": {"content": "hi"}},
+         "children": [{"post": {"id": "c2", "name": None, "user_id": "u2",
+                                "created_at": 1_754_000_000_000_000,
+                                "metadata": {"content": "re"}}}]}]}}
     cs = comments(tree)
     assert len(cs) == 2, "recursive walk missed nested comment"
     assert cs[0]["parent_id"] == "p1", "first-layer parent should be the post"
     assert cs[1]["parent_id"] == "c1", "nested reply should point at its parent comment"
+    assert cs[0]["text"] == "hi" and cs[1]["text"] == "re", "comment body must come from metadata.content"
+    assert cs[0]["created_at"].year == 2026, "ISO comment timestamp must parse"
+    assert cs[1]["created_at"].year == 2025, "microsecond comment timestamp must parse"
     print("normalize self-check OK")
