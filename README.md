@@ -54,10 +54,12 @@ top of it. And because it's open source, where catknows goes next is decided by
 the people who use it, not a pricing page.
 
 - 🧠 **Talk to your own data in the AI you already use.** MCP server for Claude, ChatGPT, Notion, Cursor & co. — [plug it in](#plug-it-into-your-ai-mcp).
+- 🤖 **21 ready-made agent jobs.** [`workspaces/`](workspaces/START-HERE.md) — every job is a folder your AI can run: member lists, digests, fan rankings, classroom research, backups, one big report. Acting jobs (posting, DMs, issues) never fire without your explicit approval.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
 - 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
+- 📜 **[Changelog →](CHANGELOG.md)** — what shipped, in plain words.
 
 > ⚠️ **Unofficial & unstable.** This talks to Skool's undocumented endpoints by
 > driving your own logged-in browser session. It is not affiliated with Skool
@@ -188,6 +190,22 @@ explicit switch. Test in a private community first — these post as *you*.
 
 ---
 
+## Keeping it updated
+
+Three doors, one engine — pick whichever fits your setup:
+
+- **Any AI, no terminal:** tell your connected AI *"update catknows"* — the
+  `update_catknows` MCP tool first shows what's new (nothing changes), and
+  installs only when you confirm.
+- **Claude Code:** `/catknows-update`.
+- **Terminal:** `python -m catknows.update`.
+
+All three refuse to touch local changes and only fast-forward. **Afterwards,
+reconnect your AI client once** — a running MCP server keeps the old code
+loaded until it restarts.
+
+---
+
 ## No-browser mode
 
 Don't want Playwright? Copy your `Cookie` header from DevTools (logged-in
@@ -216,8 +234,12 @@ MyVault/
 ```
 
 Each note has YAML frontmatter so Obsidian Dataview (or your own tooling) can
-query it. From there, an AI librarian in your vault can file, tag, and link
-everything however you like.
+query it. Every new vault also gets a `CLAUDE.md` with librarian rules baked
+in — open the vault with any AI and it knows how to file, link, and grow your
+knowledge (research notes in `research/`, never touching the mirror). And
+`python -m catknows.snapshot --vault ./MyVault my-slug` appends your
+community's numbers to `trends/*.jsonl` — run it on a schedule and your
+growth curves build themselves.
 
 ---
 
