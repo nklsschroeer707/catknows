@@ -11,6 +11,7 @@ vault/
 # Workspace runs are personal: results stay local, only the structure ships
 workspaces/**/output/
 workspaces/_config/me.md
+workspaces/_config/mobile-mcp-private.md
 
 # Python
 __pycache__/

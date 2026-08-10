@@ -159,79 +159,14 @@ kein Code. Phase 3 (OAuth) ist ein eigenes, größeres Stück.
 
 ---
 
-## 5b. NACHTRAG: Der bestehende cat-knows.com / KAS-Server ändert das Bild
-
-Du hattest recht — es gibt bereits eine Server-Infrastruktur, und sie ist **kein
-Plan, sondern läuft in Produktion**. Aus dem Vault (`E:\vault\wiki\catknows*`):
-
-- **„kass"** = **KAS-Server** (kasserver.com), das All-Inkl-Shared-Hosting, auf
-  dem **cat-knows.com** liegt. SSH `w016728f@w016728f.kasserver.com`.
-- Das ist die **volle catknows.-SaaS**: PHP-Server (~180 Endpoints) + MySQL
-  (~50 Tabellen), **multi-tenant** — jede Datenzeile hat `team_id`,
-  Tenant-Isolation ist eingebaut. Ein Nim-„Fetcher" auf dem Kunden-PC macht nur
-  Skool-Login + Datenabruf und lädt roh zum Server; **alle Intelligenz + Speicher
-  liegen serverseitig**. Es gibt bereits Bearer-Token-Auth, License-System,
-  Team-Model, sogar einen AI-Proxy (`server/core/ai.php`, Claude + OpenAI).
-
-**Das ist also genau Modell B — und es existiert schon.** Damit ändert sich die
-Empfehlung: Für „catknows am Handy als Connector, für echte Nutzer" ist der
-KAS-Server der **richtige Host**, nicht ein Tunnel zum Heim-PC. Die harte Arbeit
-(Multi-Tenancy, Auth, Datentrennung, DSGVO-Download/Delete-Surface) ist dort
-**schon erledigt**. Ein MCP-Endpoint wäre nur eine **neue Fassade vor der
-bestehenden Logik**, kein neues System.
-
-### Wie ein MCP-Server auf dem KAS-Server konkret aussähe
-
-- **Nicht** den Python-`mcp_server.py` dort hinstellen — der Server ist PHP, und
-  das würde die ganze fertige Multi-Tenant-/Auth-/DB-Schicht umgehen.
-- Stattdessen: ein **MCP-Endpoint in PHP** (`server/endpoints/mcp/…`), der das
-  streamable-http-Protokoll spricht und die MCP-Tools auf die **schon
-  existierenden** Endpoints/Functions mappt (members, posts, export, ai-proxy …).
-  Jeder Tool-Call läuft durch das bestehende `require_team_id()` → automatische
-  Tenant-Isolation, kein neuer Daten-Leak-Vektor.
-- Auth: Claude-Custom-Connector mit **Bearer-Token** (`static_headers`, Beta)
-  gegen das **schon vorhandene** Session-/License-Token-System. Sauberer wäre
-  perspektivisch OAuth, aber der Bearer-Weg nutzt, was da ist.
-- Erreichbarkeit ist gelöst: cat-knows.com ist eine echte öffentliche HTTPS-URL —
-  **kein Tunnel nötig, PC muss nicht laufen.** Das räumt Risiken 5 + 6 (PC-an,
-  wechselnde URL) komplett ab.
-
-### Wichtige Konsequenz für „wessen Account"
-
-Beim KAS-Server-Weg meldet sich **jeder Nutzer mit seinem eigenen catknows.-
-Konto** an (das gibt es schon, mit License/Team). Deine ursprüngliche Frage
-„jeder mit seinem eigenen Account" ist hier also **von Haus aus erfüllt** — die
-Multi-Tenancy trennt die Daten. Es ist NICHT dein Account für alle. Genau
-richtig, wie du es dir vorgestellt hast.
-
-### Aber (ehrlich): zwei catknows, ein Name
-
-Es gibt jetzt **zwei Dinge namens catknows**:
-1. **Dieses Repo** (`skool-api`, Python, MIT, „free & open source data tap") —
-   das dezentrale, für-jeden-forkbar Werkzeug.
-2. **cat-knows.com** (PHP-SaaS auf KAS) — das gehostete Analytics/CRM-Produkt
-   mit Konten, Teams, Lizenzen.
-
-Der MCP-Server hier im Repo passt zu (1): der Nutzer hostet selbst. Ein
-MCP-Endpoint auf cat-knows.com passt zu (2): du hostest, Nutzer loggt sich ein.
-**Beide sind legitim, aber es sind verschiedene Produkte.** Bevor gebaut wird,
-muss die Produktfrage klar sein: Soll „catknows am Handy" das **offene Werkzeug**
-sein (Repo-MCP, Selbst-Hosting, technische Nutzer) oder das **Produkt-Feature**
-von cat-knows.com (KAS-MCP, Konto-Login, alle Nutzer)? Das ist keine Technik-,
-sondern eine Strategie-Entscheidung — und sie gehört dir.
-
----
-
-## 5c. Deine zweite Frage: Write über die Claude-App — was tut der Nutzer?
+## 5b. Write über die Claude-App — was tut der Nutzer?
 
 Wichtigste Unterscheidung: **Den Write-Schalter kann der Nutzer NICHT aus dem
 Chat heraus umlegen.** Ob posten erlaubt ist, ist eine **Server-Einstellung**,
 kein Chat-Befehl — genau das ist der Sinn: die KI kann sich die Rechte nicht
 selbst geben.
 
-Es hängt davon ab, welcher der zwei Wege oben:
-
-### Repo-MCP (Selbst-Hosting, Modell A)
+### Selbst-Hosting (Modell A)
 - Write an-/ausschalten = **Env-Variable am Server**, nicht im Chat. Der Nutzer
   editiert seine Server-Config (`CATKNOWS_ALLOW_WRITE=1`) und **startet den
   Server neu**. Danach muss der Connector einmal neu verbunden werden, damit die
@@ -248,18 +183,12 @@ Es hängt davon ab, welcher der zwei Wege oben:
 - `notify_members` (Mail an alle) ist ein **extra** Schalter im selben Aufruf —
   wird nur gesetzt, wenn du es ausdrücklich sagst.
 
-### KAS-MCP (cat-knows.com, Modell B)
-- Hier wäre Write eine **Account-/Rollen-Einstellung** im cat-knows.com-Konto
-  (analog zum bestehenden `download_access`-Grant im Team-Tab). Der Nutzer
-  aktiviert „Posten erlauben" **einmal im Web-Dashboard**, nicht im Chat.
-- Danach identisch: im Chat „poste X" → Entwurf → Bestätigung → gesendet.
-
-### In beiden Fällen, was der Nutzer in der App tatsächlich TUT
+### Was der Nutzer in der App tatsächlich TUT
 - **Nichts umstellen im Chat.** Er formuliert nur die Absicht („schreib einen
   Willkommens-Post"), sieht den Entwurf, bestätigt.
 - Die **eine** bewusste Entscheidung („darf meine KI überhaupt posten?") trifft
-  er vorher, einmal, an einem sicheren Ort (Config bzw. Dashboard) — nie
-  beiläufig im Gespräch.
+  er vorher, einmal, an einem sicheren Ort (Server-Config) — nie beiläufig im
+  Gespräch.
 
 Das ist Absicht: Write ist ein geladenes Werkzeug (postet als du, an echte
 Mitglieder). Der Schalter gehört außerhalb des Chats, die Bestätigung in den
@@ -267,73 +196,12 @@ Chat.
 
 ---
 
-## 5d. FINALE RICHTUNG: MCP-Endpoint auf cat-knows.com (löst alles auf einmal)
+## 6. Offene Entscheidungen
 
-Entscheidung getroffen: „catknows am Handy" = **MCP-Endpoint auf dem
-bestehenden cat-knows.com / KAS-Server**, nicht Selbst-Hosting. Grund: es löst
-jedes offene Problem in einem Zug, weil die schwere Infrastruktur schon läuft.
-
-**Was damit automatisch gelöst ist:**
-
-| Problem (aus §4) | Weg damit, weil KAS es schon hat |
-|---|---|
-| Server muss aus dem Netz erreichbar sein | cat-knows.com ist bereits eine öffentliche HTTPS-URL |
-| PC muss laufen / Tunnel-Gebastel | Entfällt komplett — der Server läuft eh 24/7 |
-| Wechselnde Tunnel-URL | Feste Domain, ändert sich nie |
-| „Wessen Account?" / Datentrennung | Multi-Tenancy (`team_id`) ist schon eingebaut — jeder sieht nur seins |
-| Login pro Nutzer | Konto-/License-/Team-System existiert bereits |
-| Auth vor dem Server | Bearer-Token-System ist schon da |
-| DSGVO / Datenhoheit | Download/Delete-Surface (R5) ist schon gebaut |
-
-Der MCP-Endpoint ist damit **nur eine dünne neue Fassade** vor Logik, die es
-schon gibt — kein neues System, kein neuer Daten-Leak-Vektor (jeder Tool-Call
-läuft durch das bestehende `require_team_id()`).
-
-**Der Nutzer-Prozess im Drei-Schritte-Prinzip** (Feuerstein-einfach, so auf die
-Bilder/Doku):
-
-> **1. Anmelden.** Auf cat-knows.com einloggen (Konto hast du eh). Einmalig auf
->    „Mit Claude verbinden" tippen — bekommst deinen persönlichen Verbindungs-Code.
->
-> **2. Einkleben.** In Claude (am Rechner, einmal) den Code als Connector
->    einfügen. Fertig — catknows taucht ab jetzt auch in deiner Handy-App auf.
->
-> **3. Fragen.** Vom Handy aus mit Claude reden: „Wer verlässt gerade meine
->    Community?", „Schreib mir den Wochen-Post." Deine Daten, deine KI, überall.
-
-(Technisch hinter Schritt 1–2: cat-knows.com generiert das Bearer-Token, der
-Nutzer trägt URL + Token als Custom Connector auf claude.ai ein — das synct
-automatisch aufs Handy. Schritt 3 ist reines Chatten.)
-
-**Write in diesem Bild** (§5c, KAS-Variante): „Posten erlauben" ist ein Schalter
-im cat-knows.com-Dashboard (wie der Download-Grant heute). Einmal an — danach im
-Chat nur noch „poste X" → Entwurf → bestätigen → raus. Der Schalter bleibt
-außerhalb des Chats, die KI kann ihn sich nicht selbst geben.
-
-**Zu bauen (grob, PHP auf KAS):**
-- `server/endpoints/mcp/…` — streamable-http-MCP-Endpoint, mappt Tools auf die
-  vorhandenen Endpoints/Functions (members, posts, today-briefing, export,
-  ai-proxy, und für Write: die Post/DM-Pfade).
-- Bearer-Check gegen das bestehende Session-/License-Token (der `401` muss
-  `WWW-Authenticate: Bearer resource_metadata="…"` liefern, sonst findet Claude
-  die Metadata nicht — siehe Recherche §2).
-- Ein „Mit Claude verbinden"-Button im Dashboard, der Token + Copy-Paste-URL
-  ausgibt.
-- Write-Grant-Toggle (analog `download_access`).
-
-**Offen / später:** OAuth statt statischem Bearer (sauberer für Nicht-Techniker,
-aber `static_headers`-Bearer reicht zum Start; Bearer ist bei Anthropic Beta).
-
----
-
-## 6. Offene Entscheidungen für dich
-
-1. **Welches Produkt ist „catknows am Handy"?** Das offene Repo-Werkzeug
-   (Selbst-Hosting) ODER das cat-knows.com-Feature (Konto-Login)? — die
-   Kern-Strategiefrage (§5b).
-2. Falls **cat-knows.com/KAS**: MCP-Endpoint in PHP vor die bestehende Logik,
-   Bearer gegen das vorhandene Token-System. Kein Tunnel, PC muss nicht laufen.
-3. Falls **Repo/Selbst-Hosting**: Tunnel zum PC (billig, PC muss laufen) vs.
+1. **Hosting-Form für Modell A**: Tunnel zum PC (billig, PC muss laufen) vs.
    kleine Always-on-Instanz.
-4. **Write remote**: erst gar nicht (nur read am Handy) oder direkt mit
+2. **Write remote**: erst gar nicht (nur read am Handy) oder direkt mit
    Bearer-Pflicht + Draft-confirm mitdenken?
+
+Überlegungen zu einer zentral gehosteten Variante (Modell B) werden bewusst
+außerhalb dieses öffentlichen Repos geführt.
