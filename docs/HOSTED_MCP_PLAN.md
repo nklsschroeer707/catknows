@@ -20,8 +20,9 @@ offen für alle, bezahlbare Komfort-/Business-Schicht obendrauf).
    auf Handy und Desktop.
 3. Beim ersten Verbinden öffnet sich ein Login-Fenster („Mit Google anmelden"
    oder E-Mail) — das ist der catknows-Account.
-4. Im catknows-Web-Dashboard hinterlegt er einmalig seinen Skool-Zugang
-   (Session), damit der Server in **seinem** Namen lesen kann.
+4. Im catknows-Web-Dashboard verbindet er einmalig sein Skool-Konto: Skool-
+   E-Mail + Passwort eingeben, fertig — fühlt sich an wie jeder App-Login und
+   funktioniert komplett am Handy. (Technik: siehe §2a.)
 5. Ab dann: „Wer sind meine 10 aktivsten Member?" — direkt am Handy.
 
 Das ist das Muster der etablierten Anbieter (Canva `mcp.canva.com/mcp`,
@@ -51,6 +52,28 @@ zugleich die günstigste.
 Der gehostete Server nutzt **denselben Kern wie dieses Repo** — obendrauf
 kommt nur die Multi-Tenant-Schicht (Login, Session-Store, Dashboard). Kein
 zweites System; Verbesserungen fließen in beide Richtungen.
+
+### 2a. Skool-Verbindung ohne Cookie-Gefummel
+
+Skools `auth_token` ist httpOnly und die WAF-Challenge löst nur in echten
+Browsern — genau deshalb macht [`auth.py`](../catknows/auth.py) den Login
+lokal über Playwright. Gehostet machen wir dasselbe serverseitig:
+
+- Der Nutzer gibt im Dashboard **Skool-E-Mail + Passwort** ein. Der Server
+  loggt sich damit in einem Headless-Browser bei skool.com ein, übernimmt die
+  Session in den verschlüsselten Store und **verwirft das Passwort sofort** —
+  es wird nie gespeichert (nachprüfbar, open source).
+- Pro Nutzer bleibt das Browser-Profil (verschlüsselt) erhalten — läuft die
+  Session ab, erneuert sie sich headless und lautlos, wie lokal mit
+  `profile_dir`.
+- Nach dem Verbinden gleicht der Server die E-Mail des Skool-Profils mit der
+  Login-E-Mail des catknows-Accounts ab — niemand hängt (versehentlich oder
+  absichtlich) eine fremde Skool-Session in sein Konto.
+- **Caveat:** Wer sich bei Skool nur per Google/Apple-SSO anmeldet, setzt
+  einmalig über „Passwort vergessen" ein Skool-Passwort (SSO können wir
+  serverseitig nicht stellvertretend durchführen). Gehört prominent in die
+  Anleitung.
+- Cookie einfügen bleibt als Power-User-Fallback erhalten.
 
 ## 3. Website und MCP auf einem Server?
 
