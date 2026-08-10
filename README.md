@@ -96,6 +96,41 @@ the people who use it, not a pricing page.
 
 ---
 
+## Where Skool stands on this
+
+catknows was taken to Skool directly, before it grew — repo, docs and intent,
+in the open. This is what Skool's founder **Sam Ovens** replied, 2026-08-10:
+
+> if we find a problem with it we will let you know. generally reading isnt an
+> issue but writing is. anything that takes automated actions on behalf of a
+> user is probably going to get blocked.
+
+Asked where exactly the line runs:
+
+> if its broadcasts - thats an issue. if its just small things like a DM if
+> somebody declines - thats ok.
+
+**That line is now the design of this tool:**
+
+- ✅ **Reading — the whole point.** Every `list_*` / `get_*` tool, the vault
+  pull, the reports. Your login, your machine, the same endpoints your browser
+  already calls.
+- ✅ **Writing — single, human-approved actions.** One post, one comment, one
+  DM, each shown to you as a draft first and only sent after you say yes.
+- ❌ **Broadcasts — never.** No tool that loops over a member list, no
+  scheduled outreach, no "message everyone who…". Not shipped, not planned,
+  and PRs that add it will be closed. Skool's own email-broadcast flag
+  (`notify_members`) stays off unless *you* explicitly turn it on for that one
+  post.
+
+This is not an endorsement and catknows is not affiliated with Skool — it's the
+line the platform's founder stated, and the commitment we hold ourselves to. If
+Skool ever says a specific behaviour is a problem, it comes out. That's the
+deal, and it's why the paid tools quietly blasting daily DM campaigns aren't
+the company we keep.
+
+---
+
 ## Quick start
 
 Needs **Python 3.10+** and **git**. Works on macOS, Linux, and Windows.
@@ -232,6 +267,12 @@ draft-first (the AI must show you the draft, then call again with
 `confirm=true`), and emailing all members (`notify_members`) is a separate
 explicit switch. Test in a private community first — these post as *you*.
 
+**One action at a time, never a campaign.** `send_dm` writes into *one*
+existing conversation — it can't open new ones, so there is no "message all
+members" path, and there never will be ([why](#where-skool-stands-on-this)).
+If you catch your AI looping a write tool over a list, stop it: that's the one
+thing this project promised Skool it wouldn't do.
+
 ---
 
 ## Keeping it updated
@@ -308,7 +349,8 @@ The client implements the two everyday ones: `create_post` and `send_dm`
 (plain posts with optional category label and video link; the rich-media
 upload flows stay documented for you to build on). **Write carefully** — these
 act as *you*, visible to real members; see the MCP section for the safety
-switch.
+switch. Documenting the broadcast endpoint is not an invitation to automate
+it — see [Where Skool stands on this](#where-skool-stands-on-this).
 
 ---
 

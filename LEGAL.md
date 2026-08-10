@@ -6,6 +6,14 @@
 endorsed by, or connected to Skool** in any way. "Skool" is a trademark of its
 respective owner.
 
+**On the founder's statement.** The README quotes Skool founder Sam Ovens
+(2026-08-10) on where the platform draws the line between reading and writing.
+That quote is reproduced because it shaped this project's design — it is **not
+an approval, endorsement, partnership, or permission**, and nothing in it
+overrides Skool's Terms of Service or the responsibilities below. He said Skool
+would come back to us if they find a problem; that is the extent of it. Do not
+represent catknows as Skool-approved.
+
 ## What this tool does
 
 It automates *your own logged-in browser session* against Skool's private

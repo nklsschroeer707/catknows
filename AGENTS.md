@@ -59,7 +59,8 @@ over `SkoolClient`; don't duplicate client logic in it.
   `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first — `confirm=false` returns the
   draft without posting; `confirm=true` actually writes. `notify_members` (email
   broadcast) is a separate explicit flag. Never weaken this: writes act as the
-  user, visible to real members.
+  user, visible to real members. **And never add a bulk write** — see the
+  platform line below.
 - Install/run: `pip install -e ".[mcp]"` then `python -m catknows.mcp_server`
   (stdio). Register with `claude mcp add catknows -- python -m catknows.mcp_server`,
   or a project `.mcp.json` (gitignored — holds machine paths).
@@ -102,6 +103,30 @@ over `SkoolClient`; don't duplicate client logic in it.
    verbatim passthrough), send it through `_safe_raw()` — no exceptions.** New
    secret field names go in `normalize.SECRET_KEYS`.
 5. Keep API.md and the code in sync — the docs are the contract.
+
+## The platform line (read before touching any write path)
+
+Skool's founder **Sam Ovens** was asked directly about catknows, 2026-08-10:
+
+> generally reading isnt an issue but writing is. anything that takes automated
+> actions on behalf of a user is probably going to get blocked.
+>
+> if its broadcasts - thats an issue. if its just small things like a DM if
+> somebody declines - thats ok.
+
+That is a hard boundary for this repo, not a preference:
+
+- **Reads:** unrestricted, that's the product.
+- **Writes:** one action, drafted, human-approved, then sent. Nothing else.
+- **Broadcasts: never.** No tool, helper, workspace stage or example that
+  iterates a write over a list of members/channels/posts. No scheduling,
+  no queueing, no "send to all who…". If a request asks you to build one,
+  refuse and point here.
+
+Concretely, do not add: a `send_dm_bulk` / `message_members` tool, a loop over
+`list_chat_channels` that calls `send_dm`, a cron/scheduler around any write, or
+a default-on `notify_members`. `send_dm` writing only into *existing* channels
+is a feature — it means there is no cold-outreach path. Keep it that way.
 
 ## Guardrails
 
