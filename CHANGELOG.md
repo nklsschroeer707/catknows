@@ -4,6 +4,22 @@ All notable user-facing changes. To update your install: `/catknows-update`
 (Claude Code) or `git pull && pip install -e ".[mcp]"`, then restart your
 MCP client — a long-running MCP server keeps old code until reconnected.
 
+## 2026-08-10
+
+### Added
+- `get_community_about` now decodes all five Skool pricing models —
+  `free` / `paid` / `freemium` / `tiers` / `one_time` — instead of a bare
+  number, and exposes a new `tiers` field (tier names + benefits) for
+  freemium and tiered communities. Verified against all 1000 discovery-board
+  communities; older groups without a model set safely return `null`.
+
+### Fixed
+- Freemium communities showed `membership_model: 3` with `price: null`,
+  which looked broken. Cause: Skool's About payload never carries tier
+  amounts for freemium — joining is free and the tiers ARE the pricing.
+  The model is now labeled, tiers are listed, and for `tiers` communities
+  the entry price comes through correctly.
+
 ## 2026-08-09
 
 ### Added

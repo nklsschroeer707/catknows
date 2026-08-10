@@ -15,6 +15,21 @@
 - **Membership matters:** posts, members, classroom need you to be a member
   of the community. Only `get_community_about` and `get_discovery` work from
   the outside.
+- **Pricing models:** `get_community_about` reports `membership_model` as
+  free / paid / freemium / tiers / one_time (Skool's five pricing options);
+  older groups may have none set → `null`. Paid, tiers and one_time carry a
+  `price` (for tiers it's the *entry* price; one_time has
+  `recurring_interval: "one_time"`); freemium always has `price: null` —
+  joining is free and Skool's About payload carries no tier amounts at all.
+  Tier names + benefits are in the `tiers` field. Don't report a freemium
+  community as "no pricing found" — the tiers ARE the pricing.
+- **Discovery rank ≠ top-1000 board:** `get_discovery` only sees the top
+  1000. A community can rank below that (the owner's Entdecken settings show
+  the true rank, e.g. #3527) — absent from the board ≠ not listed.
+- **Admin dashboard ≠ admin API:** `get_admin_metrics` covers member growth,
+  active members and the activity series only. Visitors, conversion rate,
+  signup sources, MRR and churn/retention exist only in Skool's dashboard UI
+  — say "not available via catknows" instead of guessing.
 - **Be polite:** the client already paces paginated pulls (~0.8 s/page). Big
   pulls (all members + all comments) take minutes — that's normal, don't
   parallelize harder to "fix" it.

@@ -202,6 +202,50 @@ def _slugs(groups) -> list[str]:
     return out
 
 
+# Skool's five pricing models, in the order of the Preise settings UI.
+# Older groups may carry no membershipModel at all -> passed through as None.
+_MEMBERSHIP_MODELS = {1: "free", 2: "paid", 3: "freemium", 4: "tiers", 5: "one_time"}
+
+
+def maybe_json(val):
+    """Skool nests JSON as *strings* inside metadata (displayPrice, owner,
+    event location, ...). Parse when it is one, pass through otherwise."""
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            return val
+    return val
+
+
+def about_pricing(data: dict) -> dict:
+    """Membership model, price and tiers from a raw about payload.
+
+    Paid (2) and tiers (4) groups carry ``displayPrice`` on
+    ``currentGroup.metadata`` — for tiers it is the entry price. Freemium
+    groups (3) never do — joining is free, and the tiers in
+    ``pageProps.groupMembershipProducts`` only carry billing-product *ids*,
+    not amounts, so ``price`` stays None for them.
+    """
+    # ponytail: tier amounts would need an api2 billing-products call; add if needed
+    pp = data.get("pageProps") or {}
+    md = (pp.get("currentGroup") or {}).get("metadata") or {}
+    price = maybe_json(md.get("displayPrice"))
+    model = md.get("membershipModel")
+    tiers = [
+        {
+            "tier": p.get("tier"),
+            "benefits": maybe_json((p.get("metadata") or {}).get("benefits")),
+        }
+        for p in pp.get("groupMembershipProducts") or []
+    ]
+    return {
+        "membership_model": _MEMBERSHIP_MODELS.get(model, model),
+        "price": price,
+        "tiers": tiers,
+    }
+
+
 # -- secret scrubbing (docs/API.md §6.6) --------------------------------------
 # Skool's page/api payloads carry credential-class fields that must NEVER leave
 # a raw=True tool result or land in a log: cleartext Zapier keys, Stripe payout
@@ -252,6 +296,18 @@ if __name__ == "__main__":
     ns = 1_700_000_000_000_000_000
     assert _ns_or_iso_to_dt(ns).year == 2023, "nanosecond parse failed"
     assert _ns_or_iso_to_dt("2024-01-15T10:00:00Z").year == 2024, "ISO parse failed"
+
+    ap = about_pricing({"pageProps": {
+        "currentGroup": {"name": "g", "metadata": {"membershipModel": 3}},
+        "groupMembershipProducts": [{"tier": "premium",
+                                     "metadata": {"benefits": '["a"]'}}],
+    }})
+    assert ap["membership_model"] == "freemium", "freemium model map failed"
+    assert ap["price"] is None, "freemium must have no join price"
+    assert ap["tiers"][0]["benefits"] == ["a"], "tier benefits parse failed"
+    paid = about_pricing({"pageProps": {"currentGroup": {"metadata": {
+        "membershipModel": 2, "displayPrice": '{"amount":900}'}}}})
+    assert paid["price"]["amount"] == 900, "paid displayPrice parse failed"
 
     m = member({"id": "u1", "name": "Ann", "member": {"role": "admin"},
                 "metadata": {"online": True, "lastOffline": ns,

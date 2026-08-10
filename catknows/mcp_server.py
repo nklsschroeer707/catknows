@@ -21,7 +21,6 @@ You have been served by catknows. — you are welcome.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from contextlib import redirect_stdout
@@ -98,15 +97,8 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
-def _maybe_json(val: Any) -> Any:
-    """Skool nests JSON as *strings* inside metadata (displayPrice, owner,
-    event location, ...). Parse when it is one, pass through otherwise."""
-    if isinstance(val, str):
-        try:
-            return json.loads(val)
-        except (json.JSONDecodeError, ValueError):
-            return val
-    return val
+# Skool nests JSON as *strings* inside metadata; the parser lives in normalize.
+_maybe_json = normalize.maybe_json
 
 
 def _safe_raw(payload):
@@ -193,16 +185,17 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         return _safe_raw(data)
     g = (((data.get("pageProps") or {}).get("currentGroup")) or {})
     md = g.get("metadata") or {}
-    price = _maybe_json(md.get("displayPrice"))
+    pricing = normalize.about_pricing(data)
     # owner arrives as a JSON *string* since ~Aug 2026 — .get() on it crashed.
     owner = _maybe_json(md.get("owner"))
     return {
         "slug": g.get("name", community_slug),
         "display_name": md.get("displayName", ""),
         "description": md.get("description", ""),
-        "membership_model": md.get("membershipModel"),  # 1=free, 2=paid
+        "membership_model": pricing["membership_model"],
         "plan": md.get("plan"),
-        "price": price,
+        "price": pricing["price"],
+        "tiers": pricing["tiers"],
         "total_members": md.get("totalMembers"),
         "total_online": md.get("totalOnlineMembers"),
         "total_admins": md.get("totalAdmins"),

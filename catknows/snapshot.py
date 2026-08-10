@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import SkoolClient, login
+from . import SkoolClient, login, normalize
 
 
 def _profile_dir() -> Path:
@@ -41,7 +41,7 @@ def _about_numbers(client: SkoolClient, slug: str) -> dict:
         "posts": md.get("totalPosts"),
         "courses": md.get("numCourses"),
         "plan": md.get("plan"),
-        "price": md.get("displayPrice"),
+        "price": normalize.about_pricing(data)["price"],
     }
 
 
