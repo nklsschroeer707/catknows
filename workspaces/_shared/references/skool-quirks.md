@@ -24,8 +24,10 @@
   Tier names + benefits are in the `tiers` field. Don't report a freemium
   community as "no pricing found" — the tiers ARE the pricing.
 - **Discovery rank ≠ top-1000 board:** `get_discovery` only sees the top
-  1000. A community can rank below that (the owner's Entdecken settings show
-  the true rank, e.g. #3527) — absent from the board ≠ not listed.
+  1000 — absent from the board ≠ not listed. For a community you OWN,
+  `get_discovery_rank` returns the true overall rank (can be 20000+) plus
+  the category rank; Skool's Entdecken settings UI shows the *category*
+  rank, so don't mix the two. Foreign communities: board only (401).
 - **Admin dashboard ≠ admin API:** `get_admin_metrics` covers member growth,
   active members and the activity series only. Visitors, conversion rate,
   signup sources, MRR and churn/retention exist only in Skool's dashboard UI

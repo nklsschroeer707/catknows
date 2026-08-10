@@ -204,11 +204,11 @@ class SkoolClient:
     def discovery(self, page: int = 1) -> dict:
         """Skool's global discovery board (docs/API.md §6.2), one page of ~30.
 
-        Uses the Next.js ``discovery.json`` route — the api2
-        ``/groups/{gid}/discovery`` endpoint is WAF-blocked (403). Returns raw
-        ``pageProps`` with ``groups[]`` (each ``{group, rank, tags}``),
-        ``numGroups`` (1000), and ``categories[]``. Query params other than
-        ``p`` are ignored server-side; filter/sort locally.
+        Uses the Next.js ``discovery.json`` route. Returns raw ``pageProps``
+        with ``groups[]`` (each ``{group, rank, tags}``), ``numGroups`` (1000),
+        and ``categories[]``. Query params other than ``p`` are ignored
+        server-side; filter/sort locally. For your *own* community's true
+        standing (beyond the top 1000) see :meth:`discovery_rank`.
         """
         self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
         q = "/discovery.json" if page <= 1 else f"/discovery.json?p={page}"
@@ -222,6 +222,15 @@ class SkoolClient:
             if isinstance(row, dict) and not row.get("rank"):
                 row["rank"] = (page - 1) * 30 + i + 1
         return pp
+
+    def discovery_rank(self, group_skool_id: str) -> dict:
+        """Your own community's discovery standing (owner-only, docs/API.md §1.7).
+
+        Returns ``{is_showing, rank, category:{id,name}, category_rank,
+        language_code, boost_enabled, rank_updated_at}``. Works beyond the
+        top-1000 board; foreign communities get a 401.
+        """
+        return self.http.get_api2(f"/groups/{group_skool_id}/discovery")
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
         """Admin dashboard metrics (owner/admin only, raw api2 response)."""

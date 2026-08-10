@@ -7,6 +7,11 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-08-10
 
 ### Added
+- `get_discovery_rank` is back: your own community's true discovery
+  standing — overall rank (works beyond the top-1000 board), category +
+  category rank, visibility, language and growth-boost status. The old
+  per-community endpoint was thought WAF-blocked; that block died with the
+  TLS-fingerprint fix in August.
 - `get_community_about` now decodes all five Skool pricing models —
   `free` / `paid` / `freemium` / `tiers` / `one_time` — instead of a bare
   number, and exposes a new `tiers` field (tier names + benefits) for

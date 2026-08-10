@@ -214,7 +214,8 @@ def get_discovery(page: int = 1) -> dict:
     Returns rank, slug, name, price, members and category-tags per community,
     plus the list of categories. Skool ranks the top 1000 (page 1–34). Query
     filters other than page are ignored by Skool, so pull pages and filter
-    locally. (The old per-community api2 discovery endpoint is WAF-blocked.)
+    locally. For YOUR own community's true standing (also beyond the top
+    1000) use get_discovery_rank.
     """
     pp = _get_client().discovery(page)
     cats = [{"slug": c.get("slug"), "name": c.get("name")} for c in (pp.get("categories") or [])]
@@ -232,6 +233,28 @@ def get_discovery(page: int = 1) -> dict:
             "tags": row.get("tags"),
         })
     return {"page": page, "total_ranked": pp.get("numGroups"), "categories": cats, "communities": groups}
+
+
+@mcp.tool()
+def get_discovery_rank(community_slug: str) -> dict:
+    """Get YOUR community's discovery standing (owner only): overall rank + category rank.
+
+    Works beyond the top-1000 board (e.g. overall rank 28302). Also returns
+    visibility, category, language and growth-boost status. Communities you
+    don't own return a 401 — for those only the top-1000 board
+    (get_discovery) is available.
+    """
+    client = _get_client()
+    d = client.discovery_rank(client.group_id_for(community_slug))
+    return {
+        "is_showing": d.get("is_showing"),
+        "rank": d.get("rank"),
+        "category": (d.get("category") or {}).get("name"),
+        "category_rank": d.get("category_rank"),
+        "language": d.get("language_code"),
+        "boost_enabled": d.get("boost_enabled"),
+        "rank_updated_at": d.get("rank_updated_at"),
+    }
 
 
 @mcp.tool()

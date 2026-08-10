@@ -15,6 +15,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_member_profile` | user_name, slug | bio, socials, stats (user_name = Skool handle) |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
+| `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |
 | `get_calendar` | slug, cal_date=0 | events; cal_date = unix ts for a future month |
 | `get_admin_metrics` | slug, range="30d" | growth/engagement (members, active, activity series) — owner/admin only; no visitors/conversion/MRR (see skool-quirks.md) |
