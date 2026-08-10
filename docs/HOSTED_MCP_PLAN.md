@@ -20,9 +20,9 @@ offen für alle, bezahlbare Komfort-/Business-Schicht obendrauf).
    auf Handy und Desktop.
 3. Beim ersten Verbinden öffnet sich ein Login-Fenster („Mit Google anmelden"
    oder E-Mail) — das ist der catknows-Account.
-4. Im catknows-Web-Dashboard verbindet er einmalig sein Skool-Konto: Skool-
-   E-Mail + Passwort eingeben, fertig — fühlt sich an wie jeder App-Login und
-   funktioniert komplett am Handy. (Technik: siehe §2a.)
+4. Im catknows-Web-Dashboard verbindet er einmalig sein Skool-Konto: „Skool
+   verbinden" tippen → Skools echte Login-Seite erscheint, normal einloggen
+   (auch per Google/Apple), fertig. Komplett am Handy. (Technik: siehe §2a.)
 5. Ab dann: „Wer sind meine 10 aktivsten Member?" — direkt am Handy.
 
 Das ist das Muster der etablierten Anbieter (Canva `mcp.canva.com/mcp`,
@@ -53,38 +53,13 @@ Der gehostete Server nutzt **denselben Kern wie dieses Repo** — obendrauf
 kommt nur die Multi-Tenant-Schicht (Login, Session-Store, Dashboard). Kein
 zweites System; Verbesserungen fließen in beide Richtungen.
 
-### 2a. Skool-Verbindung ohne Cookie-Gefummel
+### 2a. Skool-Verbindung: gestreamter Remote-Login
 
 Skools `auth_token` ist httpOnly und die WAF-Challenge löst nur in echten
 Browsern — genau deshalb macht [`auth.py`](../catknows/auth.py) den Login
-lokal über Playwright. Gehostet machen wir dasselbe serverseitig:
-
-- Der Nutzer gibt im Dashboard **Skool-E-Mail + Passwort** ein. Der Server
-  loggt sich damit in einem Headless-Browser bei skool.com ein, übernimmt die
-  Session in den verschlüsselten Store und **verwirft das Passwort sofort** —
-  es wird nie gespeichert (nachprüfbar, open source).
-- Pro Nutzer bleibt das Browser-Profil (verschlüsselt) erhalten — läuft die
-  Session ab, erneuert sie sich headless und lautlos, wie lokal mit
-  `profile_dir`.
-- Nach dem Verbinden gleicht der Server die E-Mail des Skool-Profils mit der
-  Login-E-Mail des catknows-Accounts ab — niemand hängt (versehentlich oder
-  absichtlich) eine fremde Skool-Session in sein Konto.
-- **Caveat:** Wer sich bei Skool nur per Google/Apple-SSO anmeldet, setzt
-  einmalig über „Passwort vergessen" ein Skool-Passwort (SSO können wir
-  serverseitig nicht stellvertretend durchführen). Gehört prominent in die
-  Anleitung.
-- Cookie einfügen bleibt als Power-User-Fallback erhalten.
-
-**Ein echter OAuth-Redirect zu Skool geht nicht** — Skool bietet keinen
-solchen Endpoint, und ein Login in Skools Domain im *eigenen* Handy-Browser
-setzt das httpOnly-`auth_token`-Cookie auf `skool.com`, das unsere Domain
-per Same-Origin-Policy nie lesen kann.
-
-### 2b. Ziel-Onboarding: gestreamter Remote-Login (Phase 3)
-
-Der beste Flow löst das Passwort-Optik- **und** das SSO-Problem zugleich:
-ein serverseitiger Browser, der dem Nutzer als interaktives Fenster ins
-Dashboard gestreamt wird.
+lokal über Playwright. Gehostet ist der Zielweg **direkt** der gestreamte
+Remote-Login (keine Passwort-Zwischenlösung): ein serverseitiger Browser,
+der dem Nutzer als interaktives Fenster ins Dashboard gestreamt wird.
 
 1. Nutzer tippt „Skool verbinden".
 2. Der Server öffnet Skools **echte** Login-Seite in einer Browser-Session
@@ -95,11 +70,24 @@ Dashboard gestreamt wird.
 4. Der Login passiert im Browser auf unserem Server → das `auth_token`-Cookie
    landet direkt in unserer (verschlüsselten) Jar.
 
-Vorteil: Nutzer gibt uns nie sein Passwort, SSO-Nutzer sind ohne Umweg dabei.
-Preis: echte Komponente (Remote-Browser-Streaming via CDP/WebRTC, eine
-Session pro Nutzer; Bausteine: Browserbase, Steel.dev, self-hosted Neko).
-Deshalb **Phase 3**, nicht der erste Schritt — der Passwort-Weg aus §2a ist
-die Übergangslösung, bis der gestreamte Login steht.
+- Vorteil: Nutzer gibt uns nie sein Passwort, SSO-Nutzer sind ohne Umweg dabei
+  — ein einziger Weg für alle, kein Caveat.
+- Pro Nutzer bleibt das Browser-Profil (verschlüsselt) erhalten — läuft die
+  Session ab, erneuert sie sich headless und lautlos, wie lokal mit
+  `profile_dir`.
+- Nach dem Verbinden gleicht der Server die E-Mail des Skool-Profils mit der
+  Login-E-Mail des catknows-Accounts ab — niemand hängt (versehentlich oder
+  absichtlich) eine fremde Skool-Session in sein Konto.
+- Cookie einfügen bleibt als Power-User-Fallback erhalten.
+- **Aufwand, ehrlich:** echte Komponente (Remote-Browser-Streaming via
+  CDP/WebRTC, eine Session pro Nutzer; Bausteine: Browserbase, Steel.dev,
+  self-hosted Neko). Das ist der größte Brocken des Projekts und wird direkt
+  richtig gebaut, statt eine Passwort-Übergangslösung wegzuwerfen.
+
+**Ein echter OAuth-Redirect zu Skool geht nicht** — Skool bietet keinen
+solchen Endpoint, und ein Login in Skools Domain im *eigenen* Handy-Browser
+setzt das httpOnly-`auth_token`-Cookie auf `skool.com`, das unsere Domain
+per Same-Origin-Policy nie lesen kann. Darum der Umweg über den Server-Browser.
 
 ## 3. Website und MCP auf einem Server?
 
@@ -153,13 +141,13 @@ Connector-Verzeichnis:
   eigenen Account testen (MCP-Inspector, dann claude.ai-Connector, dann
   Handy). Damit ist das Selbst-Hosting-Zielbild aus dem alten Plan nebenbei
   miterfüllt.
-- **Phase 2 — Multi-Tenant.** Session-Store pro Nutzer (verschlüsselt),
-  Mini-Dashboard: Login, Skool per E-Mail+Passwort verbinden (§2a),
+- **Phase 2 — Multi-Tenant + gestreamter Login.** Session-Store pro Nutzer
+  (verschlüsselt), Mini-Dashboard: Login, Skool per gestreamtem Remote-Login
+  verbinden (§2a — direkt der Zielweg, keine Passwort-Zwischenstufe),
   Write-Toggle, Daten löschen. Kleiner Beta-Kreis aus der Community.
-- **Phase 3 — Reibungsloses Onboarding + öffentlich.** Gestreamter
-  Remote-Login (§2b) als Standard-Weg. Website/Landing + Privacy Policy,
-  Anleitung („in 3 Minuten verbunden"), OSS-Variante prominent verlinkt
-  (About, Banner, Community).
+- **Phase 3 — Öffentlich.** Website/Landing + Privacy Policy, Anleitung
+  („in 3 Minuten verbunden"), OSS-Variante prominent verlinkt (About,
+  Banner, Community).
 - **Phase 4 — Verzeichnis.** Submission ins Anthropic-Connector-Verzeichnis
   (Annotations, Test-Account, 10-Minuten-Doku für Reviewer). Danach: ein
   Klick statt URL-Copy-Paste.
