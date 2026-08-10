@@ -104,6 +104,5 @@ the client restarts. End by telling the user plainly:
 
 ## Notes
 
-- This updates a **local** install. It does not touch the hosted cat-knows.com
-  server (that's a separate repo + deploy).
+- This updates a **local** install — the catknows checkout on this machine.
 - Read-only by default; never runs the Skool login or any write tool as part of an update.

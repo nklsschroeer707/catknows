@@ -30,8 +30,9 @@ already use" over "your AI".
 | `catnose` | the Skool community slug, nothing else — it's the cat's *nose*; explain the pun once per surface ("the community lives at the cat's nose") |
 | `catknews.` | the news format (weekly call, news posts) — the only spelling |
 
-Never: `CatKnows`, `Catknows`, `catknwes`, `cat-knows-1423`. Do not mention
-`cat-knows.com` on any open-source surface.
+Never: `CatKnows`, `Catknows`, `catknwes`, `cat-knows-1423`, `cat-knows.com`.
+The hyphenated domain is legacy and points at nothing — catknows lives on
+GitHub and at skool.com/catnose.
 
 ## The signature
 
