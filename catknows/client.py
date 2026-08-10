@@ -213,7 +213,15 @@ class SkoolClient:
         self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
         q = "/discovery.json" if page <= 1 else f"/discovery.json?p={page}"
         data = self.http.get_next(q, "")
-        return data.get("pageProps", data)
+        pp = data.get("pageProps", data)
+        # Since ~Aug 2026 Skool ships rank: 0 on every row — the ordinal is
+        # only implicit in the page order (30 per page). Compute it here so
+        # every consumer (MCP tool, snapshot) gets real ranks; if Skool ever
+        # revives the field, its non-zero value wins.
+        for i, row in enumerate(pp.get("groups") or []):
+            if isinstance(row, dict) and not row.get("rank"):
+                row["rank"] = (page - 1) * 30 + i + 1
+        return pp
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
         """Admin dashboard metrics (owner/admin only, raw api2 response)."""

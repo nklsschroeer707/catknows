@@ -14,6 +14,10 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   communities; older groups without a model set safely return `null`.
 
 ### Fixed
+- `get_discovery` returned `rank: 0` for every community — Skool stopped
+  populating the rank field, so catknows now derives the ordinal from the
+  page order (page 1 → 1–30, page 34 → 991–1000). Verified across pages
+  1, 2 and 34. (Reported by Dan & Maya's clean-room diagnostic — thanks!)
 - Freemium communities showed `membership_model: 3` with `price: null`,
   which looked broken. Cause: Skool's About payload never carries tier
   amounts for freemium — joining is free and the tiers ARE the pricing.
