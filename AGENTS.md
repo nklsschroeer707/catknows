@@ -114,3 +114,5 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Never commit `.skool-profile/`** — it holds the user's live session.
 - This is not an official API; write code defensively (endpoints may 403/change).
 - Personal data (member emails/names) is being exported — see [LEGAL.md](LEGAL.md).
+- Anything user-facing you write (README copy, posts, About/event texts) follows
+  [BRAND.md](BRAND.md) — naming canon, voice registers, the exact signature.

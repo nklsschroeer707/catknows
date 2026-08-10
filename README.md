@@ -4,12 +4,12 @@
 
 # `catknows.`
 
-### ▸ the free, open-source bridge between Skool and any AI ◂
+### ▸ Your Skool data, in your AI ◂
 
 ```text
 Skool has no API. catknows is the one.
   members · posts · comments · likes · DMs · leaderboards
-  → straight into Claude, ChatGPT, Notion, a vault, or raw JSON
+  → straight into Claude, ChatGPT, Cursor — or a vault, or raw JSON
   now you can finally talk to your own data.
   no subscription · no middleman · you own it.
   You have been served by catknows. — you are welcome.
@@ -25,7 +25,7 @@ Skool has no API. catknows is the one.
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](#contributing)
 [![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/catnose/about)
 
-**Stop paying to read your own Skool data. catknows is the bridge between Skool and every AI tool — pull your members, posts, comments, DMs and the discovery leaderboard straight into Claude, ChatGPT, Notion, a clean Obsidian vault, or raw JSON. Now you can finally talk to your own data. Free, open source, yours.**
+**Stop paying to read your own Skool data. catknows is the bridge between Skool and every AI tool — pull your members, posts, comments, DMs and the discovery leaderboard straight into Claude, ChatGPT or Cursor, into a clean Obsidian vault or raw JSON — and let your AI route it on to Notion & friends. Now you can finally talk to your own data. Free, open source, yours.**
 
 <br>
 
@@ -47,11 +47,11 @@ You say: *"Cat, who came to my clubhouse today?"* The cat runs in, sniffs everyt
 
 **Three things. That's it:**
 
-1. 🔌 **Plug the cat in.** One time. Like a lamp.
-2. 🗣️ **Ask the cat stuff.** Normal words — *"Who's new?" "What did everyone like?" "Who's leaving?"*
-3. 📎 **The cat brings it back.** Neat and tidy. And it remembers — so it gets smarter every day.
+1. 🔌 **Plug the cat in.** One time. Your robot friend can help you do it.
+2. 🗣️ **Ask the cat stuff.** Normal words — *"Who's new?" "What did everyone like?" "Who's fading?"*
+3. 📎 **The cat serves it back.** Neat and tidy — with your secret stuff (money things, passwords) hidden so no one bad ever sees it. 🛡️
 
-The cat also **hides your secret stuff** (money things, passwords) so no one bad ever sees it. 🛡️
+Give the cat a notebook (a vault 📓) and it also **remembers** everything it fetched — ready for next time.
 
 It costs **nothing.** 🆓 Only *you* see your things. The cat works for you, in your own house, forever.
 
@@ -70,7 +70,8 @@ catknows says: don't. Skool has no public API, but its site talks to a private
 one — the same endpoints skool.com uses. **catknows is the bridge to exactly
 those endpoints.** Log in with your normal Skool account, and it hands your data
 to whatever you already use: through [MCP](#plug-it-into-your-ai-mcp) it plugs
-straight into **Claude, ChatGPT, Notion, Cursor** and any other AI tool, so you
+straight into **Claude, ChatGPT, Cursor** and any other MCP-capable AI (Notion
+& co. via your AI's connectors), so you
 can *talk* to your community data — or dump it into a clean Obsidian vault or raw
 JSON for anything else. **No subscription. No middleman. You own it.**
 
@@ -118,6 +119,10 @@ py -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -e .
 playwright install chromium
 ```
+
+> **Windows note:** if `Activate.ps1` is blocked ("running scripts is
+> disabled"), run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once,
+> answer `Y`, and retry.
 
 > **Why the venv?** Recent macOS (Homebrew) and Linux (Debian/Ubuntu/Fedora)
 > ship an "externally managed" Python that refuses a bare `pip install`
@@ -183,15 +188,26 @@ registration, and your AI can query members, posts, comments, DMs, leaderboards,
 or pull the whole vault — you just ask in plain language.
 
 ```bash
-pip install -e ".[mcp]"
-claude mcp add catknows -- python -m catknows.mcp_server   # Claude Code
+pip install -e ".[mcp]"        # in the venv from Quick start
+claude mcp add catknows -- /absolute/path/to/catknows/.venv/bin/python -m catknows.mcp_server   # Claude Code
 ```
 
-For other MCP clients, register `python -m catknows.mcp_server` as a stdio
-server (in Claude Desktop: Settings → Developer → Edit Config). On the first
-tool call a browser window opens once for the Skool login; after that the
-session is reused silently. Headless machine? Set the `CATKNOWS_COOKIE` env var
-to your Cookie header instead.
+For other MCP clients, register catknows as a stdio server (in Claude Desktop:
+Settings → Developer → Edit Config). **Point it at the venv's Python** — the
+absolute path to `.venv/bin/python` (Windows: `.venv\Scripts\python.exe`). A
+bare `python` starts the *system* Python, which doesn't have catknows installed
+and fails with `ModuleNotFoundError`:
+
+```json
+"catknows": {
+  "command": "/absolute/path/to/catknows/.venv/bin/python",
+  "args": ["-m", "catknows.mcp_server"]
+}
+```
+
+On the first tool call a browser window opens once for the Skool login; after
+that the session is reused silently. Headless machine? Set the `CATKNOWS_COOKIE`
+env var to your Cookie header instead.
 
 Then just talk to your AI:
 
@@ -204,7 +220,8 @@ Then just talk to your AI:
 
 ```json
 "catknows": {
-  "command": "python", "args": ["-m", "catknows.mcp_server"],
+  "command": "/absolute/path/to/catknows/.venv/bin/python",
+  "args": ["-m", "catknows.mcp_server"],
   "env": { "CATKNOWS_ALLOW_WRITE": "1" }
 }
 ```
@@ -311,7 +328,7 @@ yours. catknows removes the fee and the middleman — it just gives you the acce
   in the [Skool community](https://www.skool.com/catnose/about). No pricing page
   decides for you.
 
-If catknows saves you a subscription and you *want* to buy the maintainers a
+If catknows saves you a subscription and you *want* to buy me a
 coffee (or a bagel 🥯), the door's open — but it is never required. Use it free,
 no strings.
 

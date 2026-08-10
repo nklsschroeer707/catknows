@@ -1,7 +1,7 @@
 [project]
 name = "catknows"
 version = "0.1.0"
-description = "catknows — an unofficial, documented client for Skool's private API. Pull your community data into Obsidian, a vault, or any CRM."
+description = "catknows — your Skool data, in your AI. Free, open-source bridge from Skool's private API to Claude, ChatGPT, and any MCP-capable tool. Runs on your machine. You own it."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
