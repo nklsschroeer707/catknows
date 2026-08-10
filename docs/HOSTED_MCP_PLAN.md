@@ -75,6 +75,32 @@ lokal über Playwright. Gehostet machen wir dasselbe serverseitig:
   Anleitung.
 - Cookie einfügen bleibt als Power-User-Fallback erhalten.
 
+**Ein echter OAuth-Redirect zu Skool geht nicht** — Skool bietet keinen
+solchen Endpoint, und ein Login in Skools Domain im *eigenen* Handy-Browser
+setzt das httpOnly-`auth_token`-Cookie auf `skool.com`, das unsere Domain
+per Same-Origin-Policy nie lesen kann.
+
+### 2b. Ziel-Onboarding: gestreamter Remote-Login (Phase 3)
+
+Der beste Flow löst das Passwort-Optik- **und** das SSO-Problem zugleich:
+ein serverseitiger Browser, der dem Nutzer als interaktives Fenster ins
+Dashboard gestreamt wird.
+
+1. Nutzer tippt „Skool verbinden".
+2. Der Server öffnet Skools **echte** Login-Seite in einer Browser-Session
+   auf dem VPS und streamt sie live ins Dashboard (Handy tauglich).
+3. Der Nutzer loggt sich normal ein — **auch per Google/Apple-SSO**, weil es
+   aus seiner Sicht ein echter Browser ist. Das Passwort tippt er bei Skool,
+   **nie bei uns**.
+4. Der Login passiert im Browser auf unserem Server → das `auth_token`-Cookie
+   landet direkt in unserer (verschlüsselten) Jar.
+
+Vorteil: Nutzer gibt uns nie sein Passwort, SSO-Nutzer sind ohne Umweg dabei.
+Preis: echte Komponente (Remote-Browser-Streaming via CDP/WebRTC, eine
+Session pro Nutzer; Bausteine: Browserbase, Steel.dev, self-hosted Neko).
+Deshalb **Phase 3**, nicht der erste Schritt — der Passwort-Weg aus §2a ist
+die Übergangslösung, bis der gestreamte Login steht.
+
 ## 3. Website und MCP auf einem Server?
 
 Ja — Standard-Setup, ein VPS reicht: Caddy als Reverse Proxy, Website unter
@@ -128,11 +154,12 @@ Connector-Verzeichnis:
   Handy). Damit ist das Selbst-Hosting-Zielbild aus dem alten Plan nebenbei
   miterfüllt.
 - **Phase 2 — Multi-Tenant.** Session-Store pro Nutzer (verschlüsselt),
-  Mini-Dashboard: Login, Skool-Session hinterlegen, Write-Toggle,
-  Daten löschen. Kleiner Beta-Kreis aus der Community.
-- **Phase 3 — Öffentlich.** Website/Landing + Privacy Policy, Anleitung
-  („in 3 Minuten verbunden"), OSS-Variante prominent verlinkt (About,
-  Banner, Community).
+  Mini-Dashboard: Login, Skool per E-Mail+Passwort verbinden (§2a),
+  Write-Toggle, Daten löschen. Kleiner Beta-Kreis aus der Community.
+- **Phase 3 — Reibungsloses Onboarding + öffentlich.** Gestreamter
+  Remote-Login (§2b) als Standard-Weg. Website/Landing + Privacy Policy,
+  Anleitung („in 3 Minuten verbunden"), OSS-Variante prominent verlinkt
+  (About, Banner, Community).
 - **Phase 4 — Verzeichnis.** Submission ins Anthropic-Connector-Verzeichnis
   (Annotations, Test-Account, 10-Minuten-Doku für Reviewer). Danach: ein
   Klick statt URL-Copy-Paste.
