@@ -43,3 +43,8 @@
 - **Post categories ("labels")** are ids, not names. To find one, pull an
   existing post of that category with `list_posts(raw=true)` and reuse its
   label id.
+- **Post attachments (PDFs etc.):** the post list only carries attachment
+  *ids* in `metadata.attachments`. The download link lives in the post-detail
+  page (`/{group}/{post-name}.json` → `metadata.attachmentsData`, a JSON
+  string with `file_name` + `read_url` on assets.skool.com). The asset CDN
+  is not WAF-gated like the API.
