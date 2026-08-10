@@ -182,6 +182,10 @@ selbst geben.
      gepostet.
 - `notify_members` (Mail an alle) ist ein **extra** Schalter im selben Aufruf —
   wird nur gesetzt, wenn du es ausdrücklich sagst.
+- **Eine Aktion pro Freigabe, nie eine Kampagne.** Auch remote gibt es keinen
+  Weg, einen Write über eine Liste laufen zu lassen — das ist die Grenze, die
+  Skools Gründer gezogen hat (AGENTS.md → „The platform line"). Ein gehosteter
+  Server ändert daran nichts; er macht es nur wichtiger.
 
 ### Was der Nutzer in der App tatsächlich TUT
 - **Nichts umstellen im Chat.** Er formuliert nur die Absicht („schreib einen

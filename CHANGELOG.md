@@ -18,6 +18,14 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   freemium and tiered communities. Verified against all 1000 discovery-board
   communities; older groups without a model set safely return `null`.
 
+### Documented
+- **Where Skool stands on this** (README): catknows was taken to Skool's
+  founder directly. His answer is quoted verbatim — reading isn't an issue,
+  automated writing on a user's behalf probably gets blocked, and the actual
+  line is *broadcasts*, not writes. That line is now the documented design:
+  reads unrestricted, writes single and human-approved, broadcasts never
+  shipped. Not an endorsement — see LEGAL.md.
+
 ### Fixed
 - `get_discovery` returned `rank: 0` for every community — Skool stopped
   populating the rank field, so catknows now derives the ordinal from the

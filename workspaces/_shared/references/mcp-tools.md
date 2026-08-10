@@ -30,6 +30,12 @@ nothing is sent until called again with `confirm=true` after the human
 approved the exact text. Never set `notify_members` (it emails everyone)
 unless the human explicitly asked for that.
 
+**One write per run, never a loop.** No stage may iterate a write over a list
+of members, channels or communities — that's a broadcast, and it's the one
+thing this project committed to Skool it would not do (AGENTS.md → "The
+platform line"). "Send this to everyone who…" is not a bigger run, it's a
+refusal.
+
 ## Rules of thumb
 
 - Avoid `raw=true` — raw payloads are huge and blow the tool-result cap.
