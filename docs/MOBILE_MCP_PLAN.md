@@ -1,5 +1,10 @@
 # Plan: catknows als Connector in der Claude-App (Mobile)
 
+> **Update 2026-08-10:** Die Strategie ist weitergezogen — das Hauptprodukt
+> wird ein von uns **gehosteter** MCP-Server, die Open-Source-Variante bleibt
+> daneben bestehen. Siehe [HOSTED_MCP_PLAN.md](HOSTED_MCP_PLAN.md). Dieser
+> Plan bleibt als Referenz für das Selbst-Hosting (Modell A) gültig.
+
 Ziel: Du (oder ein Nutzer) fügt catknows in der Claude-App als Connector hinzu
 und kann vom Handy aus Skool-Daten abfragen — und, wenn eingeschaltet, posten.
 
