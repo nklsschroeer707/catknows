@@ -57,6 +57,37 @@ mcp.catknows.app {
 	}
 }
 
+# Keycloak — the OAuth authorization server (deploy/keycloak/compose.yml).
+# No gate here on purpose: clients must reach the discovery and token
+# endpoints *before* they have a token. That's what makes OAuth work.
+auth.catknows.app {
+	reverse_proxy 127.0.0.1:8080
+
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	log {
+		output file /var/log/caddy/auth.catknows.app.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		# Auth traffic carries credentials in headers and form bodies.
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+}
+
 # ponytail: the landing page is a separate concern — add a `catknows.app { ... }`
 # block here when there's something to serve, or point the apex at Cloudflare
 # Pages and leave this file to the MCP endpoint alone.

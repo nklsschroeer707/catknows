@@ -25,3 +25,6 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Keycloak credentials — the real .env holds admin + DB passwords
+deploy/keycloak/.env

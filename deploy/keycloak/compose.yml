@@ -1,0 +1,67 @@
+# Keycloak as the OAuth 2.1 authorization server for the hosted MCP endpoint.
+# See docs/HOSTED_MCP_PLAN.md §4a for why this runs here and not at a provider.
+#
+#   cd /opt/catknows/deploy/keycloak
+#   cp .env.example .env   # then fill in the secrets
+#   docker compose up -d
+#
+# Keycloak binds loopback only — Caddy terminates TLS on auth.catknows.app and
+# proxies here, same shape as the MCP server. Never publish 8080 itself.
+
+name: catknows-auth
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No ports: — only Keycloak talks to it, over the compose network.
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5
+    restart: unless-stopped
+    # `start` (not start-dev): dev mode runs an in-memory H2 that loses every
+    # account on restart and disables security defaults.
+    command: start --optimized
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+
+      KC_HOSTNAME: https://auth.catknows.app
+      # Caddy terminates TLS and forwards the original scheme/host. Without
+      # this Keycloak builds redirect URLs as http:// and every OAuth flow
+      # breaks at the redirect.
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USER:?set ADMIN_USER in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+    ports:
+      # Loopback only. Caddy reaches it here; the internet never does.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # The image has no curl/wget — Keycloak ships its own JVM, so use that.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\nHost: localhost\\nConnection: close\\n\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  pgdata:
