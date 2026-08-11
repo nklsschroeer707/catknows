@@ -563,6 +563,22 @@ def main() -> None:
             "CATKNOWS_SESSION_DIR is not set — the dashboard exists to fill the "
             "per-user session store, so without it there is nothing to do."
         )
+
+    # Starlette defines the WebSocket API but uvicorn speaks the protocol, and
+    # without wsproto/websockets it answers every upgrade with a plain 404 —
+    # which reads like a routing bug and costs an hour to find. Fail loudly here
+    # instead: the streamed login is the whole point of this service.
+    try:
+        import wsproto  # noqa: F401
+    except ImportError:
+        try:
+            import websockets  # noqa: F401
+        except ImportError:
+            raise SystemExit(
+                "No WebSocket library installed, so the streamed login would 404 "
+                "on every connection attempt. Install one:\n"
+                "    pip install wsproto"
+            ) from None
     uvicorn.run(
         app,
         host=_env("CATKNOWS_DASHBOARD_HOST", "127.0.0.1"),

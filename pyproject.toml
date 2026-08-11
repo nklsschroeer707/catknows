@@ -12,9 +12,15 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.2"]
-# Only the hosted HTTP server: OAuth token verification and the encrypted
-# per-user session store. A local stdio install needs neither.
-hosted = ["mcp>=1.2", "pyjwt>=2.8", "cryptography>=42"]
+# Only the hosted HTTP server: OAuth token verification, the encrypted per-user
+# session store, and the dashboard's streamed login. A local stdio install needs
+# none of it.
+#
+# wsproto is not optional despite Starlette speaking WebSockets: Starlette only
+# defines the API, uvicorn has to speak the wire protocol, and without one of
+# wsproto/websockets it answers every upgrade with a 404. The failure looks like
+# a routing bug, not a missing package.
+hosted = ["mcp>=1.2", "pyjwt>=2.8", "cryptography>=42", "wsproto>=1.2"]
 
 [project.scripts]
 catknows = "catknows.__main__:main"
