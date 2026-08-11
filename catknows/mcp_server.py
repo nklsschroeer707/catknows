@@ -40,6 +40,11 @@ mcp = MCPServer("catknows")
 _client = None  # lazy: log in only when the first tool actually needs Skool
 
 
+def _http_mode() -> bool:
+    """True when the server should speak streamable HTTP instead of stdio."""
+    return os.environ.get("CATKNOWS_HTTP", "") == "1"
+
+
 def _profile_dir() -> Path:
     return Path(
         os.environ.get("CATKNOWS_PROFILE_DIR", Path.home() / ".catknows" / "skool-profile")
@@ -67,6 +72,15 @@ def _get_client():
                     # Fast path: persisted profile -> headless, no window.
                     session = login(profile_dir=_profile_dir(), headless=True, timeout_ms=30_000)
                 except Exception:
+                    if _http_mode():
+                        # No display on a server — a visible window would hang
+                        # the request instead of asking anyone to log in.
+                        raise RuntimeError(
+                            "Skool session expired and no browser can be shown in HTTP mode. "
+                            "Set CATKNOWS_COOKIE to a raw Cookie header, or refresh "
+                            f"{_profile_dir()} by running the stdio server once on a machine "
+                            "with a display."
+                        ) from None
                     # First run or expired session: visible window, user logs in.
                     session = login(profile_dir=_profile_dir(), headless=False)
         _client = SkoolClient(session)
@@ -447,8 +461,60 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
 
 def main() -> None:
-    mcp.run()  # stdio transport
+    if not _http_mode():
+        mcp.run()  # stdio transport (default)
+        return
+    # Streamable HTTP for remote/hosted use. Binds loopback by default: this
+    # transport carries no auth yet, so a reverse proxy (Caddy) terminates TLS
+    # and fronts it. CATKNOWS_HOST=0.0.0.0 has to be a deliberate choice.
+    mcp.run(
+        transport="streamable-http",
+        host=os.environ.get("CATKNOWS_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CATKNOWS_PORT", "8000")),
+    )
+
+
+def _self_check() -> None:
+    """Transport switch: python -m catknows.mcp_server --self-check
+
+    Records what main() would run instead of actually serving.
+    """
+    calls: list[tuple] = []
+    real_run, mcp.run = mcp.run, lambda *a, **kw: calls.append((a, kw))
+    real_env = dict(os.environ)
+    try:
+        for var in ("CATKNOWS_HTTP", "CATKNOWS_HOST", "CATKNOWS_PORT"):
+            os.environ.pop(var, None)
+        main()
+        assert calls == [((), {})], f"default must stay stdio, got {calls}"
+
+        calls.clear()
+        os.environ["CATKNOWS_HTTP"] = "1"
+        main()
+        (_, kw), = calls
+        assert kw["transport"] == "streamable-http", kw
+        assert kw["host"] == "127.0.0.1", f"must bind loopback unless asked, got {kw['host']}"
+        assert kw["port"] == 8000, kw
+
+        calls.clear()
+        os.environ.update(CATKNOWS_HOST="0.0.0.0", CATKNOWS_PORT="9000")
+        main()
+        (_, kw), = calls
+        assert (kw["host"], kw["port"]) == ("0.0.0.0", 9000), kw
+
+        calls.clear()
+        os.environ["CATKNOWS_HTTP"] = "0"  # only "1" flips it
+        main()
+        assert calls == [((), {})], f"CATKNOWS_HTTP=0 must stay stdio, got {calls}"
+    finally:
+        mcp.run = real_run
+        os.environ.clear()
+        os.environ.update(real_env)
+    print("mcp_server transport self-check OK")
 
 
 if __name__ == "__main__":
-    main()
+    if "--self-check" in sys.argv:
+        _self_check()
+    else:
+        main()
