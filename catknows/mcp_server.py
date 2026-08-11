@@ -460,6 +460,50 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         return {"status": "sent", "message": sent}
 
 
+# -- tool annotations ----------------------------------------------------------
+# Clients (and the Anthropic connector directory) read these hints to decide
+# what needs a confirmation prompt. Everything here talks to Skool, so all tools
+# are open-world; the only question per tool is whether it changes anything.
+#
+# Set in one place rather than as 17 decorator arguments: the safe default is
+# "not read-only", so a tool added later is treated as a writer until someone
+# lists it here on purpose. Failing closed beats a forgotten annotation.
+
+_READ_ONLY = {
+    "list_members", "list_posts", "get_post_comments", "get_post_likes",
+    "get_member_profile", "get_community_about", "get_discovery",
+    "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
+    "list_chat_channels",
+}
+# Acts as the user, visible to real members, can't be taken back.
+_DESTRUCTIVE = {"create_post", "send_dm"}
+
+
+def _annotate_tools() -> None:
+    # mcp._tool_manager is private SDK API — the decorator takes annotations
+    # per tool, but that means repeating the same block 17 times. The
+    # self-check asserts the annotations actually land, so an SDK rename
+    # fails loudly instead of silently shipping unannotated tools.
+    from mcp.types import ToolAnnotations
+
+    for tool in mcp._tool_manager.list_tools():
+        read_only = tool.name in _READ_ONLY
+        tool.annotations = ToolAnnotations(
+            read_only_hint=read_only,
+            # Only meaningful when read_only is false; writers that merely add
+            # (a post, a DM) are not destructive in the "deletes data" sense,
+            # but they are irreversible and public — flag them.
+            destructive_hint=tool.name in _DESTRUCTIVE,
+            # Reads hit a live community, so repeating one can return something
+            # different; it just doesn't *change* anything.
+            idempotent_hint=False,
+            open_world_hint=True,
+        )
+
+
+_annotate_tools()
+
+
 def main() -> None:
     if not _http_mode():
         mcp.run()  # stdio transport (default)
@@ -510,7 +554,28 @@ def _self_check() -> None:
         mcp.run = real_run
         os.environ.clear()
         os.environ.update(real_env)
-    print("mcp_server transport self-check OK")
+
+    # Annotations: every tool carries them (catches an SDK rename of the
+    # private manager), and nothing that writes claims to be read-only.
+    tools = {t.name: t.annotations for t in mcp._tool_manager.list_tools()}
+    assert tools, "no tools registered — did the tool manager move?"
+    unannotated = [n for n, a in tools.items() if a is None]
+    assert not unannotated, f"tools without annotations: {unannotated}"
+
+    writers = {"login_to_skool", "update_catknows", "pull_to_vault"} | _DESTRUCTIVE
+    for name, ann in tools.items():
+        expected = name in _READ_ONLY
+        assert ann.read_only_hint is expected, f"{name}: read_only_hint={ann.read_only_hint}"
+        assert ann.open_world_hint is True, f"{name}: talks to Skool, must be open-world"
+        if name in writers:
+            assert not ann.read_only_hint, f"{name} writes — must not be read-only"
+        assert ann.destructive_hint is (name in _DESTRUCTIVE), name
+    assert not (_READ_ONLY & writers), "a tool cannot be both read-only and a writer"
+    # The write tools only exist with CATKNOWS_ALLOW_WRITE=1; when they do, they
+    # must be the destructive ones — a silent rename would drop the flag.
+    if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
+        assert _DESTRUCTIVE <= set(tools), f"write tools missing from registry: {tools.keys()}"
+    print(f"mcp_server self-check OK ({len(tools)} tools annotated)")
 
 
 if __name__ == "__main__":
