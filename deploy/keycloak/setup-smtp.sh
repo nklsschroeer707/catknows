@@ -46,3 +46,13 @@ echo
 echo "Test it: admin console -> Realm settings -> Email -> 'Test connection'."
 echo "That button is the only proof the password is right — kcadm accepts"
 echo "anything and Keycloak only finds out when it tries to send."
+echo
+echo "If it fails with 535 Permission denied, the key is usually fine and the"
+echo "permission isn't. Two things Scaleway needs, both invisible from here:"
+echo "  1. the domain must show 'Verified' (DNS check can lag by minutes)"
+echo "  2. IAM -> Policies: the *application* owning the key needs"
+echo "     TransactionalEmailFullAccess. A key with no policy authenticates"
+echo "     as nobody and is refused exactly like a wrong password."
+echo
+echo "Faster than testing through Keycloak:"
+echo "  python3 -c \"import smtplib;s=smtplib.SMTP_SSL('smtp.tem.scaleway.com',2465);s.login('<user>','<secret>');print('OK')\""
