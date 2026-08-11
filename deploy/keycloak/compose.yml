@@ -32,7 +32,13 @@ services:
     restart: unless-stopped
     # `start` (not start-dev): dev mode runs an in-memory H2 that loses every
     # account on restart and disables security defaults.
-    command: start --optimized
+    #
+    # ponytail: no --optimized. It requires a prior `kc.sh build`, and without
+    # one Keycloak refuses to start at all ("was used for first ever server
+    # start"). Plain `start` builds on boot — a few seconds each restart, in
+    # exchange for no build step to keep in sync. Add the build stage if
+    # startup time ever matters.
+    command: start
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://db:5432/keycloak
