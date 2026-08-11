@@ -274,13 +274,23 @@ class SkoolHTTP:
                     continue
                 break
             if code == 404 and '"notFound":true' in body:
-                # Skool returns notFound for gated data you can't see — almost
-                # always: the logged-in account isn't a member of this community.
+                # Skool returns notFound for anything the account may not see,
+                # which covers two very different situations. Naming only the
+                # first sends people off to "join a community" they're already
+                # in: the members list is admin-only, so a plain member gets
+                # this 404 while posts and comments come back fine.
+                extra = (
+                    "The members list is ADMIN-ONLY — being a member is not "
+                    "enough. If posts/comments work for this community, that's "
+                    "what this is.\n"
+                    if "/-/members.json" in url else ""
+                )
                 raise SkoolHTTPError(
-                    f"HTTP 404 on {url}: not found. The logged-in Skool account "
-                    "is likely not a member of this community (member/post data "
-                    "is members-only). Join it, or use an account that's in it. "
-                    "Public info (about, discovery) works without membership.",
+                    f"HTTP 404 on {url}: not found.\n{extra}"
+                    "Otherwise the logged-in Skool account is not a member of "
+                    "this community (member/post data is members-only). Join it, "
+                    "or use an account that's in it. Public info (about, "
+                    "discovery) works without membership.",
                     code,
                 )
             if not (200 <= code < 300):
