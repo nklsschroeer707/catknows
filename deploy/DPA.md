@@ -142,10 +142,15 @@ machine on which nothing member-related is persisted, and Scaleway only ever
 sees *your* email address, for messages to you.
 
 I will inform you at least **30 days** before adding or replacing a
-sub-processor. You may object on reasonable data protection grounds; if the
-change is unavoidable and you object, you may terminate and delete your session.
+sub-processor, where I have that much notice myself — both of mine grant me the
+same 30 days, and I pass it on. You may object on reasonable data protection
+grounds; if the change is unavoidable and you object, you may terminate and
+delete your session.
 
-No processing outside the EU/EEA.
+Both sub-processors are established in the EU and host the data concerned there.
+Where either of them engages further sub-processors of its own, its own art. 28
+agreement governs that, including the standard contractual clauses required for
+any transfer outside the EEA.
 
 ## 7. Your AI client is not my sub-processor
 

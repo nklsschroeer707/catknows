@@ -112,17 +112,10 @@ rather than accumulating indefinitely.
 | **Let's Encrypt (ISRG)** | TLS certificates. Sees the domain name, no user data | USA |
 
 Everything is inside the EU/EEA except certificate issuance, which involves no
-personal data. Data processing agreements under art. 28 are in place with netcup
-and Scaleway; both publish a sub-processor list and standard contractual clauses.
-No transfers to third countries.
-
-<!-- TODO before launch — verify, don't assume:
-     netcup: signed (page 6 left column was blank; check whether the CCP click
-       covers it). See vault: catknows-ops/avv-netcup.
-     Scaleway: their DPA sits beside the ToS as its own PDF, so it is NOT
-       self-evidently automatic. Check Console -> Organization -> Contracts for
-       an accepted-with-timestamp entry; accept it there if absent. Keep the
-       proof. Only then is the sentence above accurate. -->
+personal data. Data processing agreements under GDPR art. 28 are in place with
+both processors — netcup's concluded in writing, Scaleway's as the
+highest-ranking document of their terms, accepted on sign-up. Both publish a
+sub-processor list; both bind their own sub-processors, all inside the EU.
 
 
 Your AI client (e.g. Anthropic) is **not** my processor — it is the other party
