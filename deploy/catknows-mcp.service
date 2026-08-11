@@ -19,6 +19,10 @@ WorkingDirectory=/opt/catknows
 Environment=CATKNOWS_HTTP=1
 Environment=CATKNOWS_HOST=127.0.0.1
 Environment=CATKNOWS_PORT=8000
+# Public name Caddy serves. The SDK's DNS-rebinding guard rejects any Host
+# header it wasn't told about — without this every proxied request gets
+# "Invalid Host header". Must match the Caddyfile's site block.
+Environment=CATKNOWS_DOMAIN=mcp.catknows.app
 Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
 # Playwright downloads browsers per-user by default; pin it somewhere the
 # service user owns and the deploy script can pre-seed.

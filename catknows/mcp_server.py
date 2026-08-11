@@ -511,11 +511,24 @@ def main() -> None:
     # Streamable HTTP for remote/hosted use. Binds loopback by default: this
     # transport carries no auth yet, so a reverse proxy (Caddy) terminates TLS
     # and fronts it. CATKNOWS_HOST=0.0.0.0 has to be a deliberate choice.
-    mcp.run(
-        transport="streamable-http",
-        host=os.environ.get("CATKNOWS_HOST", "127.0.0.1"),
-        port=int(os.environ.get("CATKNOWS_PORT", "8000")),
-    )
+    kwargs: dict[str, Any] = {
+        "transport": "streamable-http",
+        "host": os.environ.get("CATKNOWS_HOST", "127.0.0.1"),
+        "port": int(os.environ.get("CATKNOWS_PORT", "8000")),
+    }
+    # The SDK's DNS-rebinding guard only accepts Host headers it knows, so
+    # behind a proxy every request arrives as the *public* name and is
+    # rejected with "Invalid Host header". Name the domain to let it through
+    # — keep the guard on, don't disable it.
+    domain = os.environ.get("CATKNOWS_DOMAIN", "").strip()
+    if domain:
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        kwargs["transport_security"] = TransportSecuritySettings(
+            allowed_hosts=[domain, f"{domain}:443", "127.0.0.1", "localhost"],
+            allowed_origins=[f"https://{domain}"],
+        )
+    mcp.run(**kwargs)
 
 
 def _self_check() -> None:
@@ -550,6 +563,23 @@ def _self_check() -> None:
         os.environ["CATKNOWS_HTTP"] = "0"  # only "1" flips it
         main()
         assert calls == [((), {})], f"CATKNOWS_HTTP=0 must stay stdio, got {calls}"
+
+        # Behind a proxy the Host header is the public name; without the
+        # domain in allowed_hosts the SDK answers "Invalid Host header".
+        calls.clear()
+        os.environ.update(CATKNOWS_HTTP="1", CATKNOWS_DOMAIN="mcp.example.app")
+        main()
+        (_, kw), = calls
+        sec = kw["transport_security"]
+        assert sec.enable_dns_rebinding_protection, "guard must stay on"
+        assert "mcp.example.app" in sec.allowed_hosts, sec.allowed_hosts
+        assert "https://mcp.example.app" in sec.allowed_origins, sec.allowed_origins
+
+        calls.clear()
+        os.environ.pop("CATKNOWS_DOMAIN")
+        main()
+        (_, kw), = calls
+        assert "transport_security" not in kw, "no domain -> SDK defaults, not ours"
     finally:
         mcp.run = real_run
         os.environ.clear()
