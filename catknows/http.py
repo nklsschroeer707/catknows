@@ -124,7 +124,7 @@ class SkoolHTTP:
         """GET a www.skool.com/_next/data/... endpoint (Next.js shape).
 
         `path_and_query` is everything after the buildId, e.g.
-        "/{slug}/-/members.json?t=active&...". Retries on Skool's 202/empty
+        "/{slug}/-/members.json?sortType=...". Retries on Skool's 202/empty
         (ISR deferred) responses.
         """
         build_id = self.build_id(community_slug) if community_slug else self._build_id
@@ -274,15 +274,15 @@ class SkoolHTTP:
                     continue
                 break
             if code == 404 and '"notFound":true' in body:
-                # Skool returns notFound for anything the account may not see,
-                # which covers two very different situations. Naming only the
-                # first sends people off to "join a community" they're already
-                # in: the members list is admin-only, so a plain member gets
-                # this 404 while posts and comments come back fine.
+                # Skool answers notFound both for data you may not see and for
+                # a query you may not use. `t=active` on members.json is the
+                # known case of the second kind: admin-only filter, flat 404 for
+                # everyone else. If a 404 shows up on some communities but not
+                # others, suspect the query before concluding it's permissions.
                 extra = (
-                    "The members list is ADMIN-ONLY — being a member is not "
-                    "enough. If posts/comments work for this community, that's "
-                    "what this is.\n"
+                    "If posts/comments work for this community, this is a query "
+                    "problem, not access — check for admin-only filters in the "
+                    "URL (see AGENTS.md).\n"
                     if "/-/members.json" in url else ""
                 )
                 raise SkoolHTTPError(

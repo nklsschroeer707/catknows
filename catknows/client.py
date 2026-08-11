@@ -43,15 +43,19 @@ class SkoolClient:
         (role, groupId, points) and ``metadata`` (online, lastOffline in
         NANOSECONDS, pictureProfile, bio).
         """
+        # No `t=active`: that's the admin-only "active members" tab. Admins get
+        # a list, everyone else gets a flat 404 — which looks like the whole
+        # endpoint is gated when only that one filter is. Dropping it returns
+        # the members list to every member of the community.
         out: list[dict] = []
         page = 1
         while True:
             if page == 1:
                 q = (f"/{community_slug}/-/members.json"
-                     f"?t=active&sortType=-memberlastoffline&group={community_slug}")
+                     f"?sortType=-memberlastoffline&group={community_slug}")
             else:
                 q = (f"/{community_slug}/-/members.json"
-                     f"?t=active&sortType=-memberlastoffline&p={page}"
+                     f"?sortType=-memberlastoffline&p={page}"
                      f"&online=&levels=&price=&courseIds=&monthly=false"
                      f"&annual=false&trials=false&group={community_slug}")
             data = self.http.get_next(q, community_slug)

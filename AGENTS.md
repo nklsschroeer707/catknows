@@ -106,11 +106,13 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Gated 404:** member/post data is members-only. If the logged-in account isn't
   in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
   member" error. `about`/`discovery` are public and work without membership.
-  **`list_members` needs ADMIN rights, not just membership** — a plain member
-  gets the same 404 there while `list_posts`/`get_post_comments` work fine in
-  the same community. Verified 2026-08-11: own community (admin) returns the
-  list, a 594-member community where the account is a plain member 404s. That
-  asymmetry reads like a broken endpoint, so the error message calls it out.
+  **Don't send `t=active` to `members.json`** — it's the admin-only "active
+  members" tab. Admins get a list, everyone else gets a flat 404, so the whole
+  endpoint looks gated when only that one filter is. Without it the members
+  list works for every member (verified 2026-08-11: 600 members returned from
+  a community where the account is a plain member, 404 with the filter).
+  A 404 that appears only on *some* communities is a parameter problem, not a
+  permission one — probe the query before concluding the data is unreachable.
 - Hosting catknows as a product (hosted endpoint, OAuth, multi-tenant, streamed
   Skool login) is the plan in [docs/HOSTED_MCP_PLAN.md](docs/HOSTED_MCP_PLAN.md)
   — it supersedes the older [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md).
