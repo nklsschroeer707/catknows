@@ -1,0 +1,46 @@
+# Caddy config for the hosted catknows MCP server.
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#
+# Caddy gets the TLS cert from Let's Encrypt on first start — the domain's
+# A/AAAA record must already point here, or the challenge fails.
+
+mcp.catknows.app {
+	# The MCP server binds loopback only (CATKNOWS_HOST default). Everything
+	# from outside arrives through here, over TLS, or not at all.
+	reverse_proxy 127.0.0.1:8000 {
+		# Streamable HTTP keeps responses open as SSE streams. Without this,
+		# Caddy buffers them and tool calls appear to hang.
+		flush_interval -1
+	}
+
+	encode zstd gzip
+
+	# Skool sessions live behind this. Don't advertise the stack.
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+
+	log {
+		output file /var/log/caddy/mcp.catknows.app.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		# Request URIs can carry community slugs and member handles; the bodies
+		# carry more. Log enough to debug a 502, not enough to rebuild someone's
+		# member list from the access log.
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+}
+
+# ponytail: the landing page is a separate concern — add a `catknows.app { ... }`
+# block here when there's something to serve, or point the apex at Cloudflare
+# Pages and leave this file to the MCP endpoint alone.

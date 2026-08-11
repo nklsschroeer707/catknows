@@ -1,0 +1,68 @@
+# systemd unit for the hosted catknows MCP server.
+#   sudo cp deploy/catknows-mcp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now catknows-mcp
+#
+# Runs as its own unprivileged user — see deploy/README.md for the setup.
+
+[Unit]
+Description=catknows MCP server (streamable HTTP)
+Documentation=https://github.com/nklsschroeer707/catknows
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=catknows
+Group=catknows
+WorkingDirectory=/opt/catknows
+
+Environment=CATKNOWS_HTTP=1
+Environment=CATKNOWS_HOST=127.0.0.1
+Environment=CATKNOWS_PORT=8000
+Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
+# Playwright downloads browsers per-user by default; pin it somewhere the
+# service user owns and the deploy script can pre-seed.
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers
+
+# Secrets (CATKNOWS_COOKIE, later the OAuth issuer/keys) go in this file, not
+# in the unit: `systemctl show` prints Environment= lines to any user.
+#   sudo install -m 600 -o catknows -g catknows /dev/null /etc/catknows/env
+EnvironmentFile=-/etc/catknows/env
+
+ExecStart=/opt/catknows/.venv/bin/python -m catknows.mcp_server
+
+Restart=on-failure
+RestartSec=5s
+
+# -- hardening ---------------------------------------------------------------
+# This process holds a live Skool session. Chromium needs more room than a
+# plain web service, so a few of the usual knobs are deliberately loosened —
+# each exception is noted rather than silently dropped.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# The only writable paths: the session profile and the browser install.
+ReadWritePaths=/var/lib/catknows
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=false
+# ^ Chromium's sandbox needs user namespaces. Leaving this false is what makes
+#   the browser sandbox work; disabling the sandbox instead would be worse.
+#   NoNewPrivileges above also rules out the SUID sandbox helper, so unprivileged
+#   userns is the only route left. On Ubuntu 24.04 AppArmor restricts those by
+#   default — if Chromium fails to start, see the troubleshooting note in
+#   deploy/README.md before reaching for --no-sandbox.
+LockPersonality=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+
+# Chromium spawns a lot of threads and maps a lot of memory.
+LimitNOFILE=65535
+# ponytail: no MemoryMax — a hard cap OOM-kills mid-login and the failure looks
+#   like a Skool error. Set one once you've watched real usage for a week.
+
+[Install]
+WantedBy=multi-user.target
