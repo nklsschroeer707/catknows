@@ -76,6 +76,11 @@ over `SkoolClient`; don't duplicate client logic in it.
 - Login in HTTP mode can't fall back to a visible browser window (no display on
   a server) — an expired session raises instead, pointing at `CATKNOWS_COOKIE`
   or a pre-seeded profile. Don't "fix" that by re-enabling the window.
+- **Annotations:** `_annotate_tools()` tags every tool with
+  `readOnlyHint`/`destructiveHint` from the `_READ_ONLY` / `_DESTRUCTIVE` sets.
+  **Adding a read tool? Add its name to `_READ_ONLY`** — the default is "not
+  read-only", so an unlisted tool is treated as a writer (fail closed: an extra
+  confirmation prompt, never a silent write). Writes stay in `_DESTRUCTIVE`.
 - `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
   Anything a tool prints to stdout would corrupt the stream.
 - **Size cap:** tool results have a max token size. `list_members`/`list_posts`
@@ -115,7 +120,10 @@ over `SkoolClient`; don't duplicate client logic in it.
 4. **If the MCP tool can return the payload raw (a `raw=True` param, or a
    verbatim passthrough), send it through `_safe_raw()` — no exceptions.** New
    secret field names go in `normalize.SECRET_KEYS`.
-5. Keep API.md and the code in sync — the docs are the contract.
+5. If it's a read-only MCP tool, add its name to `_READ_ONLY` in
+   `mcp_server.py` (unlisted = annotated as a writer). Then
+   `python -m catknows.mcp_server --self-check`.
+6. Keep API.md and the code in sync — the docs are the contract.
 
 ## Guardrails
 
