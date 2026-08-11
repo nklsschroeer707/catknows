@@ -116,10 +116,25 @@ a backup that leaves the box.
 ```bash
 cp deploy/catknows-mcp.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now catknows-mcp
+```
 
-apt install -y caddy
+Caddy isn't in Ubuntu's archive — add the upstream repo first:
+
+```bash
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  > /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+
+# The Caddyfile logs here; the package does not create it, and Caddy refuses
+# the config with "permission denied" if it can't open the file.
+mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy
+
 cp deploy/Caddyfile /etc/caddy/Caddyfile
-systemctl reload caddy
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+systemctl restart caddy
 ```
 
 ## 7. Check it
