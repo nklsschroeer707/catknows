@@ -18,6 +18,16 @@ encrypted sessions later is the migration you don't want.
 > open the port in the firewall, and do not put this in front of other people
 > before Phase 2 (OAuth) lands.
 
+## 0. Install the OS
+
+netcup ships the VPS without an OS — there is no OS choice during checkout,
+and none in the CCP (that panel is for contracts and invoices). It's in the
+**[SCP](https://www.servercontrolpanel.de/)**, which arrives as its own mail
+with separate credentials: *Media → Images → Ubuntu 24.04 LTS → install*.
+
+Take the plain image, not one with a hosting panel (Plesk/cPanel): those claim
+ports 80 and 443, which Caddy needs.
+
 ## 1. DNS
 
 Point an A record at the server before installing Caddy — the TLS challenge
@@ -27,7 +37,36 @@ needs it:
 mcp.catknows.app.   A   <server-ip>
 ```
 
-## 2. Server basics
+## 2. Lock down SSH — before anything else
+
+A fresh VPS is reachable from the whole internet the moment it boots, and
+password logins get probed within hours. Do this first, from your own machine:
+
+```bash
+ssh-copy-id root@<server-ip>          # or paste your pubkey into the panel
+ssh root@<server-ip> 'echo key login works'
+```
+
+Only once the key works, turn the password off — locking yourself out is the
+one mistake here that costs a reinstall:
+
+```bash
+sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+# Ubuntu 24.04 splits config into sshd_config.d/ — a leftover file there wins.
+grep -rlE '^\s*PasswordAuthentication\s+yes' /etc/ssh/sshd_config.d/ 2>/dev/null
+sshd -t && systemctl reload ssh       # sshd -t first: never reload a broken config
+```
+
+Keep the current session open and confirm a *new* one still connects before
+closing it.
+
+```bash
+apt update && apt upgrade -y
+apt install -y unattended-upgrades && dpkg-reconfigure -plow unattended-upgrades
+```
+
+## 3. Server basics
 
 ```bash
 adduser --system --group --home /opt/catknows catknows
@@ -38,7 +77,7 @@ ufw allow OpenSSH && ufw allow 80,443/tcp && ufw --force enable
 # Port 8000 stays closed on purpose. Caddy reaches it over loopback.
 ```
 
-## 3. catknows itself
+## 4. catknows itself
 
 ```bash
 apt update && apt install -y python3-venv git
@@ -55,7 +94,7 @@ PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers \
   .venv/bin/playwright install-deps chromium
 ```
 
-## 4. The Skool session
+## 5. The Skool session
 
 **A server has no display, so the login window can't open** — the server raises
 a clear error instead of hanging. Seed the session one of two ways:
@@ -72,7 +111,7 @@ a clear error instead of hanging. Seed the session one of two ways:
 Either way the file holds a live session — `chmod 600`, never in git, never in
 a backup that leaves the box.
 
-## 5. Services
+## 6. Services
 
 ```bash
 cp deploy/catknows-mcp.service /etc/systemd/system/
@@ -83,7 +122,7 @@ cp deploy/Caddyfile /etc/caddy/Caddyfile
 systemctl reload caddy
 ```
 
-## 6. Check it
+## 7. Check it
 
 ```bash
 systemctl status catknows-mcp
