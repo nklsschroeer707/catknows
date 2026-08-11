@@ -119,6 +119,37 @@ Connector-Verzeichnis:
 6. Prompt-Injection-Bremse unverändert: Skool-Inhalte sind fremder Text;
    nichts geht ohne menschliches „ja" raus.
 
+### 4a. Auth: Keycloak auf demselben VPS (entschieden 2026-08-11)
+
+Der ursprüngliche Plan nannte WorkOS AuthKit. Zwei geprüfte Fakten haben die
+Wahl verschoben:
+
+- **Dynamic Client Registration (RFC 7591) ist die harte Anforderung.** Ohne
+  DCR kann sich claude.ai nicht selbst als Client registrieren — seit der
+  MCP-Spec 11/2025 faktisch Pflicht. **Zitadel kann das nicht**
+  ([zitadel#9810](https://github.com/zitadel/zitadel/issues/9810)), fällt
+  damit aus, obwohl es sonst gut gepasst hätte.
+- **Zitadels EU-Region kostet 100 $/Monat** — der Free-Tier (25k MAU) liegt
+  nicht in der EU. Das Zehnfache der gesamten Serverkosten.
+
+Blieben WorkOS (US) und Keycloak. Keycloak gewinnt, weil es als einziges
+beide Kriterien erfüllt: DCR **und** Datenhaltung in Nürnberg. Nutzerkonten
+sind bei diesem Produkt keine Nebensache — wer catknows nutzt, hängt seine
+Skool-Session daran; Identität und Daten am selben Ort zu halten ist
+konsistenter, als beides zu trennen.
+
+**Der Preis, ehrlich:** wir betreiben einen Identity Provider mit
+(Sicherheitsupdates, Backup der Keycloak-DB), und er will ~1 GB RAM neben den
+Chromium-Instanzen. Auf dem VPS 500 (4 GB) wird das eng, sobald mehrere Nutzer
+gleichzeitig aktiv sind → dann Upgrade auf VPS 1000 (8 GB, 10,36 €).
+Fällt Keycloak aus, kommt niemand mehr rein — Monitoring ist hier keine Kür.
+
+**Im MCP-SDK ist die Anbindung klein:** `TokenVerifier` ist ein Protokoll mit
+genau einer Methode (`verify_token(token) -> AccessToken | None`). Ein
+JWKS-Check gegen Keycloak sind ~30 Zeilen. Das SDK bringt keinen fertigen
+Verifier mit — der `AuthKitProvider` aus dem alten Plan gehört zum
+Drittanbieter-Paket `fastmcp`, das wir nicht verwenden.
+
 ## 5. Kosten (Ziel: so niedrig wie möglich)
 
 Gebucht (Stand 2026-08-11):
@@ -173,11 +204,8 @@ hält, ist das eine Sicherheitseigenschaft gratis von der Registry.
 
 ## 7. Offene Punkte
 
-1. **Auth-Anbieter.** Der Plan nennt WorkOS AuthKit — ein US-Unternehmen.
-   Das passt schlecht zur bewusst deutschen Hosting-Entscheidung, sobald
-   fremde Nutzerkonten dazukommen. Alternativen: Zitadel (Schweiz, auch
-   self-hostbar) oder Keycloak auf demselben VPS. **Zu entscheiden bevor die
-   OAuth-Schicht gebaut wird** — die Wahl bestimmt den Code.
+1. ~~Auth-Anbieter~~ — **entschieden 2026-08-11: Keycloak, selbst gehostet.**
+   Siehe §4a.
 2. **Preismodell der Komfort-Schicht** (frei bis N Abrufe? Business-Tier?) —
    Entscheidung vor Phase 3, die Technik hängt nicht daran.
 3. **Backlog aus der Community:** Config-Datei (u. a. Vault-Pfad),
