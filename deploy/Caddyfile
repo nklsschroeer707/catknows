@@ -13,21 +13,11 @@
 # A/AAAA record must already point here, or the challenge fails.
 
 mcp.catknows.app {
-	# INTERIM GATE — delete this block once Keycloak/OAuth is live.
-	#
-	# The MCP transport has no auth of its own yet, so without this the URL
-	# *is* the credential: anyone who learns it reads the Skool session behind
-	# it. A shared bearer token is not real authentication — it doesn't
-	# identify anyone and can't be revoked per user — but it stops a leaked
-	# URL from being enough.
-	#
-	# Set CADDY_GATE_TOKEN in Caddy's environment (systemd drop-in), matching
-	# CATKNOWS_GATE in /etc/catknows/env.
-	@unauthorized not header Authorization "Bearer {env.CADDY_GATE_TOKEN}"
-	respond @unauthorized 401 {
-		body "catknows: authentication required"
-		close
-	}
+	# The interim bearer gate that lived here is gone: the MCP server now
+	# verifies Keycloak tokens itself (CATKNOWS_OAUTH_ISSUER), so requests are
+	# authenticated by someone who can be identified and revoked — and a shared
+	# static token would have blocked the OAuth flow anyway, since clients must
+	# reach the endpoint unauthenticated to discover where to log in.
 
 	# The MCP server binds loopback only (CATKNOWS_HOST default). Everything
 	# from outside arrives through here, over TLS, or not at all.
