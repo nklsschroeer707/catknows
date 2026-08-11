@@ -21,12 +21,16 @@ FROM_NAME="${SMTP_FROM_NAME:-catknows}"
   --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
   --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null
 
-# Port 465 with ssl=true (implicit TLS), not 587 with starttls: on 587 a
-# stripped STARTTLS downgrades to plaintext, and these messages carry account
-# recovery links.
+# Port 2465, not 465: netcup blocks outbound 25/465/587 (verified on the box —
+# only 2465 connects), which is why Scaleway publishes alternate ports at all.
+# The failure mode is a plain connect timeout, so it reads like a broken host
+# or wrong credentials rather than a blocked port.
+#
+# Still implicit TLS, not 587+STARTTLS: a stripped STARTTLS downgrades to
+# plaintext, and these messages carry account recovery links.
 "$KCADM" update "realms/$REALM" \
   -s 'smtpServer.host=smtp.tem.scaleway.com' \
-  -s 'smtpServer.port=465' \
+  -s "smtpServer.port=${SMTP_PORT:-2465}" \
   -s 'smtpServer.ssl=true' \
   -s 'smtpServer.starttls=false' \
   -s 'smtpServer.auth=true' \
@@ -37,7 +41,7 @@ FROM_NAME="${SMTP_FROM_NAME:-catknows}"
   -s "smtpServer.replyTo=$FROM" \
   -s 'smtpServer.envelopeFrom='"$FROM"
 
-echo "SMTP configured: $FROM via smtp.tem.scaleway.com:465"
+echo "SMTP configured: $FROM via smtp.tem.scaleway.com:${SMTP_PORT:-2465}"
 echo
 echo "Test it: admin console -> Realm settings -> Email -> 'Test connection'."
 echo "That button is the only proof the password is right — kcadm accepts"

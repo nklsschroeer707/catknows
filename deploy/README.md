@@ -153,6 +153,20 @@ A `serverInfo` with `"name":"catknows"` means the whole chain works. Then point
 the MCP Inspector at `https://mcp.catknows.app/mcp` (transport: Streamable
 HTTP), and after that add it as a connector on claude.ai.
 
+## Outbound SMTP is blocked
+
+netcup blocks outbound 25, 465 and 587 (anti-spam). Verified on this box:
+
+```bash
+timeout 8 bash -c 'cat < /dev/null > /dev/tcp/smtp.tem.scaleway.com/465' \
+  && echo open || echo blocked
+```
+
+Use a provider's alternate port instead — Scaleway TEM listens on **2465**
+for implicit TLS. The failure mode is a bare `SocketTimeoutException`, which
+reads like a wrong host or bad credentials rather than a blocked port, so
+check reachability first when mail "just doesn't send".
+
 ## Testing from the box itself
 
 netcup does no hairpin NAT: the server cannot reach its **own** public IP, so
