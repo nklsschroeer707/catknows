@@ -35,7 +35,36 @@ except ImportError:  # MCP SDK 1.x called the same thing FastMCP
 
 from . import normalize, vault
 
-mcp = MCPServer("catknows")
+
+def _auth_kwargs() -> dict[str, Any]:
+    """OAuth wiring, or nothing at all when CATKNOWS_OAUTH_ISSUER is unset.
+
+    Off by default so `claude mcp add catknows -- python -m catknows.mcp_server`
+    keeps working: over stdio the client is already the user. It's the hosted
+    HTTP endpoint that needs to ask who's calling.
+    """
+    from .auth_oauth import verifier_from_env
+
+    verifier = verifier_from_env()
+    if verifier is None:
+        return {}
+
+    from mcp.server.auth.settings import AuthSettings
+
+    return {
+        "token_verifier": verifier,
+        # Serves the 401 discovery document (RFC 9728) that tells a client
+        # where to authenticate — without it clients get a bare 401 and no
+        # way to find the authorization server.
+        "auth": AuthSettings(
+            issuer_url=verifier.issuer,
+            resource_server_url=verifier.audience,
+            required_scopes=[verifier.required_scope] if verifier.required_scope else [],
+        ),
+    }
+
+
+mcp = MCPServer("catknows", **_auth_kwargs())
 
 _client = None  # lazy: log in only when the first tool actually needs Skool
 
