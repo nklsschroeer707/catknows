@@ -139,13 +139,13 @@ there is what keeps Skool's WAF from 403'ing the paginated endpoints.
 
 > **Never paste a Skool cookie into a chat with an AI.** It is a year-long
 > bearer token for the whole account: no password, no 2FA. Anything typed to a
-> model goes into a conversation log. `set_skool_session` exists as an MCP tool
-> for clients that have no shell access to the server, but the CLI above is the
-> way to do it when you have one. A cookie that ever crossed a chat should be
-> killed by logging out of all devices in Skool.
+> model goes into a conversation log. That is why storing a session is a CLI
+> command and **not** an MCP tool — a tool taking a cookie invites exactly that
+> paste. A cookie that ever crossed a chat should be killed by logging out of
+> all devices in Skool.
 
 `forget_skool_session` (or `catknows-session delete <subject>`) removes a
-stored session again — that one is safe from a chat, it carries no secret.
+stored session again — that one is safe as a tool, it carries no secret.
 
 > Leave `CATKNOWS_COOKIE` unset in this mode — with the store on it is ignored,
 > and keeping it around only invites confusion about whose data is served.

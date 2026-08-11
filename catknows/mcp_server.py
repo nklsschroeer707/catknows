@@ -131,10 +131,12 @@ def _get_client():
             cookie = sessions.load(subject)
             if not cookie:
                 raise RuntimeError(
-                    "No Skool session stored for you yet. On the server: "
-                    f"`catknows-session store {subject}` (hidden prompt, paste the "
-                    "whole Cookie: request header). Without shell access there, "
-                    "set_skool_session does the same — but read its warning first."
+                    "No Skool session stored for you yet. On the server, run: "
+                    f"`catknows-session store {subject}` — it asks for your Skool "
+                    "cookie at a hidden prompt (paste the whole `Cookie:` request "
+                    "header from DevTools → Network). There is deliberately no tool "
+                    "for this: a Skool cookie is a year-long bearer token for your "
+                    "whole account and must not go through a chat."
                 )
             _clients[subject] = _client_from_cookie(cookie)
         return _clients[subject]
@@ -215,35 +217,13 @@ def login_to_skool() -> str:
 
 
 # -- per-user session tools ----------------------------------------------------
-# Only registered on the hosted server. Over stdio the browser login handles
-# this, and a "store your cookie here" tool would just be a footgun.
+# Only registered on the hosted server. Storing a session is deliberately NOT a
+# tool: a Skool cookie is a year-long bearer token for the whole account, and a
+# tool that takes one invites pasting it into a chat, where it lands in a
+# conversation log. `catknows-session store <subject>` reads it from a hidden
+# prompt on the box instead. Deleting stays a tool — it carries no secret.
 
 if sessions.enabled():
-
-    @mcp.tool()
-    def set_skool_session(cookie_header: str) -> dict:
-        """Store YOUR Skool session on the server so the other tools act as you.
-
-        PREFER THE SERVER CLI over this tool: `catknows-session store <subject>`
-        reads the cookie from a hidden prompt on the box. A Skool cookie is a
-        year-long bearer token for the whole account — no password, no 2FA — and
-        anything sent to this tool is written to a conversation log first. Only
-        use it when you have no shell access to the server, and treat a cookie
-        that went through a chat as burned (log out of all devices in Skool).
-
-        Wants the whole `Cookie:` request header (DevTools → Network → any
-        request → Request Headers), not the bare token: the aws-waf-token in
-        there is what keeps Skool's WAF from 403'ing paginated endpoints.
-        Stored encrypted under your account only; replaces any previous one.
-        Remove it with forget_skool_session.
-        """
-        subject = _subject()
-        if not subject:
-            raise RuntimeError("No verified user on this request — nothing to store it under.")
-        _client_from_cookie(cookie_header)  # reject junk before it hits the disk
-        sessions.save(subject, cookie_header)
-        _clients.pop(subject, None)  # next call rebuilds from what was just stored
-        return {"status": "stored", "note": "Encrypted at rest. Other tools now run as you."}
 
     @mcp.tool()
     def forget_skool_session() -> dict:
