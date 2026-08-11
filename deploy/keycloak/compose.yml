@@ -53,8 +53,14 @@ services:
       KC_HTTP_ENABLED: "true"
 
       KC_HEALTH_ENABLED: "true"
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USER:?set ADMIN_USER in .env}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Bootstrap only: these create the first admin on an EMPTY database and
+      # are ignored once it exists. Deliberately optional (`:-`, not `:?`) —
+      # after the first start the right thing to do is blank them in .env so the
+      # admin password stops living in a file, and a required-variable check
+      # would block exactly that cleanup. An empty value on a fresh database
+      # means no admin is created; set them for the first run.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USER:-}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       # Loopback only. Caddy reaches it here; the internet never does.
       - "127.0.0.1:8080:8080"
