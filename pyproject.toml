@@ -20,6 +20,7 @@ hosted = ["mcp>=1.2", "pyjwt>=2.8", "cryptography>=42"]
 catknows = "catknows.__main__:main"
 catknows-mcp = "catknows.mcp_server:main"
 catknows-session = "catknows.sessions:main"
+catknows-dashboard = "catknows.dashboard:main"
 
 [build-system]
 requires = ["setuptools>=68"]

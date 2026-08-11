@@ -134,16 +134,18 @@ Self-signup is off (`registrationAllowed=false`) — see the reasoning in
    (email as username, then *Credentials* → set a temporary password, and
    *Email verified* off so they confirm it). Copy the user's `ID` — that UUID is
    the OAuth subject the session store keys on.
-2. **Store their Skool session** with the command below, using that UUID.
+2. **Send them to `catknows.app/connect`** — they sign in and connect Skool
+   themselves through the streamed browser (§8). Nothing left for you to do.
 
 Until step 2 happens, their tools all refuse: an account with no stored session
 reaches no data at all. That's the intended order — an account alone is
 harmless.
 
-#### Getting a session in
+#### Getting a session in by hand
 
-Until the streamed remote login (plan §2a) exists, a Skool cookie has to be
-pasted in by hand. Do it **on the box**, as the service user:
+The streamed login (§8) is the normal route. This is the fallback for when it
+can't be used — no browser to hand, a debugging session, or the dashboard is
+down. Do it **on the box**, as the service user:
 
 ```bash
 sudo -u catknows CATKNOWS_SESSION_DIR=/var/lib/catknows/sessions \
@@ -250,6 +252,74 @@ curl -sS -X POST https://mcp.catknows.app/mcp \
 A `serverInfo` with `"name":"catknows"` means the whole chain works. Then point
 the MCP Inspector at `https://mcp.catknows.app/mcp` (transport: Streamable
 HTTP), and after that add it as a connector on claude.ai.
+
+## 8. The dashboard and the streamed Skool login
+
+Plan §2a: a browser opens **on the server**, is streamed to the user, and they
+log in to Skool inside it. Their password goes to Skool, never here — which is
+also why Google/Apple SSO simply works: from Skool's side it is a real browser.
+
+Why it has to be this way: Skool's `auth_token` is httpOnly and its WAF challenge
+only solves in a real browser, and a login on `skool.com` in the *user's own*
+browser sets that cookie on Skool's origin where this domain can never read it.
+There is no OAuth redirect to borrow.
+
+### Setup
+
+```bash
+# 1. Register the dashboard as a Keycloak client (public + PKCE, exact redirect)
+cd /opt/catknows/deploy/keycloak
+docker compose exec -T -e DASHBOARD_URL=https://catknows.app \
+  keycloak bash < setup-dashboard-client.sh
+
+# 2. Its env, alongside the session store's (same file, same key)
+cat >> /etc/catknows/env <<'EOF'
+CATKNOWS_DASHBOARD_CLIENT_ID=catknows-dashboard
+CATKNOWS_DASHBOARD_URL=https://catknows.app
+EOF
+
+# 3. The service
+cp /opt/catknows/deploy/catknows-dashboard.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now catknows-dashboard
+systemctl status catknows-dashboard --no-pager
+
+# 4. Caddy already has the catknows.app block — reload it
+systemctl reload caddy
+```
+
+`CATKNOWS_OAUTH_ISSUER` is shared with the MCP server and already in that file.
+There is **no client secret**: it is a public client and PKCE covers the code
+exchange, so there is one less credential to rotate.
+
+### Check it
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://catknows.app/            # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://catknows.app/privacy     # 200
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+     https://catknows.app/connect                                        # 302 -> /auth/login
+```
+
+Then in a browser: `catknows.app/connect` → sign in → *Open Skool login* → the
+Skool page appears, streamed. Log in; the page reports the connected account and
+stores the cookie encrypted.
+
+### Limits, deliberately
+
+| Knob | Default | Why |
+|---|---|---|
+| `CATKNOWS_LOGIN_MAX_SESSIONS` | 2 | Each Chromium is ~300–400 MB. This box has 4 GB and **no swap**, with ~600 MB already in Keycloak. Past the cap a login is refused with a clear message rather than the kernel OOM-killing someone mid-password. |
+| `CATKNOWS_LOGIN_TTL` | 300 s | A login takes seconds; anything older is an abandoned tab holding a slot. |
+| `MemoryMax=1800M` (unit) | — | A runaway browser must not take Keycloak with it. Overshooting kills the dashboard alone, which restarts; the MCP endpoint keeps serving. |
+
+After a RAM upgrade, raise `CATKNOWS_LOGIN_MAX_SESSIONS` and `MemoryMax` — no
+code change needed.
+
+The connected Skool account is checked against the catknows account and a
+mismatch is **shown, not blocked**: using a different email at Skool than here is
+perfectly normal, so refusing would lock out real users. Naming the account lets
+the person notice the case that actually matters — signing into the wrong Skool
+account.
 
 ## Outbound SMTP is blocked
 

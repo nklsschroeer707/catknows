@@ -86,6 +86,50 @@ auth.catknows.app {
 	}
 }
 
-# ponytail: the landing page is a separate concern — add a `catknows.app { ... }`
-# block here when there's something to serve, or point the apex at Cloudflare
-# Pages and leave this file to the MCP endpoint alone.
+# The dashboard: landing page, legal pages, and the streamed Skool login (§2a).
+# It serves deploy/web/ itself rather than Caddy doing it, because the same app
+# owns /connect and the WebSocket — two servers on one domain would just mean
+# splitting paths between them.
+# One canonical host, not two: the OAuth redirect_uri is registered for exactly
+# one origin, so serving both would break the login on whichever one wasn't
+# registered. Redirect instead of duplicating.
+www.catknows.app {
+	redir https://catknows.app{uri} permanent
+}
+
+catknows.app {
+	# Caddy proxies WebSockets transparently, but the screencast must not be
+	# buffered or frames arrive in bursts.
+	reverse_proxy 127.0.0.1:8001 {
+		flush_interval -1
+	}
+
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# The connect page inlines its own script and streams data: URIs as
+		# frames; nothing is loaded from anywhere else, so say so.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' wss://catknows.app; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+	}
+
+	log {
+		output file /var/log/caddy/catknows.app.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		# The session cookie is a live login here, same class of secret as the
+		# MCP bearer token below.
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+}

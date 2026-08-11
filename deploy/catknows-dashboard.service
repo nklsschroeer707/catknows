@@ -1,0 +1,75 @@
+# systemd unit for the catknows dashboard (streamed Skool login, plan §2a).
+#   sudo cp deploy/catknows-dashboard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now catknows-dashboard
+#
+# Separate from catknows-mcp on purpose: that one authenticates machines with
+# bearer tokens, this one authenticates a person holding a cookie, and it is the
+# only one that launches Chromium. Keeping them apart means a browser crash
+# cannot take the MCP endpoint down with it.
+
+[Unit]
+Description=catknows dashboard (streamed Skool login)
+Documentation=https://github.com/nklsschroeer707/catknows
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=catknows
+Group=catknows
+WorkingDirectory=/opt/catknows
+
+Environment=CATKNOWS_DASHBOARD_HOST=127.0.0.1
+Environment=CATKNOWS_DASHBOARD_PORT=8001
+Environment=CATKNOWS_DASHBOARD_URL=https://catknows.app
+Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers
+
+# How many streamed logins may run at once. Each Chromium measures ~300-400 MB
+# and this box has 4 GB with no swap, ~600 MB of which Keycloak already holds —
+# so admission is refused past this rather than the kernel OOM-killing someone
+# mid-password. Raise it after upgrading RAM; it needs no code change.
+Environment=CATKNOWS_LOGIN_MAX_SESSIONS=2
+# A login is seconds of work; anything older is an abandoned tab holding a slot.
+Environment=CATKNOWS_LOGIN_TTL=300
+
+# Shared with catknows-mcp: the same session store, the same key. Both services
+# read CATKNOWS_SESSION_DIR/KEY from here — the dashboard writes sessions, the
+# MCP server reads them.
+EnvironmentFile=-/etc/catknows/env
+
+ExecStart=/opt/catknows/.venv/bin/python -m catknows.dashboard
+
+Restart=on-failure
+RestartSec=5s
+
+# -- hardening ---------------------------------------------------------------
+# Looser than catknows-mcp in exactly one respect: this service runs Chromium,
+# which needs more room. Each exception is noted rather than silently dropped.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/catknows
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=false
+# ^ Chromium's sandbox needs user namespaces. Leaving this false is what makes
+#   the browser sandbox work; disabling the sandbox instead would be worse.
+LockPersonality=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+
+LimitNOFILE=65535
+# Chromium spawns a lot of processes; the default TasksMax can throttle it.
+TasksMax=4096
+
+# A hard memory ceiling here IS wanted, unlike on catknows-mcp: a runaway
+# browser on a swapless 4 GB box takes Keycloak down with it. Overshooting this
+# kills the dashboard alone, which restarts — the MCP endpoint keeps serving.
+MemoryMax=1800M
+
+[Install]
+WantedBy=multi-user.target
