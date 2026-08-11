@@ -153,6 +153,22 @@ A `serverInfo` with `"name":"catknows"` means the whole chain works. Then point
 the MCP Inspector at `https://mcp.catknows.app/mcp` (transport: Streamable
 HTTP), and after that add it as a connector on claude.ai.
 
+## Testing from the box itself
+
+netcup does no hairpin NAT: the server cannot reach its **own** public IP, so
+`curl https://mcp.catknows.app/...` on the box times out even when everything
+works. That looks exactly like a broken vhost and isn't.
+
+Test the local path with the real hostname instead:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  --resolve mcp.catknows.app:443:127.0.0.1 https://mcp.catknows.app/mcp
+```
+
+For "does the world see it", ask from somewhere else — your laptop, or
+`curl` from any other host.
+
 ## If Chromium won't start
 
 Ubuntu 23.10+ ships `kernel.apparmor_restrict_unprivileged_userns=1`, which
