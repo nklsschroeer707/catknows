@@ -1,0 +1,5 @@
+# Deploy files are read by systemd, Caddy and AppArmor on a Linux box. A CRLF
+# checkout on Windows would ship CRs into config those parsers choke on, so
+# pin them to LF regardless of anyone's core.autocrlf.
+deploy/** text eol=lf
+*.sh text eol=lf
