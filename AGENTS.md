@@ -63,6 +63,19 @@ over `SkoolClient`; don't duplicate client logic in it.
 - Install/run: `pip install -e ".[mcp]"` then `python -m catknows.mcp_server`
   (stdio). Register with `claude mcp add catknows -- python -m catknows.mcp_server`,
   or a project `.mcp.json` (gitignored — holds machine paths).
+- **Transports:** stdio by default; `CATKNOWS_HTTP=1` serves streamable HTTP at
+  `/mcp` instead (`CATKNOWS_HOST`/`CATKNOWS_PORT`, default `127.0.0.1:8000`).
+  SSE is deprecated — don't add it. The switch lives in `main()` and hands the
+  work to the SDK's `run(transport=...)`; no ASGI scaffolding of our own until
+  auth needs middleware, then `streamable_http_app()` is the hook. Verify with
+  `python -m catknows.mcp_server --self-check` (no port bound) and the MCP
+  Inspector. **The HTTP transport has no auth yet** — it binds loopback, and
+  that default is load-bearing: `0.0.0.0` would expose a live Skool session.
+  Auth (OAuth 2.1/PKCE via AuthKit) and multi-tenancy are Phase 2, see
+  [docs/HOSTED_MCP_PLAN.md](docs/HOSTED_MCP_PLAN.md).
+- Login in HTTP mode can't fall back to a visible browser window (no display on
+  a server) — an expired session raises instead, pointing at `CATKNOWS_COOKIE`
+  or a pre-seeded profile. Don't "fix" that by re-enabling the window.
 - `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
   Anything a tool prints to stdout would corrupt the stream.
 - **Size cap:** tool results have a max token size. `list_members`/`list_posts`
@@ -88,9 +101,10 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Gated 404:** member/post data is members-only. If the logged-in account isn't
   in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
   member" error. `about`/`discovery` are public and work without membership.
-- Remote/mobile hosting (streamable-http transport + auth) is planned, not built:
-  see [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md). The two-doors model
-  (open repo self-host, no auth / hosted with login-auth) lives there.
+- Hosting catknows as a product (hosted endpoint, OAuth, multi-tenant, streamed
+  Skool login) is the plan in [docs/HOSTED_MCP_PLAN.md](docs/HOSTED_MCP_PLAN.md)
+  — it supersedes the older [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md).
+  The transport (Phase 1) is built; everything above it is not.
 
 ## To add a new endpoint
 
