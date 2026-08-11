@@ -133,6 +133,10 @@ over `SkoolClient`; don't duplicate client logic in it.
   goes through `_safe_raw()` / `normalize.scrub` first (see the MCP-server
   section). This matters most for the planned Cloud MCP, where output crosses a
   network to a third party — treat scrub as load-bearing, not cosmetic.
+  It is also now **contractually** load-bearing: the GDPR processing agreement
+  for the hosted server declares that no payment data is processed, which holds
+  only because the scrub removes the Stripe/payout fields Skool embeds. Removing
+  it would make a signed contract inaccurate.
 - **Never commit `.skool-profile/`** — it holds the user's live session.
 - This is not an official API; write code defensively (endpoints may 403/change).
 - Personal data (member emails/names) is being exported — see [LEGAL.md](LEGAL.md).

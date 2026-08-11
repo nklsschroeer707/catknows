@@ -185,6 +185,13 @@ still applies, but a remote server acting as you deserves the extra lock.
 ## Data protection
 
 The box processes other people's member data (names, emails). It's on German
-soil with a German provider on purpose — see [../LEGAL.md](../LEGAL.md). Once
-anyone other than you uses it, you need an AV-Vertrag with netcup (they offer
-one) and a public privacy policy. That's Phase 3, not now.
+soil with a German provider on purpose — see [../LEGAL.md](../LEGAL.md).
+
+The Art. 28 GDPR processing agreement (AVV) with netcup is **in place** since
+2026-08-11, covering this VPS. It declares no payment data — which is only true
+because `normalize.scrub` strips the Stripe/payout fields Skool ships inside
+otherwise ordinary payloads. **Weakening the scrub would make a signed contract
+inaccurate**, not just leak a field.
+
+Still open before anyone else uses this: a public privacy policy, and the fact
+that you become *their* processor in turn. Phase 3.
