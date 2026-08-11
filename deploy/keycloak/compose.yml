@@ -53,19 +53,17 @@ services:
       KC_HTTP_ENABLED: "true"
 
       KC_HEALTH_ENABLED: "true"
-      # Bootstrap only: these create the first admin on an EMPTY database and are
-      # ignored once it exists. After the first start, DELETE both lines from
-      # .env — the admin password should not keep living in a file. That is why
-      # they are optional here (`:-`, not `:?`): a required-variable check would
-      # block exactly that cleanup.
+      # KC_BOOTSTRAP_ADMIN_* deliberately absent. They only create the first
+      # admin on an empty database, and an *empty* value is not an absent one:
+      # Keycloak reads an empty username as set and refuses to boot
+      # ("bootstrap-admin-username available only when bootstrap admin password
+      # is set"). Anything written here is always set once compose interpolates,
+      # so the only absent state is "not in the file".
       #
-      # Both or neither. Keycloak refuses to boot on a username without a
-      # password ("bootstrap-admin-username available only when bootstrap admin
-      # password is set"), so the username is tied to the password being present
-      # — blanking only ADMIN_PASSWORD would otherwise leave a container that
-      # restart-loops on a config error.
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_PASSWORD:+${ADMIN_USER:-admin}}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # For a first start on an empty database, add the two lines below, bring it
+      # up, then remove them again and `docker compose up -d --force-recreate`:
+      #   KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USER}
+      #   KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
       # Loopback only. Caddy reaches it here; the internet never does.
       - "127.0.0.1:8080:8080"
