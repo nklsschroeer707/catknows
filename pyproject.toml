@@ -12,10 +12,14 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.2"]
+# Only the hosted HTTP server: OAuth token verification and the encrypted
+# per-user session store. A local stdio install needs neither.
+hosted = ["mcp>=1.2", "pyjwt>=2.8", "cryptography>=42"]
 
 [project.scripts]
 catknows = "catknows.__main__:main"
 catknows-mcp = "catknows.mcp_server:main"
+catknows-session = "catknows.sessions:main"
 
 [build-system]
 requires = ["setuptools>=68"]

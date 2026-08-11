@@ -33,7 +33,7 @@ try:  # MCP SDK 2.x
 except ImportError:  # MCP SDK 1.x called the same thing FastMCP
     from mcp.server.fastmcp import FastMCP as MCPServer
 
-from . import normalize, vault
+from . import normalize, sessions, vault
 
 
 def _auth_kwargs() -> dict[str, Any]:
@@ -67,6 +67,7 @@ def _auth_kwargs() -> dict[str, Any]:
 mcp = MCPServer("catknows", **_auth_kwargs())
 
 _client = None  # lazy: log in only when the first tool actually needs Skool
+_clients: dict[str, Any] = {}  # per-user clients, keyed by OAuth subject
 
 
 def _http_mode() -> bool:
@@ -80,13 +81,63 @@ def _profile_dir() -> Path:
     )
 
 
+def _client_from_cookie(cookie_header: str):
+    """SkoolClient for one stored cookie header. Raises if it carries no session."""
+    from . import SkoolClient, session_from_cookie
+
+    session = session_from_cookie(cookie_header)
+    if not session.is_valid:
+        raise RuntimeError("That cookie header has no auth_token in it.")
+    return SkoolClient(session)
+
+
+def _subject() -> str:
+    """Who is calling, per the verified OAuth token. Empty over stdio."""
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+    except ImportError:  # SDK without auth support: stdio only anyway
+        return ""
+    token = get_access_token()
+    return (token.subject or "") if token else ""
+
+
 def _get_client():
-    """Return a logged-in SkoolClient, creating the session on first use.
+    """Return a logged-in SkoolClient for the *calling user*.
+
+    With per-user sessions on (CATKNOWS_SESSION_DIR), every request is served
+    from the session stored under its own OAuth subject — never a shared one.
+    Without it, behaviour is the old single-session server: correct for stdio,
+    where the client already is the user.
 
     stdout is the MCP protocol channel — login() prints instructions, so
     everything here runs with stdout redirected to stderr.
     """
     global _client
+
+    if sessions.enabled():
+        subject = _subject()
+        if not subject:
+            # Refusing beats falling back to the shared session: that fallback
+            # is exactly the tenancy bug this store exists to close.
+            raise RuntimeError(
+                "No verified user on this request, so there is no session to use. "
+                "The hosted server requires OAuth."
+            )
+        if subject not in _clients:
+            # ponytail: evict-oldest at 50; an LRU matters once concurrent users
+            # outnumber that, and each entry holds an open HTTP session.
+            if len(_clients) >= 50:
+                _clients.pop(next(iter(_clients)))
+            cookie = sessions.load(subject)
+            if not cookie:
+                raise RuntimeError(
+                    "No Skool session stored for you yet. Call set_skool_session "
+                    "with your Skool cookie header (skool.com logged in → DevTools "
+                    "→ Application → Cookies → copy the whole string)."
+                )
+            _clients[subject] = _client_from_cookie(cookie)
+        return _clients[subject]
+
     if _client is None:
         from . import SkoolClient, login, session_from_cookie
 
@@ -160,6 +211,40 @@ def login_to_skool() -> str:
     """Log in to Skool (opens a browser window on first use). Call this if other tools report auth errors; afterwards the session is persisted and reused silently."""
     _get_client()
     return "Logged in. Session persisted — future calls run without the browser."
+
+
+# -- per-user session tools ----------------------------------------------------
+# Only registered on the hosted server. Over stdio the browser login handles
+# this, and a "store your cookie here" tool would just be a footgun.
+
+if sessions.enabled():
+
+    @mcp.tool()
+    def set_skool_session(cookie_header: str) -> dict:
+        """Store YOUR Skool session on the server so the other tools act as you.
+
+        Get it from a logged-in skool.com tab: DevTools → Application → Cookies →
+        copy the whole cookie string (it must contain auth_token). It is stored
+        encrypted, only under your account, and replaces any previous one. Remove
+        it any time with forget_skool_session.
+        """
+        subject = _subject()
+        if not subject:
+            raise RuntimeError("No verified user on this request — nothing to store it under.")
+        _client_from_cookie(cookie_header)  # reject junk before it hits the disk
+        sessions.save(subject, cookie_header)
+        _clients.pop(subject, None)  # next call rebuilds from what was just stored
+        return {"status": "stored", "note": "Encrypted at rest. Other tools now run as you."}
+
+    @mcp.tool()
+    def forget_skool_session() -> dict:
+        """Delete YOUR stored Skool session from the server. Tools stop working until you store a new one."""
+        subject = _subject()
+        if not subject:
+            raise RuntimeError("No verified user on this request.")
+        _clients.pop(subject, None)
+        existed = sessions.delete(subject)
+        return {"status": "deleted" if existed else "nothing stored"}
 
 
 @mcp.tool()

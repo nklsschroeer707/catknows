@@ -96,6 +96,45 @@ PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers \
 
 ## 5. The Skool session
 
+Two modes, and the choice decides whether anyone but you may use this server.
+
+### Per-user sessions (required before anyone else logs in)
+
+With `CATKNOWS_SESSION_DIR` set, each user stores their own Skool session and
+every request is served from the one belonging to its OAuth subject. A request
+without a verified user is refused — there is no shared session to fall back
+to. Sessions are encrypted at rest with a key you generate once:
+
+```bash
+install -d -m 700 -o catknows -g catknows /var/lib/catknows/sessions
+
+# Both go in /etc/catknows/env, never in the unit file — `systemctl show`
+# prints Environment= lines to any user.
+echo 'CATKNOWS_SESSION_DIR=/var/lib/catknows/sessions' >> /etc/catknows/env
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+echo 'CATKNOWS_SESSION_KEY=<that key>' >> /etc/catknows/env
+
+systemctl restart catknows-mcp
+```
+
+Losing the key means every stored session becomes unreadable and each user
+stores theirs again — annoying, not dangerous. Back it up wherever the rest of
+your secrets live.
+
+Each user then calls `set_skool_session` once with their own Skool cookie
+header, and `forget_skool_session` to remove it again. Until the streamed
+remote login (plan §2a) exists, that copy-paste is how a session gets in.
+
+> Leave `CATKNOWS_COOKIE` unset in this mode — with the store on it is ignored,
+> and keeping it around only invites confusion about whose data is served.
+
+### Single-session (one operator, your own data only)
+
+Without `CATKNOWS_SESSION_DIR`, one Skool session serves every request. Fine
+while you are the only one with an account; **do not** hand out access to
+anyone else in this mode — they would see your community, your DMs, your
+metrics.
+
 **A server has no display, so the login window can't open** — the server raises
 a clear error instead of hanging. Seed the session one of two ways:
 

@@ -24,6 +24,12 @@ Environment=CATKNOWS_PORT=8000
 # "Invalid Host header". Must match the Caddyfile's site block.
 Environment=CATKNOWS_DOMAIN=mcp.catknows.app
 Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
+# Per-user Skool sessions: set CATKNOWS_SESSION_DIR *and* CATKNOWS_SESSION_KEY
+# in /etc/catknows/env to turn the server multi-tenant — every request is then
+# served from the session stored under its own OAuth subject, and a request
+# without a verified user is refused. Both live in the env file because one
+# without the other is a broken server; see deploy/README.md §5.
+#   CATKNOWS_SESSION_DIR=/var/lib/catknows/sessions
 # Playwright downloads browsers per-user by default; pin it somewhere the
 # service user owns and the deploy script can pre-seed.
 Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers
