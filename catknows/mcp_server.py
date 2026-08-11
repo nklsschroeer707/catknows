@@ -131,9 +131,10 @@ def _get_client():
             cookie = sessions.load(subject)
             if not cookie:
                 raise RuntimeError(
-                    "No Skool session stored for you yet. Call set_skool_session "
-                    "with your Skool cookie header (skool.com logged in → DevTools "
-                    "→ Application → Cookies → copy the whole string)."
+                    "No Skool session stored for you yet. On the server: "
+                    f"`catknows-session store {subject}` (hidden prompt, paste the "
+                    "whole Cookie: request header). Without shell access there, "
+                    "set_skool_session does the same — but read its warning first."
                 )
             _clients[subject] = _client_from_cookie(cookie)
         return _clients[subject]
@@ -223,10 +224,18 @@ if sessions.enabled():
     def set_skool_session(cookie_header: str) -> dict:
         """Store YOUR Skool session on the server so the other tools act as you.
 
-        Get it from a logged-in skool.com tab: DevTools → Application → Cookies →
-        copy the whole cookie string (it must contain auth_token). It is stored
-        encrypted, only under your account, and replaces any previous one. Remove
-        it any time with forget_skool_session.
+        PREFER THE SERVER CLI over this tool: `catknows-session store <subject>`
+        reads the cookie from a hidden prompt on the box. A Skool cookie is a
+        year-long bearer token for the whole account — no password, no 2FA — and
+        anything sent to this tool is written to a conversation log first. Only
+        use it when you have no shell access to the server, and treat a cookie
+        that went through a chat as burned (log out of all devices in Skool).
+
+        Wants the whole `Cookie:` request header (DevTools → Network → any
+        request → Request Headers), not the bare token: the aws-waf-token in
+        there is what keeps Skool's WAF from 403'ing paginated endpoints.
+        Stored encrypted under your account only; replaces any previous one.
+        Remove it with forget_skool_session.
         """
         subject = _subject()
         if not subject:

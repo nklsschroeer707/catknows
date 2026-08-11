@@ -121,9 +121,31 @@ Losing the key means every stored session becomes unreadable and each user
 stores theirs again — annoying, not dangerous. Back it up wherever the rest of
 your secrets live.
 
-Each user then calls `set_skool_session` once with their own Skool cookie
-header, and `forget_skool_session` to remove it again. Until the streamed
-remote login (plan §2a) exists, that copy-paste is how a session gets in.
+#### Getting a session in
+
+Until the streamed remote login (plan §2a) exists, a Skool cookie has to be
+pasted in by hand. Do it **on the box**, as the service user:
+
+```bash
+sudo -u catknows CATKNOWS_SESSION_DIR=/var/lib/catknows/sessions \
+  CATKNOWS_SESSION_KEY=<that key> \
+  /opt/catknows/.venv/bin/catknows-session store <keycloak-user-id>
+```
+
+The prompt is hidden, so the cookie stays out of the shell history and out of
+`ps`. It wants the **whole `Cookie:` request header** (DevTools → Network →
+any request → Request Headers), not the bare token — the `aws-waf-token` in
+there is what keeps Skool's WAF from 403'ing the paginated endpoints.
+
+> **Never paste a Skool cookie into a chat with an AI.** It is a year-long
+> bearer token for the whole account: no password, no 2FA. Anything typed to a
+> model goes into a conversation log. `set_skool_session` exists as an MCP tool
+> for clients that have no shell access to the server, but the CLI above is the
+> way to do it when you have one. A cookie that ever crossed a chat should be
+> killed by logging out of all devices in Skool.
+
+`forget_skool_session` (or `catknows-session delete <subject>`) removes a
+stored session again — that one is safe from a chat, it carries no secret.
 
 > Leave `CATKNOWS_COOKIE` unset in this mode — with the store on it is ignored,
 > and keeping it around only invites confusion about whose data is served.
