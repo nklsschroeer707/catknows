@@ -13,12 +13,19 @@ Last updated: 2026-08-11.
 
 ## 1. Who is responsible
 
-<!-- TODO before launch: a German Impressum (TMG §5) requires a real postal
-     address and it must match this controller block. Fill both in together. -->
-
     Niklas Schröer
-    <postal address>
-    <email>
+    Am Pickerweg 32
+    49401 Damme
+    Germany
+
+    nklsschroeer@gmail.com
+
+<!-- This block doubles as the Impressum data (§5 DDG, formerly TMG). Publish it
+     as a separate /impressum page too when the landing page goes up — the law
+     wants it directly reachable, not only inside another document. -->
+
+Reachable by email at the address above. This is a service run by an individual,
+not a company — there is no commercial register entry or VAT ID to state.
 
 I am the controller (GDPR art. 4(7)) for the data described here. There is no
 data protection officer — the service is below the thresholds in GDPR art. 37.
@@ -72,9 +79,9 @@ Two consequences worth stating plainly:
   terms govern it from there, not mine.
 - **It contains other people's personal data** — your members' names, handles,
   activity, sometimes emails. For that processing *you* are the controller and I
-  am your processor (GDPR art. 28). A data processing agreement is available;
-  ask for it. Only pull data you have a lawful basis to process, and see
-  [LEGAL.md](../LEGAL.md) on Skool's terms.
+  am your processor: see the [data processing agreement](DPA.md), which applies
+  as soon as you store a Skool session. Only pull data you have a lawful basis to
+  process, and see [LEGAL.md](../LEGAL.md) on Skool's terms.
 
 ### 2.4 Server logs
 
@@ -105,8 +112,18 @@ rather than accumulating indefinitely.
 | **Let's Encrypt (ISRG)** | TLS certificates. Sees the domain name, no user data | USA |
 
 Everything is inside the EU/EEA except certificate issuance, which involves no
-personal data. There are data processing agreements (art. 28) with netcup and
-Scaleway. No transfers to third countries.
+personal data. Data processing agreements under art. 28 are in place with netcup
+and Scaleway; both publish a sub-processor list and standard contractual clauses.
+No transfers to third countries.
+
+<!-- TODO before launch — verify, don't assume:
+     netcup: signed (page 6 left column was blank; check whether the CCP click
+       covers it). See vault: catknows-ops/avv-netcup.
+     Scaleway: their DPA sits beside the ToS as its own PDF, so it is NOT
+       self-evidently automatic. Check Console -> Organization -> Contracts for
+       an accepted-with-timestamp entry; accept it there if absent. Keep the
+       proof. Only then is the sentence above accurate. -->
+
 
 Your AI client (e.g. Anthropic) is **not** my processor — it is the other party
 in your own relationship, and receives data because you asked it to call these

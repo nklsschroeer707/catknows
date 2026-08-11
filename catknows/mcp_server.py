@@ -460,11 +460,22 @@ def update_catknows(confirm: bool = False) -> dict:
     return _update.update()
 
 
-@mcp.tool()
-def pull_to_vault(
-    community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
-) -> dict:
-    """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
+# Writes member data to local files, so it only makes sense where the caller
+# owns the filesystem. On the hosted server it would write other people's
+# personal data onto my disk, where the user can't reach it anyway — and the
+# processing agreement (deploy/DPA.md §3) promises member data is never
+# persisted. Not registering it is what keeps that promise true.
+if not sessions.enabled():
+
+    @mcp.tool()
+    def pull_to_vault(
+        community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
+    ) -> dict:
+        """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
+        return _pull_to_vault(community_slug, vault_dir, include_comments)
+
+
+def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) -> dict:
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
     vault.ensure_scaffold(out)

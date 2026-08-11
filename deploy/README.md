@@ -18,8 +18,9 @@ encrypted sessions later is the migration you don't want.
 > Requests arriving *through* Caddy are authenticated (Keycloak OAuth, §7) and
 > answered per user (§5), so more than one person can use this safely. What still
 > has to be true before you hand out an account: registration stays closed,
-> [PRIVACY.md](PRIVACY.md) is filled in and published, and the processing
-> agreements in it are actually in place.
+> [PRIVACY.md](PRIVACY.md) and [DPA.md](DPA.md) are published where users can
+> reach them, and the sub-processor agreements named in them are verified as
+> actually in place (both files carry a TODO where that is still open).
 
 ## 0. Install the OS
 
