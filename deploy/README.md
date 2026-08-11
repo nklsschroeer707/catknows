@@ -11,12 +11,15 @@ Why 128 GB and not a 40 GB plan: each user keeps a persistent Chromium profile
 itself — 40 GB runs out at a few hundred users, and moving a box full of
 encrypted sessions later is the migration you don't want.
 
-> **Read this before you start.** Everything below assumes single-user
-> operation — your own Skool account, your own use. **The HTTP transport has no
-> authentication yet.** Anyone who reaches port 8000 gets your Skool session.
-> That is why the server binds `127.0.0.1` and Caddy is the only way in. Do not
-> open the port in the firewall, and do not put this in front of other people
-> before Phase 2 (OAuth) lands.
+> **Read this before you start.** The MCP transport has no authentication of its
+> own — anything reaching port 8000 is trusted. That is why the server binds
+> `127.0.0.1` and Caddy is the only way in: never open that port in the firewall.
+>
+> Requests arriving *through* Caddy are authenticated (Keycloak OAuth, §7) and
+> answered per user (§5), so more than one person can use this safely. What still
+> has to be true before you hand out an account: registration stays closed,
+> [PRIVACY.md](PRIVACY.md) is filled in and published, and the processing
+> agreements in it are actually in place.
 
 ## 0. Install the OS
 
@@ -121,6 +124,21 @@ Losing the key means every stored session becomes unreadable and each user
 stores theirs again — annoying, not dangerous. Back it up wherever the rest of
 your secrets live.
 
+#### Onboarding a user
+
+Self-signup is off (`registrationAllowed=false`) — see the reasoning in
+`keycloak/setup-realm.sh`. Onboarding is two steps, both yours:
+
+1. **Create the account:** admin console → realm `catknows` → Users → Add user
+   (email as username, then *Credentials* → set a temporary password, and
+   *Email verified* off so they confirm it). Copy the user's `ID` — that UUID is
+   the OAuth subject the session store keys on.
+2. **Store their Skool session** with the command below, using that UUID.
+
+Until step 2 happens, their tools all refuse: an account with no stored session
+reaches no data at all. That's the intended order — an account alone is
+harmless.
+
 #### Getting a session in
 
 Until the streamed remote login (plan §2a) exists, a Skool cookie has to be
@@ -149,6 +167,24 @@ stored session again — that one is safe as a tool, it carries no secret.
 
 > Leave `CATKNOWS_COOKIE` unset in this mode — with the store on it is ignored,
 > and keeping it around only invites confusion about whose data is served.
+
+### Rate limiting and brute force
+
+There is deliberately **no fail2ban and no Caddy rate-limit module** here.
+
+Caddy can't rate-limit without a plugin, which means maintaining a custom build.
+What that build would be guarding is already guarded elsewhere:
+
+| Attack | Handled by |
+|---|---|
+| Guessing a password | Keycloak's own brute-force detection: 5 failures → 60 s, doubling to 900 s, plus a floor on how fast attempts may arrive. Per account, seen directly rather than parsed out of a log. |
+| Mass account creation | Registration is closed (above). |
+| Reaching data without a session | The session store refuses — no identity, or no stored session, means no request is served. |
+
+fail2ban would add IP-level defence against *distributed* password guessing
+across many accounts, at the cost of a regex over Caddy's console-format logs —
+which deliberately omit the `Authorization` and `Cookie` headers. Worth adding
+when registration opens up; not before.
 
 ### Single-session (one operator, your own data only)
 

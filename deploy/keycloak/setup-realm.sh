@@ -30,12 +30,26 @@ else
 	echo "realm $REALM created"
 fi
 
-# Open registration, but never a usable account without a verified address —
-# otherwise anyone can mint accounts on typed-in addresses they don't own.
+# Registration is CLOSED: accounts are created here, in the admin console.
+#
+# Self-signup would be an open account factory long before it is useful — a new
+# account can reach no data anyway (no Skool session in the store means every
+# tool call is refused), while each signup does burn a verification mail from
+# the Scaleway quota. Nothing is gained and something is spent.
+#
+# It also can't be self-service yet by construction: a Skool session has to be
+# put in from the box (`catknows-session store <subject>`), so onboarding
+# involves the operator regardless. Flip this to true once the streamed remote
+# login (plan §2a) makes signup actually complete on its own — and pair it with
+# per-IP rate limiting then, because Keycloak's brute-force protection guards
+# passwords, not registrations.
+#
+# registrationEmailAsUsername/verifyEmail stay on: they're what a console-created
+# account is keyed on, and what proves the address before a reset link is sent.
 # Brute force detection is Keycloak's own; it locks an account temporarily
 # after repeated failures rather than letting a password be guessed.
 "$KCADM" update "realms/$REALM" \
-  -s registrationAllowed=true \
+  -s registrationAllowed=false \
   -s registrationEmailAsUsername=true \
   -s verifyEmail=true \
   -s resetPasswordAllowed=true \
@@ -50,7 +64,7 @@ fi
   -s minimumQuickLoginWaitSeconds=60 \
   -s maxDeltaTimeSeconds=43200 \
   -s sslRequired=all
-echo "realm settings applied (open registration + email verification + brute force)"
+echo "realm settings applied (registration CLOSED + email verification + brute force)"
 
 # -- client scope with audience mapper -----------------------------------------
 # Keycloak has no RFC 8707 (resource indicators) yet, so the MCP audience rides
