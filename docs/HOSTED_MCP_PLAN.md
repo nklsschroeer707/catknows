@@ -121,26 +121,45 @@ Connector-Verzeichnis:
 
 ## 5. Kosten (Ziel: so niedrig wie möglich)
 
+Gebucht (Stand 2026-08-11):
+
 | Posten | Lösung | Kosten |
 |---|---|---|
-| Server (MCP + ggf. Website) | kleiner VPS (z. B. Hetzner CX22) | ~4,50 €/Monat |
+| Server (MCP + ggf. Website) | netcup VPS 500 G12, Standort Nürnberg | 6,81 €/Monat |
 | TLS | Caddy / Let's Encrypt | 0 € |
 | Auth inkl. Google-Login | WorkOS AuthKit (frei bis 1 Mio. MAU) | 0 € |
 | Website | Cloudflare Pages | 0 € |
-| Domain | at-cost-Registrar (Cloudflare/Porkbun) | ~10–12 €/Jahr |
+| Domain `catknows.app` | bei netcup (Registrar-Wechsel später möglich) | 3,20 €/Monat |
 
-**Gesamt: unter 6 €/Monat.** Eine neue Domain wird ohnehin gebraucht;
-`.com`/`.app`/`.dev` sind die günstigen TLDs, `.io`/`.ai` lohnen nicht.
+**Gesamt: 10,01 €/Monat.** Mehr als die ursprünglich geschätzten 6 € — die
+Speicherpreise sind im Frühjahr 2026 gestiegen, Nürnberg kostet +0,90 €, und
+die Domain liegt beim selben Anbieter statt beim at-cost-Registrar (~25 €/Jahr
+Aufpreis, dafür eine Rechnung und ein Panel).
+
+**Warum netcup und nicht der billigste Anbieter:** deutsches Unternehmen,
+eigenes Rechenzentrum in Nürnberg — der Server mit fremden Mitgliederdaten
+steht damit unter deutschem Recht, nicht nur "in der EU". Und die 128 GB NVMe
+sind hier kein Luxus: jeder Nutzer bekommt ein persistentes Chromium-Profil
+(§2a), gemessen ~130 MB pro Profil. Ein 40-GB-Plan wäre im niedrigen
+dreistelligen Nutzerbereich voll, und ein Umzug mit verschlüsselten Sessions
+darauf ist die Migration, die man sich erspart.
+
+**Warum `.app`:** die TLD steht komplett auf der HSTS-Preload-Liste — Browser
+verweigern `http://` grundsätzlich. Für einen Endpoint, der Skool-Sessions
+hält, ist das eine Sicherheitseigenschaft gratis von der Registry.
+`catknows.com` war seit 2014 vergeben, `.net` seit Mai 2026.
 
 ## 6. Phasen
 
-- **Phase 0 — Fundament.** Domain sichern, VPS aufsetzen (Caddy, systemd),
-  AuthKit-Projekt anlegen.
-- **Phase 1 — MCP remote.** `mcp_server.py`: Streamable-HTTP-Modus +
-  AuthKit-OAuth (FastMCP `AuthKitProvider`). Erst Single-User gegen den
-  eigenen Account testen (MCP-Inspector, dann claude.ai-Connector, dann
-  Handy). Damit ist das Selbst-Hosting-Zielbild aus dem alten Plan nebenbei
-  miterfüllt.
+- **Phase 0 — Fundament.** Domain `catknows.app` und netcup VPS 500 (Nürnberg)
+  bestellt ✅. VPS aufsetzen: Rezept liegt fertig in
+  [deploy/](../deploy/) (Caddyfile, systemd-Unit, Schritte) — offen, bis der
+  Server läuft. Auth-Projekt: erst nach der Anbieter-Entscheidung (§7.1).
+- **Phase 1 — MCP remote.** Streamable-HTTP-Transport in `mcp_server.py` ✅
+  (`CATKNOWS_HTTP=1`, Tool-Annotations, lokal gegen den MCP-Inspector
+  verifiziert). Offen: OAuth-Schicht und der Test als claude.ai-Connector —
+  beides braucht den laufenden Server. Damit ist das Selbst-Hosting-Zielbild
+  aus dem alten Plan nebenbei miterfüllt.
 - **Phase 2 — Multi-Tenant + gestreamter Login.** Session-Store pro Nutzer
   (verschlüsselt), Mini-Dashboard: Login, Skool per gestreamtem Remote-Login
   verbinden (§2a — direkt der Zielweg, keine Passwort-Zwischenstufe),
@@ -154,8 +173,11 @@ Connector-Verzeichnis:
 
 ## 7. Offene Punkte
 
-1. **Domain-Wahl** (Verfügbarkeit checken; die alte Domain steht nicht mehr
-   zur Verfügung).
+1. **Auth-Anbieter.** Der Plan nennt WorkOS AuthKit — ein US-Unternehmen.
+   Das passt schlecht zur bewusst deutschen Hosting-Entscheidung, sobald
+   fremde Nutzerkonten dazukommen. Alternativen: Zitadel (Schweiz, auch
+   self-hostbar) oder Keycloak auf demselben VPS. **Zu entscheiden bevor die
+   OAuth-Schicht gebaut wird** — die Wahl bestimmt den Code.
 2. **Preismodell der Komfort-Schicht** (frei bis N Abrufe? Business-Tier?) —
    Entscheidung vor Phase 3, die Technik hängt nicht daran.
 3. **Backlog aus der Community:** Config-Datei (u. a. Vault-Pfad),
