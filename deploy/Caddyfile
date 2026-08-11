@@ -1,5 +1,13 @@
 # Caddy config for the hosted catknows MCP server.
-#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo mkdir -p /var/log/caddy && sudo chown -R caddy:caddy /var/log/caddy
+#   sudo systemctl restart caddy
+#
+# The mkdir is not optional and bites once per new vhost: `caddy validate`
+# passes, then loading fails with "permission denied" on the log file, which
+# reads like a config error and isn't. Any site block added below needs that
+# directory writable by the caddy user.
 #
 # Caddy gets the TLS cert from Let's Encrypt on first start — the domain's
 # A/AAAA record must already point here, or the challenge fails.
