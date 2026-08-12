@@ -94,7 +94,9 @@ class SkoolHTTP:
 
         Skool embeds `"buildId":"XXXX"` in the __NEXT_DATA__ script on every
         page (even 404s). It changes on every Skool deploy, so we discover it
-        rather than hardcode it, and cache it for the client's lifetime.
+        rather than hardcode it, and cache it until a request 404s — `get_next`
+        then clears the cache and re-discovers once (a deploy mid-session would
+        otherwise 404 every URL until the process restarts).
         """
         if self._build_id:
             return self._build_id
@@ -124,7 +126,7 @@ class SkoolHTTP:
         """GET a www.skool.com/_next/data/... endpoint (Next.js shape).
 
         `path_and_query` is everything after the buildId, e.g.
-        "/{slug}/-/members.json?t=active&...". Retries on Skool's 202/empty
+        "/{slug}/-/members.json?sortType=...". Retries on Skool's 202/empty
         (ISR deferred) responses.
         """
         build_id = self.build_id(community_slug) if community_slug else self._build_id
@@ -144,7 +146,21 @@ class SkoolHTTP:
             "sec-fetch-site": "same-origin",
         }
         self._add_sec_ch_ua(headers)
-        data = self._get_with_retry(url, headers)
+        try:
+            data = self._get_with_retry(url, headers)
+        except SkoolHTTPError as e:
+            # Skool deploys a new buildId and every URL carrying the old one 404s.
+            # We cache the id for the client's lifetime, so a long-running server
+            # would stay broken until restarted. Re-discover once and retry; if
+            # the id didn't actually change it's a real 404, so re-raise.
+            if e.status != 404 or not community_slug:
+                raise
+            stale, self._build_id = build_id, ""
+            fresh = self.build_id(community_slug)
+            if fresh == stale:
+                raise
+            url = f"{SKOOL_BASE}/_next/data/{fresh}{path_and_query}"
+            data = self._get_with_retry(url, headers)
         # Members-only routes answer 200 with a redirect stub (pageProps holds
         # ONLY __N_REDIRECT*) when the account isn't in the community. Without
         # this check callers see an empty list and think "0 members". Next.js
@@ -160,9 +176,10 @@ class SkoolHTTP:
                 where = f"'{community_slug}'" if community_slug else "this community"
                 raise SkoolHTTPError(
                     f"Skool redirected this members-only page — the logged-in "
-                    f"account is not a member of {where}. Join it on skool.com, "
-                    "or use an account that's in it. Public info (about, "
-                    "discovery) works without membership.",
+                    f"account has no access to {where}. It may not have joined, "
+                    "or it may be banned or removed (Skool bounces both to the "
+                    "about page identically). Use an account that's in it. "
+                    "Public info (about, discovery) works without membership.",
                     307,
                 )
         return data
@@ -278,9 +295,10 @@ class SkoolHTTP:
                 # always: the logged-in account isn't a member of this community.
                 raise SkoolHTTPError(
                     f"HTTP 404 on {url}: not found. The logged-in Skool account "
-                    "is likely not a member of this community (member/post data "
-                    "is members-only). Join it, or use an account that's in it. "
-                    "Public info (about, discovery) works without membership.",
+                    "likely has no access to this community — not joined, or "
+                    "banned/removed (member/post data is members-only). Use an "
+                    "account that's in it. Public info (about, discovery) works "
+                    "without membership.",
                     code,
                 )
             if not (200 <= code < 300):
