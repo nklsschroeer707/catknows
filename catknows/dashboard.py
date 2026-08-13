@@ -216,7 +216,9 @@ async def callback(request):
     cleared = access is not None and not may_use_service(access)
 
     sid = _new_session(claims.get("sub", ""), claims.get("email", ""), cleared=cleared)
-    resp = RedirectResponse("/connect", status_code=302)
+    # Back to the homepage, not /connect: the landing's account button shows the
+    # state, and connecting Skool stays a deliberate click from there.
+    resp = RedirectResponse("/", status_code=302)
     resp.set_cookie(
         COOKIE, sid,
         max_age=COOKIE_TTL, httponly=True, samesite="lax",
@@ -549,8 +551,9 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
                  'until you connect one.</p>')
 
     body = f"""{_panel(email, stored, skool, cleared)}
-<h1>catknows</h1>
-<div class="sub">Signed in as {escape(email or 'your account')} &mdash;
+<h1><a href="/" style="color:inherit;text-decoration:none">catknows</a></h1>
+<div class="sub"><a href="/">&larr; back to the homepage</a> &middot;
+Signed in as {escape(email or 'your account')} &mdash;
 <a href="/auth/logout">sign out</a></div>
 
 <div class="card">
