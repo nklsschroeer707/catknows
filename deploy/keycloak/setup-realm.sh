@@ -118,60 +118,71 @@ else
 	echo "client scope $SCOPE exists"
 fi
 
+# The lookup above uses the JSON output and returns empty on some Keycloak
+# versions. Re-resolve from CSV, which has held: without an id the mappers below
+# would be created against nothing and the entitlement check would keep failing.
+if [ -z "$scope_id" ]; then
+	scope_id=$("$KCADM" get client-scopes -r "$REALM" --fields id,name --format csv \
+		--noquotes 2>/dev/null | grep ",$SCOPE\$" | cut -d, -f1 | head -1)
+fi
+[ -n "$scope_id" ] || { echo "FATAL: cannot resolve the $SCOPE scope id"; exit 1; }
+
 # Optional, not default: a client gets this audience only by asking for the
 # scope, so tokens minted for anything else stay unusable against the MCP server.
 "$KCADM" update "realms/$REALM" -s "defaultOptionalClientScopes+=$SCOPE" 2>/dev/null \
 	|| echo "  (scope already in optional list)"
 
 # -- claims the entitlement check needs ----------------------------------------
-# A client registered through DCR comes out with `basic` as its only default
-# scope — no `email`, no `roles`. Tokens minted for it therefore carry neither
-# `email_verified` nor `realm_access.roles`, and may_use_service() refuses every
-# request with "email not verified" while the account is perfectly fine. That
-# cost an hour on 2026-08-13; the log line naming the failed check is what found
-# it.
+# may_use_service() (catknows/auth_oauth.py) reads `email_verified` and
+# `realm_access.roles`. Neither is in a DCR-issued token by default: a client
+# registered through DCR comes out with `basic` as its only default scope, so
+# every request is refused with "email not verified" while the account itself is
+# perfectly fine. Cost an hour on 2026-08-13.
 #
-# Two separate fixes, because they cover different clients:
-#   1. the realm default, inherited by every FUTURE DCR registration
-#   2. the clients already registered, which inherit nothing retroactively
+# The claims ride on the mcp:tools scope, NOT on the clients. Two failed
+# attempts first, both worth not repeating:
 #
-# Assignment goes through the default-client-scopes sub-resource. Setting the
-# field with `-s defaultClientScopes+=email` is accepted, reports success, and
-# changes nothing — verified on the box. Always read it back.
-scope_id_by_name() {
-	"$KCADM" get client-scopes -r "$REALM" --fields id,name --format csv --noquotes \
-		2>/dev/null | grep ",$1\$" | cut -d, -f1 | head -1
+#   * `-s defaultClientScopes+=email` on a client — accepted, exit 0, changes
+#     nothing. A silent no-op. Same for defaultDefaultClientScopes on the realm.
+#   * assigning email/roles as default scopes through the sub-resource — this
+#     *works*, and then breaks every existing connection: the user consented to
+#     {mcp:tools, offline_access}, the client now asks for more, and Keycloak
+#     invalidates the offline token with "Client no longer has requested consent
+#     from user". It also does nothing for clients registered later, and claude.ai
+#     registers a fresh one on every reconnect.
+#
+# Hanging the mappers on mcp:tools avoids both: it is the scope claude.ai already
+# requests and the user already consents to, so the consent set never changes,
+# and every future DCR client inherits the claims automatically — it cannot reach
+# the server without this scope anyway.
+mapper() {
+	name=$1; shift
+	"$KCADM" create "client-scopes/$scope_id/protocol-mappers/models" -r "$REALM" \
+		-s "name=$name" -s protocol=openid-connect "$@" 2>/dev/null \
+		&& echo "  mapper $name created" || echo "  (mapper $name exists)"
 }
 
-for want in email roles; do
-	sid=$(scope_id_by_name "$want")
-	if [ -z "$sid" ]; then
-		echo "  WARNING: built-in scope '$want' not found — entitlement checks will fail"
-		continue
-	fi
+mapper email-verified \
+	-s protocolMapper=oidc-usermodel-property-mapper \
+	-s 'config."user.attribute"=emailVerified' \
+	-s 'config."claim.name"=email_verified' \
+	-s 'config."jsonType.label"=boolean' \
+	-s 'config."access.token.claim"=true' \
+	-s 'config."id.token.claim"=true'
 
-	# 1. future DCR clients
-	"$KCADM" update "realms/$REALM" -s "defaultDefaultClientScopes+=$want" 2>/dev/null \
-		&& echo "realm default scope += $want" \
-		|| echo "  ($want already a realm default)"
+mapper realm-roles \
+	-s protocolMapper=oidc-usermodel-realm-role-mapper \
+	-s 'config."claim.name"=realm_access.roles' \
+	-s 'config."jsonType.label"=String' \
+	-s 'config."multivalued"=true' \
+	-s 'config."access.token.claim"=true'
 
-	# 2. clients that already exist. The DCR ones are named by their UUID.
-	for cid in $("$KCADM" get clients -r "$REALM" --fields clientId --format csv \
-	             --noquotes 2>/dev/null | grep -E '^[0-9a-f]{8}-' || true); do
-		"$KCADM" update "clients/$cid/default-client-scopes/$sid" -r "$REALM" \
-			2>/dev/null && echo "  $cid += $want" || true
-	done
-done
-
-# Read back, because the failure mode above is a silent no-op.
-echo "default scopes per DCR client (must include email and roles):"
-for cid in $("$KCADM" get clients -r "$REALM" --fields clientId --format csv --noquotes \
-             2>/dev/null | grep -E '^[0-9a-f]{8}-' || true); do
-	printf '  %s: ' "$cid"
-	"$KCADM" get "clients/$cid/default-client-scopes" -r "$REALM" --fields name \
-		--format csv --noquotes 2>/dev/null | tr '\n' ' '
-	echo
-done
+# Read back: the failure mode above is a silent no-op, so trusting exit codes
+# here is how the hour got lost.
+echo "mappers on $SCOPE (need mcp-audience, email-verified, realm-roles):"
+"$KCADM" get "client-scopes/$scope_id/protocol-mappers/models" -r "$REALM" \
+	--fields name --format csv --noquotes 2>/dev/null | tr '\n' ' '
+echo
 
 # -- dynamic client registration -----------------------------------------------
 # claude.ai has never seen this server before, so it must register itself
