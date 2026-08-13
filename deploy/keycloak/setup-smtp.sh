@@ -41,6 +41,15 @@ FROM_NAME="${SMTP_FROM_NAME:-catknows}"
   -s "smtpServer.replyTo=$FROM" \
   -s 'smtpServer.envelopeFrom='"$FROM"
 
+# Read back — but NOT with `--fields smtpServer`. That filter prints `{ }` for a
+# nested object even when it is fully populated, which on 2026-08-13 made a
+# working SMTP config look like a silent no-op and sent an hour down the wrong
+# path. Fetch the whole realm and grep instead.
+echo
+echo "read back (host must appear):"
+"$KCADM" get "realms/$REALM" | grep -A3 '"smtpServer"' | grep -E 'host|port' \
+  || { echo "FATAL: smtpServer is empty after the update"; exit 1; }
+
 echo "SMTP configured: $FROM via smtp.tem.scaleway.com:${SMTP_PORT:-2465}"
 echo
 echo "Test it: admin console -> Realm settings -> Email -> 'Test connection'."

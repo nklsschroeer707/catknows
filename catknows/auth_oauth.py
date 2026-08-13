@@ -22,12 +22,16 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 # user attribute in the admin console; deploy/keycloak/setup-realm.sh puts the
 # mapper that carries it into the token.
 #
-# A user attribute rather than a realm role, learned the hard way on 2026-08-13:
-# oidc-usermodel-realm-role-mapper was configured exactly as documented, on a
-# scope that demonstrably applies (the audience and email_verified mappers
-# beside it both work), and still produced no realm_access claim. An attribute
-# rides the same mapper type as email_verified, which does work. Boring beats
-# correct-on-paper when the platform disagrees silently.
+# A user attribute rather than a realm role. The role looked broken on
+# 2026-08-13 — no realm_access claim in the token — but it was not: roles simply
+# do not ride in a DCR client's token, which gets `basic` and nothing else, and
+# that was the only client anyone measured. What actually blocked both designs
+# was the realm's user profile, which must declare an attribute before it can be
+# stored at all; until then the mapper carried nothing and every request was
+# refused here.
+#
+# The attribute stays, because it does not depend on realm_access reaching a DCR
+# token. Granting it: deploy/keycloak/grant-service.sh.
 SERVICE_CLAIM = "catknows_service"
 
 

@@ -20,11 +20,12 @@ encrypted sessions later is the migration you don't want.
 >
 > **Registration is open since 2026-08-13, and access is not.** Anyone can sign
 > up and confirm an address; nobody reaches a tool until their account carries
-> the user attribute `catknows_service=true`, which you set by hand (Users → the
-> account → Attributes). That check lives in `may_use_service()` in
-> `catknows/auth_oauth.py` and every request passes through it. Removing the
-> attribute is the per-user kill switch, effective within an access token's
-> lifetime.
+> the user attribute `catknows_service=true`. You grant it with
+> `deploy/keycloak/grant-service.sh <email>` — not with `kcadm -s`, which
+> silently does nothing (see the header of that script for why). That check
+> lives in `may_use_service()` in `catknows/auth_oauth.py` and every request
+> passes through it. `grant-service.sh <email> false` is the per-user kill
+> switch, effective within an access token's lifetime.
 >
 > What still has to be true before you hand out access: [PRIVACY.md](PRIVACY.md)
 > and [DPA.md](DPA.md) are published where users can reach them, and the

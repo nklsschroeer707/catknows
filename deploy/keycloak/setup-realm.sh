@@ -75,6 +75,30 @@ echo "realm settings applied (registration OPEN + email verification + brute for
 #   Users -> <the account> -> Attributes -> Add: catknows_service = true
 # Removing it (or setting it to false) is the kill switch for a single user,
 # effective on their next token — minutes, not hours.
+#
+# But first the realm has to *allow* the attribute. Keycloak 24+ runs a declared
+# User Profile: any attribute not in that schema is refused on write with
+# `error-user-attribute-required`, and the mapper below then carries nothing. On
+# 2026-08-13 that cost an afternoon, because the mapper looked correct and was.
+#
+# view/edit are admin-only on purpose: a user who could edit this field would
+# clear their own gate, and the whole point is that signing up is not access.
+if "$KCADM" get users/profile -r "$REALM" | grep -q '"catknows_service"'; then
+	echo "user profile: catknows_service already declared"
+else
+	# No python/jq/awk in this image, so the JSON is assembled with sed: append
+	# our attribute right before the closing bracket of the "attributes" array,
+	# which is the line holding `], "groups"`. Everything else stays untouched —
+	# overwriting the profile wholesale would drop email/firstName/lastName and
+	# break registration.
+	"$KCADM" get users/profile -r "$REALM" > /tmp/profile.json
+	tr -d '\n' < /tmp/profile.json | sed 's/\] *, *"groups"/, {"name":"catknows_service","displayName":"catknows service entitlement","multivalued":false,"permissions":{"view":["admin"],"edit":["admin"]},"validations":{}} ], "groups"/' > /tmp/profile-new.json
+	"$KCADM" update users/profile -r "$REALM" -f /tmp/profile-new.json
+	rm -f /tmp/profile.json /tmp/profile-new.json
+	"$KCADM" get users/profile -r "$REALM" | grep -q '"catknows_service"' \
+		|| { echo "FATAL: could not declare catknows_service in the user profile"; exit 1; }
+	echo "user profile: catknows_service declared (admin-only)"
+fi
 echo "entitlement: user attribute 'catknows_service' (set per user, see README)"
 
 # -- client scope with audience mapper -----------------------------------------
@@ -159,13 +183,17 @@ mapper email-verified \
 
 # The entitlement flag, as a user attribute rather than a realm role.
 #
-# The role version was tried first and abandoned: oidc-usermodel-realm-role-mapper
-# with claim.name=realm_access.roles, multivalued, access.token.claim=true — the
-# documented configuration — produced no claim at all, on this very scope, while
-# the audience and email-verified mappers beside it worked. Keycloak logged
-# nothing. An attribute rides the same mapper type as email_verified, which is
-# proven to work here, and the operator's gesture is a field instead of a role
-# assignment. Same seam in the code either way.
+# A realm role was tried first and looked broken — no realm_access claim, on
+# this very scope, while the mappers beside it worked. It was not broken: the
+# role arrives fine, it was only ever measured on a DCR client, whose token
+# carries no roles because DCR grants `basic` alone. The real fault was one
+# level down and hit both designs equally: an attribute the realm's user profile
+# does not declare cannot be stored at all, so the mapper had nothing to carry.
+# See the user-profile block above.
+#
+# Sticking with the attribute anyway: it is a field on the account rather than a
+# role assignment, and it does not ride on realm_access, which DCR tokens lack.
+# Same seam in the code either way.
 mapper service-flag \
 	-s protocolMapper=oidc-usermodel-attribute-mapper \
 	-s 'config."user.attribute"=catknows_service' \
