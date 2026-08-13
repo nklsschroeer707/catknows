@@ -16,11 +16,19 @@ encrypted sessions later is the migration you don't want.
 > `127.0.0.1` and Caddy is the only way in: never open that port in the firewall.
 >
 > Requests arriving *through* Caddy are authenticated (Keycloak OAuth, §7) and
-> answered per user (§5), so more than one person can use this safely. What still
-> has to be true before you hand out an account: registration stays closed,
-> [PRIVACY.md](PRIVACY.md) and [DPA.md](DPA.md) are published where users can
-> reach them, and the sub-processor agreements named in them are verified as
-> actually in place (both files carry a TODO where that is still open).
+> answered per user (§5), so more than one person can use this safely.
+>
+> **Registration is open since 2026-08-13, and access is not.** Anyone can sign
+> up and confirm an address; nobody reaches a tool until their account carries
+> the `service` realm role, which you grant by hand (Users → Role mapping →
+> Assign role → filter *Realm roles*). That check lives in `may_use_service()`
+> in `catknows/auth_oauth.py` and every request passes through it. Revoking the
+> role is the per-user kill switch, effective within an access token's lifetime.
+>
+> What still has to be true before you hand out access: [PRIVACY.md](PRIVACY.md)
+> and [DPA.md](DPA.md) are published where users can reach them, and the
+> sub-processor agreements named in them are verified as actually in place (both
+> files carry a TODO where that is still open).
 
 ## 0. Install the OS
 
@@ -127,19 +135,33 @@ your secrets live.
 
 #### Onboarding a user
 
-Self-signup is off (`registrationAllowed=false`) — see the reasoning in
-`keycloak/setup-realm.sh`. Onboarding is two steps, both yours:
+Self-signup is on (`registrationAllowed=true`). The user does everything except
+one click:
 
-1. **Create the account:** admin console → realm `catknows` → Users → Add user
-   (email as username, then *Credentials* → set a temporary password, and
-   *Email verified* off so they confirm it). Copy the user's `ID` — that UUID is
-   the OAuth subject the session store keys on.
-2. **Send them to `catknows.app/connect`** — they sign in and connect Skool
-   themselves through the streamed browser (§8). Nothing left for you to do.
+1. **They sign up** at `catknows.app` and confirm the address Keycloak mails
+   them. No involvement from you, and nothing gained yet.
+2. **You grant the role:** admin console → realm `catknows` → Users → the
+   account → *Role mapping* → Assign role → **switch the filter to “Realm
+   roles”** (it defaults to client roles, where `service` does not appear) →
+   `service`.
+3. **They connect Skool** at `catknows.app/connect` through the streamed
+   browser (§8). Either order works — step 3 does not depend on step 2.
 
-Until step 2 happens, their tools all refuse: an account with no stored session
-reaches no data at all. That's the intended order — an account alone is
-harmless.
+Two independent things must both be true before any tool answers: the account
+carries `service`, and a Skool session is stored. Miss the first and every call
+is refused at the token check (`may_use_service`, logged to the journal with the
+reason); miss the second and the tools refuse for want of a session. The
+`/connect` page names whichever is missing rather than leaving the user at an
+unexplained 401.
+
+To find who is waiting, sort Users by creation date — an account without the
+role is one that signed up and hasn't been let in. There is intentionally no
+notification: at this scale a look at the console beats a mail pipeline that can
+itself break.
+
+**Revoking `service` is the per-user kill switch.** It takes effect when their
+current access token expires (minutes), without touching anyone else and without
+deleting their data.
 
 #### Getting a session in by hand
 
@@ -181,13 +203,19 @@ What that build would be guarding is already guarded elsewhere:
 | Attack | Handled by |
 |---|---|
 | Guessing a password | Keycloak's own brute-force detection: 5 failures → 60 s, doubling to 900 s, plus a floor on how fast attempts may arrive. Per account, seen directly rather than parsed out of a log. |
-| Mass account creation | Registration is closed (above). |
+| Mass account creation | Registration is open, so accounts *can* be created in bulk — but an account is not access. Every one of them is refused at `may_use_service()` until you grant `service` by hand, so the yield of the attack is a row in the user list. |
 | Reaching data without a session | The session store refuses — no identity, or no stored session, means no request is served. |
+
+What mass signups *do* cost is one Scaleway verification mail each, which is the
+real exposure now that registration is open: a quota, not a breach. Watch the
+TEM usage rather than pre-building a defence — and if it is ever abused, the
+cheap answer is Keycloak's own reCAPTCHA on the registration form, not fail2ban.
 
 fail2ban would add IP-level defence against *distributed* password guessing
 across many accounts, at the cost of a regex over Caddy's console-format logs —
-which deliberately omit the `Authorization` and `Cookie` headers. Worth adding
-when registration opens up; not before.
+which deliberately omit the `Authorization` and `Cookie` headers. Still not
+worth it: it guards passwords, and passwords are not what stands between a
+stranger and this service.
 
 ### Single-session (one operator, your own data only)
 
