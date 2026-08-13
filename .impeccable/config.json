@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "fraunces",
+        "reason": "Fraunces ist catknows-Brand-Kanon: GTM-Brand-Datenblatt 2026-08-08 + Style Guide §4.1 (von Niklas freigegeben), alle Kampagnen-Assets nutzen sie",
+        "createdAt": "2026-08-13T14:03:22.388Z"
+      }
+    ]
+  }
+}
