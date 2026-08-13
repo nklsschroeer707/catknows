@@ -43,6 +43,12 @@ ExecStart=/opt/catknows/.venv/bin/python -m catknows.dashboard
 Restart=on-failure
 RestartSec=5s
 
+# Same reason as catknows-mcp: /connect streams the login, so graceful shutdown
+# waits on a connection that won't close and the restart hangs 90s. See the
+# longer note in deploy/catknows-mcp.service.
+TimeoutStopSec=10s
+KillMode=mixed
+
 # -- hardening ---------------------------------------------------------------
 # Looser than catknows-mcp in exactly one respect: this service runs Chromium,
 # which needs more room. Each exception is noted rather than silently dropped.

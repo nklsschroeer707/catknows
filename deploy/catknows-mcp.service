@@ -44,6 +44,16 @@ ExecStart=/opt/catknows/.venv/bin/python -m catknows.mcp_server
 Restart=on-failure
 RestartSec=5s
 
+# MCP streams stay open by design, so uvicorn's graceful shutdown ("Waiting for
+# connections to close") never finishes on its own: every restart hangs in
+# stop-sigterm until systemd's 90s default fires, and the proxy answers 502 the
+# whole time. Cut it short — 10s is plenty for requests that do end.
+TimeoutStopSec=10s
+# mixed: SIGTERM to the main process only (so uvicorn still shuts down cleanly
+# when it can), SIGKILL to the whole group once the timeout hits — Chromium
+# children would otherwise survive.
+KillMode=mixed
+
 # -- hardening ---------------------------------------------------------------
 # This process holds a live Skool session. Chromium needs more room than a
 # plain web service, so a few of the usual knobs are deliberately loosened —
