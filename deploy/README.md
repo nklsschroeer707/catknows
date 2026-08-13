@@ -288,6 +288,34 @@ A `serverInfo` with `"name":"catknows"` means the whole chain works. Then point
 the MCP Inspector at `https://mcp.catknows.app/mcp` (transport: Streamable
 HTTP), and after that add it as a connector on claude.ai.
 
+### Is the realm still wired up?
+
+That curl proves the transport, not the gate. When tokens are rejected —
+`journalctl -u catknows-mcp | grep refusing` — check the realm before suspecting
+a mapper:
+
+```bash
+cd /opt/catknows/deploy/keycloak
+read -rsp "Keycloak admin password: " KCPW; echo
+docker compose exec -T -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KCPW" keycloak bash < check-realm.sh
+unset KCPW
+```
+
+Read-only, and it names what each failure would break. Run it after a restart or
+a realm import: a dropped user-profile declaration or a missing mapper surfaces
+at runtime as "missing claim", which reads as a broken mapper and usually is
+not — that misreading cost an afternoon on 2026-08-13.
+
+Two things that are **not** proof and have misled us here:
+
+* `kcadm get --fields <nested>` prints `{ }` over populated objects. Fetch the
+  whole object and grep.
+* An exit code of 0. Read the change back, always.
+
+The one measurement that never lies is the token itself: decode it and look at
+the claims.
+
 ## 8. The dashboard and the streamed Skool login
 
 Plan §2a: a browser opens **on the server**, is streamed to the user, and they
