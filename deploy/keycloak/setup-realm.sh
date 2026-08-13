@@ -62,33 +62,20 @@ fi
   -s sslRequired=all
 echo "realm settings applied (registration OPEN + email verification + brute force)"
 
-# -- the service role ----------------------------------------------------------
-# What separates "has an account" from "may use the hosted service". Anyone can
-# sign up; only accounts carrying this role get past may_use_service() in
-# catknows/auth_oauth.py.
+# -- the entitlement flag ------------------------------------------------------
+# What separates "has an account" from "may use the hosted service" is the user
+# attribute `catknows_service=true`. Anyone can sign up; only accounts carrying
+# it get past may_use_service() in catknows/auth_oauth.py.
 #
-# A realm role rather than a user attribute on purpose: roles land in the access
-# token by themselves (realm_access.roles), an attribute would need its own
-# protocol mapper to get there at all. One less moving part in the token.
+# There is nothing to create here — an attribute exists once it is set on a
+# user. What the realm needs is the mapper that carries it into the token; that
+# is set up further down, on the mcp:tools scope.
 #
-# Granting it is the operator's one manual step:
-#   Users -> <the account> -> Role mapping -> Assign role -> service
-# Revoking it is the kill switch for a single user, effective on their next
-# token (minutes, not hours — access tokens are short-lived).
-ROLE=service
-if "$KCADM" get "roles/$ROLE" -r "$REALM" >/dev/null 2>&1; then
-	echo "realm role $ROLE exists"
-else
-	"$KCADM" create roles -r "$REALM" \
-		-s "name=$ROLE" \
-		-s "description=May use the hosted catknows MCP service. Granted by hand today; later this is where paid membership is checked."
-	echo "realm role $ROLE created"
-fi
-
-# NOT a default role: if new users got it automatically, opening registration
-# would hand the service to everyone with an email address, which is the exact
-# thing this role exists to prevent.
-echo "  (deliberately NOT in the realm's default roles — grant it per user)"
+# Granting is the operator's one manual step:
+#   Users -> <the account> -> Attributes -> Add: catknows_service = true
+# Removing it (or setting it to false) is the kill switch for a single user,
+# effective on their next token — minutes, not hours.
+echo "entitlement: user attribute 'catknows_service' (set per user, see README)"
 
 # -- client scope with audience mapper -----------------------------------------
 # Keycloak has no RFC 8707 (resource indicators) yet, so the MCP audience rides
@@ -170,16 +157,26 @@ mapper email-verified \
 	-s 'config."access.token.claim"=true' \
 	-s 'config."id.token.claim"=true'
 
-mapper realm-roles \
-	-s protocolMapper=oidc-usermodel-realm-role-mapper \
-	-s 'config."claim.name"=realm_access.roles' \
+# The entitlement flag, as a user attribute rather than a realm role.
+#
+# The role version was tried first and abandoned: oidc-usermodel-realm-role-mapper
+# with claim.name=realm_access.roles, multivalued, access.token.claim=true — the
+# documented configuration — produced no claim at all, on this very scope, while
+# the audience and email-verified mappers beside it worked. Keycloak logged
+# nothing. An attribute rides the same mapper type as email_verified, which is
+# proven to work here, and the operator's gesture is a field instead of a role
+# assignment. Same seam in the code either way.
+mapper service-flag \
+	-s protocolMapper=oidc-usermodel-attribute-mapper \
+	-s 'config."user.attribute"=catknows_service' \
+	-s 'config."claim.name"=catknows_service' \
 	-s 'config."jsonType.label"=String' \
-	-s 'config."multivalued"=true' \
-	-s 'config."access.token.claim"=true'
+	-s 'config."access.token.claim"=true' \
+	-s 'config."id.token.claim"=true'
 
 # Read back: the failure mode above is a silent no-op, so trusting exit codes
 # here is how the hour got lost.
-echo "mappers on $SCOPE (need mcp-audience, email-verified, realm-roles):"
+echo "mappers on $SCOPE (need mcp-audience, email-verified, service-flag):"
 "$KCADM" get "client-scopes/$scope_id/protocol-mappers/models" -r "$REALM" \
 	--fields name --format csv --noquotes 2>/dev/null | tr '\n' ' '
 echo

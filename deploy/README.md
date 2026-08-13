@@ -20,10 +20,11 @@ encrypted sessions later is the migration you don't want.
 >
 > **Registration is open since 2026-08-13, and access is not.** Anyone can sign
 > up and confirm an address; nobody reaches a tool until their account carries
-> the `service` realm role, which you grant by hand (Users → Role mapping →
-> Assign role → filter *Realm roles*). That check lives in `may_use_service()`
-> in `catknows/auth_oauth.py` and every request passes through it. Revoking the
-> role is the per-user kill switch, effective within an access token's lifetime.
+> the user attribute `catknows_service=true`, which you set by hand (Users → the
+> account → Attributes). That check lives in `may_use_service()` in
+> `catknows/auth_oauth.py` and every request passes through it. Removing the
+> attribute is the per-user kill switch, effective within an access token's
+> lifetime.
 >
 > What still has to be true before you hand out access: [PRIVACY.md](PRIVACY.md)
 > and [DPA.md](DPA.md) are published where users can reach them, and the
@@ -140,28 +141,33 @@ one click:
 
 1. **They sign up** at `catknows.app` and confirm the address Keycloak mails
    them. No involvement from you, and nothing gained yet.
-2. **You grant the role:** admin console → realm `catknows` → Users → the
-   account → *Role mapping* → Assign role → **switch the filter to “Realm
-   roles”** (it defaults to client roles, where `service` does not appear) →
-   `service`.
+2. **You set the attribute:** admin console → realm `catknows` → Users → the
+   account → *Attributes* → key `catknows_service`, value `true` → Save.
 3. **They connect Skool** at `catknows.app/connect` through the streamed
    browser (§8). Either order works — step 3 does not depend on step 2.
 
 Two independent things must both be true before any tool answers: the account
-carries `service`, and a Skool session is stored. Miss the first and every call
-is refused at the token check (`may_use_service`, logged to the journal with the
-reason); miss the second and the tools refuse for want of a session. The
-`/connect` page names whichever is missing rather than leaving the user at an
-unexplained 401.
+carries `catknows_service=true`, and a Skool session is stored. Miss the first
+and every call is refused at the token check (`may_use_service`, logged to the
+journal with the reason); miss the second and the tools refuse for want of a
+session. The `/connect` page names whichever is missing rather than leaving the
+user at an unexplained 401.
 
 To find who is waiting, sort Users by creation date — an account without the
-role is one that signed up and hasn't been let in. There is intentionally no
-notification: at this scale a look at the console beats a mail pipeline that can
-itself break.
+attribute is one that signed up and hasn't been let in. There is intentionally
+no notification: at this scale a look at the console beats a mail pipeline that
+can itself break.
 
-**Revoking `service` is the per-user kill switch.** It takes effect when their
-current access token expires (minutes), without touching anyone else and without
-deleting their data.
+**Removing the attribute is the per-user kill switch.** It takes effect when
+their current access token expires (minutes), without touching anyone else and
+without deleting their data.
+
+> Why an attribute and not a realm role — the obvious choice, tried first: the
+> documented `oidc-usermodel-realm-role-mapper` produced no `realm_access` claim
+> at all, on a scope where the audience and `email_verified` mappers demonstrably
+> worked, with nothing in Keycloak's log. An attribute uses the same mapper type
+> as `email_verified`, which does work here. Don't "fix" this back to a role
+> without checking a real token first.
 
 #### Getting a session in by hand
 

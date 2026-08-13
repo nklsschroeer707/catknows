@@ -50,6 +50,33 @@ else
 	echo "client $CLIENT updated"
 fi
 
+# The dashboard requests mcp:tools so its access token carries the
+# catknows_service claim — that is what the account panel reads to decide
+# between a green dot and "awaiting approval". Without the scope assigned here
+# the authorization request fails outright with `invalid_scope`.
+#
+# Assigned through the sub-resource, not as a client field: `-s
+# optionalClientScopes+=...` exits 0 and does nothing. Optional rather than
+# default, matching how the DCR clients get it — the client asks for it
+# explicitly.
+cid=${existing:-$("$KCADM" get clients -r "$REALM" -q "clientId=$CLIENT" --fields id \
+	--format csv --noquotes 2>/dev/null | head -1)}
+sid=$("$KCADM" get client-scopes -r "$REALM" --fields id,name --format csv --noquotes \
+	2>/dev/null | grep ',mcp:tools$' | cut -d, -f1 | head -1)
+
+if [ -n "$cid" ] && [ -n "$sid" ]; then
+	"$KCADM" update "clients/$cid/optional-client-scopes/$sid" -r "$REALM" 2>/dev/null \
+		&& echo "scope mcp:tools assigned" || echo "  (mcp:tools already assigned)"
+	printf 'optional scopes on %s: ' "$CLIENT"
+	"$KCADM" get "clients/$cid/optional-client-scopes" -r "$REALM" --fields name \
+		--format csv --noquotes 2>/dev/null | tr '\n' ' '
+	echo
+else
+	echo "WARNING: could not assign mcp:tools (client or scope not found) —"
+	echo "  the dashboard's panel will show every account as awaiting approval."
+	echo "  Run setup-realm.sh first, it creates the scope."
+fi
+
 echo
 echo "Dashboard env (/etc/catknows/env):"
 echo "  CATKNOWS_DASHBOARD_CLIENT_ID=$CLIENT"

@@ -147,7 +147,10 @@ async def login(request):
     q = urllib.parse.urlencode({
         "client_id": cid,
         "response_type": "code",
-        "scope": "openid email",
+        # mcp:tools carries the entitlement claim the panel needs; without it
+        # the access token has no catknows_service and every account would
+        # render as "awaiting approval".
+        "scope": "openid email mcp:tools",
         "redirect_uri": f"{_base_url()}/auth/callback",
         "state": state,
         "code_challenge": challenge,
@@ -198,12 +201,11 @@ async def callback(request):
     # Same function the MCP server gates on, so the panel can never show a green
     # dot for an account whose tool calls are being refused.
     #
-    # Read from the *access* token, not the id_token verified above: Keycloak's
-    # realm-role mapper writes realm_access into the access token only
-    # (id.token.claim defaults to false), so asking the id_token would report
-    # every account as not cleared. Signature-checked all the same — this
-    # decides what the user is told, and a decoded-but-unverified token is a
-    # claim, not a fact.
+    # Read from the *access* token, not the id_token verified above: the
+    # entitlement mapper lives on the mcp:tools scope, and /auth/login requests
+    # that scope precisely so this answer is available here. Signature-checked
+    # all the same — this decides what the user is told, and a
+    # decoded-but-unverified token is a claim, not a fact.
     from .auth_oauth import may_use_service
 
     access = _verify_access_token(payload.get("access_token", ""))

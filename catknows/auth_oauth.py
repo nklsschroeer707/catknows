@@ -18,9 +18,17 @@ from typing import Any
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 
-# The role a Keycloak account must carry to use the hosted service. Created by
-# deploy/keycloak/setup-realm.sh, granted per user in the admin console.
-SERVICE_ROLE = "service"
+# The claim a Keycloak account must carry to use the hosted service. Set as a
+# user attribute in the admin console; deploy/keycloak/setup-realm.sh puts the
+# mapper that carries it into the token.
+#
+# A user attribute rather than a realm role, learned the hard way on 2026-08-13:
+# oidc-usermodel-realm-role-mapper was configured exactly as documented, on a
+# scope that demonstrably applies (the audience and email_verified mappers
+# beside it both work), and still produced no realm_access claim. An attribute
+# rides the same mapper type as email_verified, which does work. Boring beats
+# correct-on-paper when the platform disagrees silently.
+SERVICE_CLAIM = "catknows_service"
 
 
 def may_use_service(claims: dict[str, Any]) -> str:
@@ -35,12 +43,13 @@ def may_use_service(claims: dict[str, Any]) -> str:
 
     * ``email_verified`` — an unconfirmed address is an unowned address, and
       account recovery goes to it.
-    * the ``service`` realm role — the operator's deliberate yes, and the kill
-      switch for one user without touching anyone else.
+    * ``catknows_service`` — the operator's deliberate yes, and the kill switch
+      for one user without touching anyone else.
 
-    This is the seam where a paid-membership check belongs later: swap the role
-    lookup for whatever identifies a paying member and nothing else moves. It
-    stays free of any billing logic until that question is actually answerable.
+    This is the seam where a paid-membership check belongs later: swap the
+    attribute lookup for whatever identifies a paying member and nothing else
+    moves. It stays free of any billing logic until that question is actually
+    answerable.
 
     Returns a short reason on refusal rather than a bool, because the caller
     logs it — "which check failed" is the difference between a two-minute
@@ -48,10 +57,23 @@ def may_use_service(claims: dict[str, Any]) -> str:
     """
     if not claims.get("email_verified"):
         return "email not verified"
-    roles = (claims.get("realm_access") or {}).get("roles") or []
-    if SERVICE_ROLE not in roles:
-        return f"missing realm role {SERVICE_ROLE!r}"
+    if not _truthy(claims.get(SERVICE_CLAIM)):
+        return f"missing {SERVICE_CLAIM} claim"
     return ""
+
+
+def _truthy(value: Any) -> bool:
+    """Keycloak may deliver the attribute as bool, string, or single-item list.
+
+    A user attribute is stored as text, so it usually arrives as "true"; with a
+    jsonType of boolean it arrives as a real bool; multivalued mappers wrap it
+    in a list. Anything else — absent, "false", empty — is not a yes.
+    """
+    if isinstance(value, list):
+        return any(_truthy(v) for v in value)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes")
 
 
 class KeycloakVerifier(TokenVerifier):
@@ -173,7 +195,7 @@ def _self_check() -> None:
     now = int(time.time())
     base = {"iss": issuer, "aud": audience, "sub": "user-1", "iat": now,
             "exp": now + 300, "scope": "openid mcp:tools", "azp": "client-x",
-            "email_verified": True, "realm_access": {"roles": ["service"]}}
+            "email_verified": True, "catknows_service": "true"}
     sign = lambda c, k=priv: jwt.encode(c, k, algorithm="RS256")
 
     ok = v._verify_sync(sign(base))
@@ -205,15 +227,25 @@ def _self_check() -> None:
     base_no_email = {k: val for k, val in base.items() if k != "email_verified"}
     assert v._verify_sync(sign(base_no_email)) is None, \
         "a missing email_verified claim must fail closed, not be assumed true"
-    assert v._verify_sync(sign({**base, "realm_access": {"roles": ["offline_access"]}})) is None, \
-        "a fresh signup without the service role must fail — this is the whole gate"
-    base_no_roles = {k: val for k, val in base.items() if k != "realm_access"}
-    assert v._verify_sync(sign(base_no_roles)) is None, \
-        "no realm_access at all must fail closed"
+    base_not_cleared = {k: val for k, val in base.items() if k != "catknows_service"}
+    assert v._verify_sync(sign(base_not_cleared)) is None, \
+        "a fresh signup without the claim must fail — this is the whole gate"
+    assert v._verify_sync(sign({**base, "catknows_service": "false"})) is None, \
+        "an explicit false must fail"
+    assert v._verify_sync(sign({**base, "catknows_service": ""})) is None, \
+        "an empty attribute must fail closed"
+
+    # Keycloak delivers a user attribute as text, as a bool, or wrapped in a
+    # list depending on the mapper's jsonType and multivalued flag. All three
+    # mean yes, and none of them may be read as no.
+    for yes in ("true", True, ["true"], "True", "1"):
+        assert may_use_service({**base, "catknows_service": yes}) == "", repr(yes)
+    for no in ("false", False, [], [""], None, "", "0", "no"):
+        assert may_use_service({**base, "catknows_service": no}) != "", repr(no)
 
     # ...and the reasons are distinguishable, so a refusal can be diagnosed.
     assert may_use_service({**base, "email_verified": False}) == "email not verified"
-    assert "service" in may_use_service({**base, "realm_access": {"roles": []}})
+    assert SERVICE_CLAIM in may_use_service(base_not_cleared)
     assert may_use_service(base) == "", "a cleared account must pass"
 
     # The SDK awaits verify_token; a sync def there returns None and the
