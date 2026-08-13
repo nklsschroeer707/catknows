@@ -57,14 +57,30 @@ body {
   color: var(--ink);
   line-height: 1.55;
 }
+
+/* -- the background clip: plays once, then holds its last frame ----------- */
+.bg-video {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: -2;
+}
+.bg-veil {
+  position: fixed; inset: 0; z-index: -1;
+  background: radial-gradient(ellipse 120% 90% at 50% 42%,
+    rgba(15, 14, 12, 0.35) 0%, rgba(15, 14, 12, 0.68) 58%, rgba(15, 14, 12, 0.88) 100%);
+}
+/* Header and footer span the real viewport corners; only the middle column
+   is capped. The middle stays clear for the animated background to come. */
 .shell {
   width: 100%; max-width: 640px; margin: 0 auto;
-  padding: 18px 22px calc(14px + env(safe-area-inset-bottom));
+  padding: 0 22px;
   flex: 1; display: flex; flex-direction: column;
 }
 
-/* -- header: wordmark left, account right ------------------------------- */
-header { display: flex; justify-content: space-between; align-items: center; }
+/* -- header: wordmark top left, account top right, real corners ---------- */
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px clamp(18px, 2vw, 30px) 0;
+}
 .wordmark {
   font-family: var(--serif); font-weight: 900;
   font-size: 1.35rem; color: var(--ink); text-decoration: none;
@@ -235,14 +251,16 @@ h1 em { font-style: normal; color: var(--brand); }
 .trust a { color: var(--dim); }
 .trust a:hover { color: var(--ink); }
 
-/* -- footer --------------------------------------------------------------- */
+/* -- footer: full width, centered ----------------------------------------- */
 footer {
-  border-top: 1px solid var(--line); padding-top: 10px;
-  font-family: var(--mono); font-size: 0.64rem; line-height: 1.8;
-  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding: 8px clamp(18px, 2vw, 30px) calc(9px + env(safe-area-inset-bottom));
+  font-family: var(--mono); font-size: 0.64rem; line-height: 1.7;
+  color: var(--muted); text-align: center;
 }
 footer a { color: var(--muted); text-underline-offset: 3px; }
 footer a:hover { color: var(--ink); }
+footer .unofficial { color: var(--brand); }
 
 /* -- the streamed Skool login, in a modal on this page -------------------- */
 .modal {
@@ -306,7 +324,12 @@ footer a:hover { color: var(--ink); }
 </head>
 <body>
 
-<div class="shell">
+<!-- Plays once, no loop, and the closing frame stays as the backdrop.
+     Muted + playsinline is what allows autoplay at all. -->
+<video class="bg-video" autoplay muted playsinline preload="auto" aria-hidden="true">
+  <source src="bg.mp4" type="video/mp4">
+</video>
+<div class="bg-veil" aria-hidden="true"></div>
 
 <header>
   <a class="wordmark" href="/"><b>cat</b>knows<i>.</i></a>
@@ -333,6 +356,8 @@ footer a:hover { color: var(--ink); }
     </div>
   </details>
 </header>
+
+<div class="shell">
 
 <main>
   <!-- The mark, drawn small and visible — banner scale, not wallpaper scale. -->
@@ -381,16 +406,18 @@ footer a:hover { color: var(--ink); }
   </p>
 </main>
 
-<footer>
-  <a href="privacy.html">Privacy</a> &middot;
-  <a href="dpa.html">Processing agreement</a> &middot;
-  <a href="legal.html">Legal</a> &middot;
-  <a href="impressum.html">Impressum</a> &middot;
-  <a href="https://github.com/nklsschroeer707/catknows">GitHub</a>
-  &nbsp;&mdash;&nbsp; unofficial, not affiliated with Skool
-</footer>
-
 </div>
+
+<footer>
+  <nav>
+    <a href="/privacy">Privacy</a> &middot;
+    <a href="/dpa">Processing agreement</a> &middot;
+    <a href="/legal">Legal</a> &middot;
+    <a href="/impressum">Imprint</a> &middot;
+    <a href="https://github.com/nklsschroeer707/catknows">GitHub</a>
+  </nav>
+  <p class="unofficial">Independent &amp; unofficial &mdash; not affiliated with Skool.</p>
+</footer>
 
 <!-- The streamed Skool login, without leaving this page. Same protocol as
      /connect, which stays available as the fallback. -->
@@ -424,6 +451,12 @@ footer a:hover { color: var(--ink); }
   }
 
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* reduced motion: the clip holds its first frame instead of playing */
+  if (reduce) {
+    var bgv = document.querySelector('.bg-video');
+    if (bgv) { bgv.removeAttribute('autoplay'); bgv.pause(); }
+  }
 
   /* -- the answer types itself -------------------------------------------- */
   var out = document.getElementById('typed');
@@ -465,9 +498,9 @@ footer a:hover { color: var(--ink); }
         dot.className = 'acct-dot ok';
         panel.innerHTML = who +
           '<div class="state"><span class="acct-dot ok"></span> Skool connected</div>' +
-          '<button class="acct-btn ghost" type="button" data-disconnect-skool>Disconnect Skool</button>' +
-          '<div class="acct-links" style="margin-top:8px">' +
+          '<div class="acct-links">' +
           '<a href="#" data-connect-skool>Reconnect</a> &middot; ' +
+          '<a href="#" data-disconnect-skool>Disconnect</a> &middot; ' +
           '<a href="/auth/logout">Log out</a></div>';
       } else {
         dot.className = 'acct-dot warn';

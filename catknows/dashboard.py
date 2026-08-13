@@ -395,6 +395,15 @@ async def home(request):
     return HTMLResponse("<h1>catknows</h1><p><a href='/auth/login'>Sign in</a></p>")
 
 
+async def background_video(request):
+    """The landing page's background clip. Own route on purpose: the page
+    allowlist below stays exactly what it is — published legal pages."""
+    f = WEB / "bg.mp4"
+    if f.exists():
+        return FileResponse(f)
+    return HTMLResponse(_page_error("No such page."), status_code=404)
+
+
 async def static_page(request):
     """Serve the legal pages by name, extension optional."""
     name = request.path_params["name"]
@@ -747,6 +756,7 @@ app = Starlette(
         Route("/auth/status", status),
         Route("/auth/password", password_login, methods=["POST"]),
         Route("/connect", connect),
+        Route("/bg.mp4", background_video),
         Route("/session/delete", delete_session, methods=["POST"]),
         WebSocketRoute("/connect/ws", connect_ws),
         # Last: a bare name falls through to the published legal pages.
