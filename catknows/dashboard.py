@@ -91,9 +91,10 @@ def _oidc(path: str) -> str:
 # an opaque id is one less thing that can be wrong.
 
 
-def _new_session(subject: str, email: str) -> str:
+def _new_session(subject: str, email: str, cleared: bool = False) -> str:
     sid = secrets.token_urlsafe(32)
-    _logins[sid] = {"subject": subject, "email": email, "exp": time.time() + COOKIE_TTL}
+    _logins[sid] = {"subject": subject, "email": email, "cleared": cleared,
+                    "exp": time.time() + COOKIE_TTL}
     _sweep()
     return sid
 
@@ -194,7 +195,21 @@ async def callback(request):
         return HTMLResponse(_page_error("The login response didn't verify."),
                             status_code=400)
 
-    sid = _new_session(claims.get("sub", ""), claims.get("email", ""))
+    # Same function the MCP server gates on, so the panel can never show a green
+    # dot for an account whose tool calls are being refused.
+    #
+    # Read from the *access* token, not the id_token verified above: Keycloak's
+    # realm-role mapper writes realm_access into the access token only
+    # (id.token.claim defaults to false), so asking the id_token would report
+    # every account as not cleared. Signature-checked all the same — this
+    # decides what the user is told, and a decoded-but-unverified token is a
+    # claim, not a fact.
+    from .auth_oauth import may_use_service
+
+    access = _verify_access_token(payload.get("access_token", ""))
+    cleared = access is not None and not may_use_service(access)
+
+    sid = _new_session(claims.get("sub", ""), claims.get("email", ""), cleared=cleared)
     resp = RedirectResponse("/connect", status_code=302)
     resp.set_cookie(
         COOKIE, sid,
@@ -230,6 +245,37 @@ def _verify_id_token(token: str) -> dict | None:
             algorithms=["RS256", "ES256"],
             audience=cid, issuer=_issuer(),
             options={"require": ["exp", "iat", "sub", "aud", "iss"]},
+        )
+    except Exception:
+        return None
+
+
+def _verify_access_token(token: str) -> dict | None:
+    """Verify the access token from our own code exchange, for its role claims.
+
+    Audience is not checked here, and that is deliberate rather than an
+    oversight: this token came back over TLS from the token endpoint in direct
+    response to a code *we* issued with a verifier only we held. Its audience is
+    whatever Keycloak minted for this client — often just "account" — so
+    demanding one would reject every valid login. Signature, issuer and expiry
+    still have to hold.
+
+    The MCP server's check is the strict one and stays strict: there the token
+    arrives from an untrusted caller, so `aud` is what proves it was minted for
+    that server and not merely by this realm.
+    """
+    if not token:
+        return None
+    import jwt
+    from jwt import PyJWKClient
+
+    try:
+        key = PyJWKClient(_oidc("certs"), cache_keys=True, lifespan=300)
+        return jwt.decode(
+            token, key.get_signing_key_from_jwt(token).key,
+            algorithms=["RS256", "ES256"],
+            issuer=_issuer(),
+            options={"require": ["exp", "iat", "sub", "iss"], "verify_aud": False},
         )
     except Exception:
         return None
@@ -272,7 +318,11 @@ async def connect(request):
         return RedirectResponse("/auth/login", status_code=302)
 
     stored = sessions.enabled() and sessions.load(me["subject"]) is not None
-    return HTMLResponse(_page_connect(me["email"], stored))
+    return HTMLResponse(_page_connect(
+        me["email"], stored,
+        skool=sessions.label(me["subject"]) if stored else "",
+        cleared=bool(me.get("cleared")),
+    ))
 
 
 async def delete_session(request):
@@ -335,6 +385,9 @@ async def connect_ws(ws: WebSocket):
                 # the browser is still open to ask.
                 who = await manager.whoami(subject)
                 sessions.save(subject, cookie)
+                # Kept so the panel can name the account later, when the browser
+                # that could answer this is long gone.
+                sessions.save_label(subject, who.get("name") or who.get("email") or "")
                 await manager.finish(subject)
                 await ws.send_json({
                     "type": "done",
@@ -406,6 +459,19 @@ overflow:hidden;background:#0f1729;display:none}}
 .ok{{color:#5ad07a}}.bad{{color:#e94560}}
 .foot{{margin-top:28px;font-size:0.85rem;color:#a8adc0}}
 .foot a{{margin-right:18px}}
+/* The account panel: small, top right, out of the way of the streamed login. */
+#panel{{position:fixed;top:14px;right:14px;z-index:10;background:#16213e;
+border:1px solid #0f3460;border-radius:9px;padding:11px 14px;max-width:290px;
+font-size:0.85rem;box-shadow:0 6px 20px rgba(0,0,0,.35)}}
+#panel .row{{display:flex;align-items:center;gap:8px}}
+#panel .who{{color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+#panel .mail{{color:#a8adc0;font-size:0.78rem;margin-top:3px;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}}
+#panel a{{font-size:0.78rem}}
+.dot{{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:#6b7280}}
+.dot.on{{background:#5ad07a;box-shadow:0 0 0 3px rgba(90,208,122,.16)}}
+.dot.off{{background:#e9a545}}
+@media (max-width:640px){{#panel{{position:static;max-width:none;margin-bottom:18px}}}}
 </style></head><body><div class="shell">{body}
 <div class="foot"><a href="/privacy">Privacy</a><a href="/dpa">Processing agreement</a>
 <a href="/impressum">Impressum</a></div></div>{script}</body></html>"""
@@ -421,16 +487,51 @@ def _page_error(msg: str) -> str:
     )
 
 
-def _page_connect(email: str, stored: bool) -> str:
+def _panel(email: str, stored: bool, skool: str, cleared: bool) -> str:
+    """The little account window, top right: what is connected, and is it live.
+
+    Green means a Skool session is stored *and* the account is cleared — the
+    two conditions a tool call actually needs. Amber means one of them is
+    missing, and the card below says which. It deliberately does not claim the
+    Skool cookie is still valid: only a request to Skool could answer that, and
+    a green dot bought with a request on every page load is a poor trade.
+    """
     from html import escape
 
-    state = (
-        '<p class="ok">A Skool session is stored for your account. '
-        'Connecting again replaces it.</p>' if stored else
-        '<p>No Skool session stored yet &mdash; the tools stay unavailable '
-        'until you connect one.</p>'
+    if stored and cleared:
+        cls, who = "on", skool or "Skool connected"
+    elif stored:
+        cls, who = "off", (skool or "Skool connected") + " — awaiting approval"
+    else:
+        cls, who = "off", "No Skool account connected"
+
+    return (
+        f'<div id="panel"><div class="row"><span class="dot {cls}"></span>'
+        f'<span class="who">{escape(who)}</span></div>'
+        f'<div class="mail">{escape(email or "signed in")} &middot; '
+        f'<a href="/auth/logout">sign out</a></div></div>'
     )
-    body = f"""<h1>catknows</h1>
+
+
+def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = True) -> str:
+    from html import escape
+
+    if not cleared:
+        # The account is real and the address confirmed; what's missing is the
+        # operator's yes. Saying so beats letting them connect Skool and meet an
+        # unexplained 401 at the first tool call.
+        state = ('<p class="ok">Your email is confirmed and your account is waiting '
+                 'to be switched on. You will be able to use the tools once it is. '
+                 'You can connect Skool now either way.</p>')
+    elif stored:
+        state = ('<p class="ok">A Skool session is stored for your account. '
+                 'Connecting again replaces it.</p>')
+    else:
+        state = ('<p>No Skool session stored yet &mdash; the tools stay unavailable '
+                 'until you connect one.</p>')
+
+    body = f"""{_panel(email, stored, skool, cleared)}
+<h1>catknows</h1>
 <div class="sub">Signed in as {escape(email or 'your account')} &mdash;
 <a href="/auth/logout">sign out</a></div>
 
@@ -641,13 +742,29 @@ def _self_check() -> None:
     assert _verify_id_token("") is None
     assert _verify_id_token("not-a-jwt") is None
 
+    # The panel must never promise more than the MCP server will honour.
+    green = _panel("a@b.c", stored=True, skool="Ada L.", cleared=True)
+    assert 'class="dot on"' in green and "Ada L." in green
+    for html in (_panel("a@b.c", stored=True, skool="Ada L.", cleared=False),
+                 _panel("a@b.c", stored=False, skool="", cleared=True)):
+        assert 'class="dot on"' not in html, \
+            "green requires BOTH a stored session and a cleared account"
+    assert "awaiting approval" in _panel("a@b.c", True, "Ada L.", False)
+
+    # It renders user-controlled text, so it has to escape it.
+    assert "<script>" not in _panel("<script>x</script>", True, "<script>y</script>", True)
+
+    # A user who is not cleared yet must be told, not left to hit a silent 401.
+    waiting = _page_connect("a@b.c", stored=False, cleared=False)
+    assert "waiting to be switched on" in waiting
+
     # Static pages: only the published names, no path traversal.
     for bad in ("../PRIVACY", "..%2Fetc%2Fpasswd", "index", "secret"):
         class PReq:
             path_params = {"name": bad}
         assert asyncio.run(static_page(PReq())).status_code == 404, bad
 
-    print("dashboard self-check OK (opaque sessions, PKCE, CSRF, page allowlist)")
+    print("dashboard self-check OK (opaque sessions, PKCE, CSRF, page allowlist, panel)")
 
 
 if __name__ == "__main__":

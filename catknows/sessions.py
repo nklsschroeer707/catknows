@@ -82,10 +82,46 @@ def load(subject: str) -> str | None:
 def delete(subject: str) -> bool:
     """Remove this user's session. True if there was one."""
     p = _path(subject)
+    _label_path(subject).unlink(missing_ok=True)
     if not p.exists():
         return False
     p.unlink()
     return True
+
+
+# -- the connected account's name ----------------------------------------------
+# So the dashboard can say *which* Skool account is connected instead of just
+# "one is". Deliberately a separate file from the session: this is a display
+# label, not a credential, and it must never be the reason the encrypted blob
+# gets opened. Plain text for the same reason — it holds nothing that isn't
+# already on the user's own screen.
+
+
+def _label_path(subject: str) -> Path:
+    return _path(subject).with_suffix(".who")
+
+
+def save_label(subject: str, label: str) -> None:
+    if not label:
+        return
+    p = _label_path(subject)
+    p.write_text(label[:200], encoding="utf-8")  # bounded: it goes into a web page
+    p.chmod(0o600)
+
+
+def label(subject: str) -> str:
+    """The connected Skool account's name, or empty if unknown.
+
+    Empty is normal, not an error: sessions stored before this existed have no
+    label, and Skool's page payload is not an API contract.
+    """
+    p = _label_path(subject)
+    if not p.exists():
+        return ""
+    try:
+        return p.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _cli(argv: list[str]) -> int:
@@ -169,9 +205,19 @@ def _self_check() -> None:
         # Path traversal: a hostile subject must stay inside the store.
         assert _path("../../etc/passwd").parent == Path(tmp)
 
+        # The display label lives beside the session, never inside it.
+        assert label("alice") == "", "no label is the normal case, not an error"
+        save_label("alice", "Alice A.")
+        save_label("bob", "Bob B.")
+        assert label("alice") == "Alice A." and label("bob") == "Bob B."
+        assert b"aaa" not in _label_path("alice").read_bytes(), \
+            "the label file must never carry the session"
+
         assert delete("alice") is True and load("alice") is None, "deletion must stick"
+        assert label("alice") == "", "deleting must take the label with it (art. 17)"
         assert delete("alice") is False, "deleting twice is not an error"
         assert load("bob") == "auth_token=bbb", "deleting alice must not touch bob"
+        assert label("bob") == "Bob B.", "deleting alice must not touch bob's label"
 
         # A rotated key reads as "no session", not as a crash.
         os.environ["CATKNOWS_SESSION_KEY"] = Fernet.generate_key().decode()

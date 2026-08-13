@@ -11,10 +11,47 @@ Only used when CATKNOWS_OAUTH_ISSUER is set. Local stdio runs are unaffected.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import Any
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
+
+
+# The role a Keycloak account must carry to use the hosted service. Created by
+# deploy/keycloak/setup-realm.sh, granted per user in the admin console.
+SERVICE_ROLE = "service"
+
+
+def may_use_service(claims: dict[str, Any]) -> str:
+    """Is this account entitled to the hosted service? Empty string means yes.
+
+    Separate from proving *who* someone is, which the signature, audience and
+    issuer checks already settled. This answers the next question — may they be
+    here at all — and it is the whole reason registration can be open: signing
+    up is free, using the service is not automatic.
+
+    Two conditions today:
+
+    * ``email_verified`` — an unconfirmed address is an unowned address, and
+      account recovery goes to it.
+    * the ``service`` realm role — the operator's deliberate yes, and the kill
+      switch for one user without touching anyone else.
+
+    This is the seam where a paid-membership check belongs later: swap the role
+    lookup for whatever identifies a paying member and nothing else moves. It
+    stays free of any billing logic until that question is actually answerable.
+
+    Returns a short reason on refusal rather than a bool, because the caller
+    logs it — "which check failed" is the difference between a two-minute
+    diagnosis and an afternoon.
+    """
+    if not claims.get("email_verified"):
+        return "email not verified"
+    roles = (claims.get("realm_access") or {}).get("roles") or []
+    if SERVICE_ROLE not in roles:
+        return f"missing realm role {SERVICE_ROLE!r}"
+    return ""
 
 
 class KeycloakVerifier(TokenVerifier):
@@ -74,6 +111,18 @@ class KeycloakVerifier(TokenVerifier):
         if self.required_scope and self.required_scope not in scopes:
             return None
 
+        # Proved who they are; now, may they use this? A genuine token from a
+        # genuine account is still refused here when the account isn't cleared.
+        if reason := may_use_service(claims):
+            # Logged, not returned: the caller gets a plain 401 either way, and
+            # spelling out which check failed to an unauthenticated caller is
+            # free reconnaissance. The operator can read it here.
+            print(
+                f"catknows: refusing subject {claims.get('sub')} — {reason}",
+                file=sys.stderr,
+            )
+            return None
+
         return AccessToken(
             token=token,
             client_id=claims.get("azp") or claims.get("client_id") or "",
@@ -123,7 +172,8 @@ def _self_check() -> None:
 
     now = int(time.time())
     base = {"iss": issuer, "aud": audience, "sub": "user-1", "iat": now,
-            "exp": now + 300, "scope": "openid mcp:tools", "azp": "client-x"}
+            "exp": now + 300, "scope": "openid mcp:tools", "azp": "client-x",
+            "email_verified": True, "realm_access": {"roles": ["service"]}}
     sign = lambda c, k=priv: jwt.encode(c, k, algorithm="RS256")
 
     ok = v._verify_sync(sign(base))
@@ -147,12 +197,31 @@ def _self_check() -> None:
     assert v._verify_sync(jwt.encode(base, None, algorithm="none")) is None, \
         "alg=none must never be honoured"
 
+    # Entitlement: registration is open, so a perfectly valid token from a
+    # brand-new account must still be refused until the account is cleared.
+    # These are the paths that keep self-signup from being self-service access.
+    assert v._verify_sync(sign({**base, "email_verified": False})) is None, \
+        "an unverified email must fail — anyone could claim someone else's address"
+    base_no_email = {k: val for k, val in base.items() if k != "email_verified"}
+    assert v._verify_sync(sign(base_no_email)) is None, \
+        "a missing email_verified claim must fail closed, not be assumed true"
+    assert v._verify_sync(sign({**base, "realm_access": {"roles": ["offline_access"]}})) is None, \
+        "a fresh signup without the service role must fail — this is the whole gate"
+    base_no_roles = {k: val for k, val in base.items() if k != "realm_access"}
+    assert v._verify_sync(sign(base_no_roles)) is None, \
+        "no realm_access at all must fail closed"
+
+    # ...and the reasons are distinguishable, so a refusal can be diagnosed.
+    assert may_use_service({**base, "email_verified": False}) == "email not verified"
+    assert "service" in may_use_service({**base, "realm_access": {"roles": []}})
+    assert may_use_service(base) == "", "a cleared account must pass"
+
     # The SDK awaits verify_token; a sync def there returns None and the
     # request dies as "'NoneType' object can't be awaited" — a 500, not a 401.
     import inspect
     assert inspect.iscoroutinefunction(KeycloakVerifier.verify_token),         "verify_token must be async — the SDK awaits it"
 
-    print("auth_oauth self-check OK (9 rejection paths + async contract)")
+    print("auth_oauth self-check OK (13 rejection paths + entitlement + async contract)")
 
 
 if __name__ == "__main__":

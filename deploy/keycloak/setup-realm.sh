@@ -30,26 +30,22 @@ else
 	echo "realm $REALM created"
 fi
 
-# Registration is CLOSED: accounts are created here, in the admin console.
+# Registration is OPEN since 2026-08-13. The two reasons it was closed are gone:
+# the streamed login (§2a) lets a signup complete without the operator, and a
+# signup no longer buys anything on its own — the `service` role below does.
 #
-# Self-signup would be an open account factory long before it is useful — a new
-# account can reach no data anyway (no Skool session in the store means every
-# tool call is refused), while each signup does burn a verification mail from
-# the Scaleway quota. Nothing is gained and something is spent.
+# Signing up is therefore cheap to allow and worth nothing to abuse: an account
+# with a confirmed address and no `service` role is refused at every tool call
+# (see may_use_service in catknows/auth_oauth.py). What it still costs is one
+# Scaleway verification mail per signup, which is why verifyEmail stays on —
+# it is the only thing standing between a script and that quota.
 #
-# It also can't be self-service yet by construction: a Skool session has to be
-# put in from the box (`catknows-session store <subject>`), so onboarding
-# involves the operator regardless. Flip this to true once the streamed remote
-# login (plan §2a) makes signup actually complete on its own — and pair it with
-# per-IP rate limiting then, because Keycloak's brute-force protection guards
-# passwords, not registrations.
-#
-# registrationEmailAsUsername/verifyEmail stay on: they're what a console-created
-# account is keyed on, and what proves the address before a reset link is sent.
+# registrationEmailAsUsername/verifyEmail: the address *is* the username and
+# must be confirmed before a reset link is ever sent.
 # Brute force detection is Keycloak's own; it locks an account temporarily
 # after repeated failures rather than letting a password be guessed.
 "$KCADM" update "realms/$REALM" \
-  -s registrationAllowed=false \
+  -s registrationAllowed=true \
   -s registrationEmailAsUsername=true \
   -s verifyEmail=true \
   -s resetPasswordAllowed=true \
@@ -64,7 +60,35 @@ fi
   -s minimumQuickLoginWaitSeconds=60 \
   -s maxDeltaTimeSeconds=43200 \
   -s sslRequired=all
-echo "realm settings applied (registration CLOSED + email verification + brute force)"
+echo "realm settings applied (registration OPEN + email verification + brute force)"
+
+# -- the service role ----------------------------------------------------------
+# What separates "has an account" from "may use the hosted service". Anyone can
+# sign up; only accounts carrying this role get past may_use_service() in
+# catknows/auth_oauth.py.
+#
+# A realm role rather than a user attribute on purpose: roles land in the access
+# token by themselves (realm_access.roles), an attribute would need its own
+# protocol mapper to get there at all. One less moving part in the token.
+#
+# Granting it is the operator's one manual step:
+#   Users -> <the account> -> Role mapping -> Assign role -> service
+# Revoking it is the kill switch for a single user, effective on their next
+# token (minutes, not hours — access tokens are short-lived).
+ROLE=service
+if "$KCADM" get "roles/$ROLE" -r "$REALM" >/dev/null 2>&1; then
+	echo "realm role $ROLE exists"
+else
+	"$KCADM" create roles -r "$REALM" \
+		-s "name=$ROLE" \
+		-s "description=May use the hosted catknows MCP service. Granted by hand today; later this is where paid membership is checked."
+	echo "realm role $ROLE created"
+fi
+
+# NOT a default role: if new users got it automatically, opening registration
+# would hand the service to everyone with an email address, which is the exact
+# thing this role exists to prevent.
+echo "  (deliberately NOT in the realm's default roles — grant it per user)"
 
 # -- client scope with audience mapper -----------------------------------------
 # Keycloak has no RFC 8707 (resource indicators) yet, so the MCP audience rides

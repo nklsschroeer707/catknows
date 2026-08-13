@@ -130,13 +130,17 @@ def _get_client():
                 _clients.pop(next(iter(_clients)))
             cookie = sessions.load(subject)
             if not cookie:
+                # Points at the self-service page, not at a shell command: since
+                # registration opened, the person reading this usually has no
+                # access to the box. There is deliberately no tool that takes a
+                # cookie — it is a year-long bearer token for the whole account
+                # and must not go through a chat.
                 raise RuntimeError(
-                    "No Skool session stored for you yet. On the server, run: "
-                    f"`catknows-session store {subject}` — it asks for your Skool "
-                    "cookie at a hidden prompt (paste the whole `Cookie:` request "
-                    "header from DevTools → Network). There is deliberately no tool "
-                    "for this: a Skool cookie is a year-long bearer token for your "
-                    "whole account and must not go through a chat."
+                    "No Skool session stored for you yet. Open "
+                    "https://catknows.app/connect and log in to Skool there — a "
+                    "browser runs on the server and is streamed to you, so your "
+                    "password goes to Skool and the session cookie never passes "
+                    "through this chat."
                 )
             _clients[subject] = _client_from_cookie(cookie)
         return _clients[subject]
