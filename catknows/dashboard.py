@@ -156,7 +156,11 @@ async def login(request):
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     })
-    return RedirectResponse(f"{_oidc('auth')}?{q}", status_code=302)
+    # ?register=1 lands on Keycloak's registration form instead of the login
+    # form — same parameters, different endpoint. The landing page's
+    # "Get started" goes here so a stranger isn't greeted by a password field.
+    endpoint = "registrations" if request.query_params.get("register") else "auth"
+    return RedirectResponse(f"{_oidc(endpoint)}?{q}", status_code=302)
 
 
 async def callback(request):
@@ -289,6 +293,18 @@ async def logout(request):
     resp = RedirectResponse("/", status_code=302)
     resp.delete_cookie(COOKIE, path="/")
     return resp
+
+
+async def status(request):
+    """The landing page's account button asks here. Read-only, never a 401 —
+    an anonymous visitor is an answer, not an error. Approval state stays on
+    /connect on purpose; this only says signed-in and Skool-connected."""
+    s = _current(request)
+    if s is None:
+        return JSONResponse({"signed_in": False, "skool_connected": False})
+    stored = sessions.enabled() and sessions.load(s["subject"]) is not None
+    return JSONResponse(
+        {"signed_in": True, "email": s["email"], "skool_connected": stored})
 
 
 # -- pages ---------------------------------------------------------------------
@@ -649,6 +665,7 @@ app = Starlette(
         Route("/auth/login", login),
         Route("/auth/callback", callback),
         Route("/auth/logout", logout, methods=["GET", "POST"]),
+        Route("/auth/status", status),
         Route("/connect", connect),
         Route("/session/delete", delete_session, methods=["POST"]),
         WebSocketRoute("/connect/ws", connect_ws),
@@ -707,6 +724,7 @@ def _self_check() -> None:
     class Req:
         def __init__(self, sid=None):
             self.cookies = {COOKIE: sid} if sid else {}
+            self.query_params = {}
 
     assert _current(Req(sid))["subject"] == "subject-1"
     assert _current(Req("forged")) is None, "an unknown cookie must not authenticate"
@@ -743,6 +761,20 @@ def _self_check() -> None:
     # An unverifiable id_token yields no session.
     assert _verify_id_token("") is None
     assert _verify_id_token("not-a-jwt") is None
+
+    # /auth/status: the landing page's account button. Anonymous is an answer
+    # (both false), never an error; signed-in carries the email.
+    import json
+
+    sid2 = _new_session("subject-2", "s@t.u")
+    anon = json.loads(asyncio.run(status(Req())).body)
+    assert anon == {"signed_in": False, "skool_connected": False}, anon
+    known = json.loads(asyncio.run(status(Req(sid2))).body)
+    assert known["signed_in"] is True and known["email"] == "s@t.u", known
+
+    # ?register=1 must land on Keycloak's registration form, not the login form.
+    reg = asyncio.run(login(QReq(register="1")))
+    assert "/registrations?" in reg.headers["location"]
 
     # The panel must never promise more than the MCP server will honour.
     green = _panel("a@b.c", stored=True, skool="Ada L.", cleared=True)
