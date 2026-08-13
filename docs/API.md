@@ -90,12 +90,18 @@ Below, `{slug}` = community slug, `{buildId}` = discovered buildId,
 
 ```
 GET /_next/data/{buildId}/{slug}/-/members.json
-      ?t=active&sortType=-memberlastoffline&group={slug}          # page 1
+      ?sortType=-memberlastoffline&group={slug}                   # page 1
 GET /_next/data/{buildId}/{slug}/-/members.json
-      ?t=active&sortType=-memberlastoffline&p={page}
+      ?sortType=-memberlastoffline&p={page}
       &online=&levels=&price=&courseIds=&monthly=false
       &annual=false&trials=false&group={slug}                     # page N
 ```
+
+**No `t=active`.** The browser sends it, but it's the admin-only "active
+members" tab: admins get a list, every other member gets a flat `404
+{"notFound":true}` — which reads as if the endpoint were gated entirely.
+Without it the list works for any member (600 members returned from a
+community where the account has no admin rights).
 
 `sortType=-memberlastoffline` sorts DESC by "last offline", so currently-active
 members come first. Response: `pageProps.users[]`, plus `pageProps.totalPages`
