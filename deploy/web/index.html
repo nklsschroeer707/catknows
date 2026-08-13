@@ -325,10 +325,9 @@ footer .unofficial { color: var(--brand); }
 <body>
 
 <!-- Plays once, no loop, and the closing frame stays as the backdrop.
-     Muted + playsinline is what allows autoplay at all. -->
-<video class="bg-video" autoplay muted playsinline preload="auto" aria-hidden="true">
-  <source src="bg.mp4" type="video/mp4">
-</video>
+     Muted + playsinline is what allows autoplay at all. src sits directly on
+     the tag: iOS Safari is flaky about autoplay with <source> children. -->
+<video class="bg-video" src="bg.mp4" autoplay muted playsinline preload="auto" aria-hidden="true"></video>
 <div class="bg-veil" aria-hidden="true"></div>
 
 <header>
@@ -452,10 +451,29 @@ footer .unofficial { color: var(--brand); }
 
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* reduced motion: the clip holds its first frame instead of playing */
-  if (reduce) {
-    var bgv = document.querySelector('.bg-video');
-    if (bgv) { bgv.removeAttribute('autoplay'); bgv.pause(); }
+  /* reduced motion: the clip holds its first frame instead of playing.
+     Otherwise nudge playback — iOS ignores the autoplay attribute in
+     Low Power Mode and sometimes until play() is called explicitly;
+     the first touch is the last resort it does allow. */
+  var bgv = document.querySelector('.bg-video');
+  if (bgv) {
+    if (reduce) {
+      bgv.removeAttribute('autoplay');
+      bgv.pause();
+    } else {
+      bgv.muted = true; /* property, not just attribute — old Safari quirk */
+      var nudge = function () {
+        var p = bgv.play();
+        if (p && p.catch) p.catch(function () {});
+      };
+      bgv.addEventListener('loadedmetadata', nudge);
+      nudge();
+      var once = function () {
+        if (bgv.paused && !bgv.ended) nudge();
+        document.removeEventListener('touchstart', once);
+      };
+      document.addEventListener('touchstart', once, { passive: true });
+    }
   }
 
   /* -- the answer types itself -------------------------------------------- */
