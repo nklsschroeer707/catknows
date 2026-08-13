@@ -3,3 +3,11 @@
 # pin them to LF regardless of anyone's core.autocrlf.
 deploy/** text eol=lf
 *.sh text eol=lf
+
+# ...but never "normalize" binary assets: a CRLF→LF pass through an mp4 or a
+# font strips real bytes and corrupts the file (it cost bg.mp4 31 bytes once).
+*.mp4 binary
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.ico binary
