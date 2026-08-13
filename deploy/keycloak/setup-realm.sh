@@ -123,6 +123,56 @@ fi
 "$KCADM" update "realms/$REALM" -s "defaultOptionalClientScopes+=$SCOPE" 2>/dev/null \
 	|| echo "  (scope already in optional list)"
 
+# -- claims the entitlement check needs ----------------------------------------
+# A client registered through DCR comes out with `basic` as its only default
+# scope — no `email`, no `roles`. Tokens minted for it therefore carry neither
+# `email_verified` nor `realm_access.roles`, and may_use_service() refuses every
+# request with "email not verified" while the account is perfectly fine. That
+# cost an hour on 2026-08-13; the log line naming the failed check is what found
+# it.
+#
+# Two separate fixes, because they cover different clients:
+#   1. the realm default, inherited by every FUTURE DCR registration
+#   2. the clients already registered, which inherit nothing retroactively
+#
+# Assignment goes through the default-client-scopes sub-resource. Setting the
+# field with `-s defaultClientScopes+=email` is accepted, reports success, and
+# changes nothing — verified on the box. Always read it back.
+scope_id_by_name() {
+	"$KCADM" get client-scopes -r "$REALM" --fields id,name --format csv --noquotes \
+		2>/dev/null | grep ",$1\$" | cut -d, -f1 | head -1
+}
+
+for want in email roles; do
+	sid=$(scope_id_by_name "$want")
+	if [ -z "$sid" ]; then
+		echo "  WARNING: built-in scope '$want' not found — entitlement checks will fail"
+		continue
+	fi
+
+	# 1. future DCR clients
+	"$KCADM" update "realms/$REALM" -s "defaultDefaultClientScopes+=$want" 2>/dev/null \
+		&& echo "realm default scope += $want" \
+		|| echo "  ($want already a realm default)"
+
+	# 2. clients that already exist. The DCR ones are named by their UUID.
+	for cid in $("$KCADM" get clients -r "$REALM" --fields clientId --format csv \
+	             --noquotes 2>/dev/null | grep -E '^[0-9a-f]{8}-' || true); do
+		"$KCADM" update "clients/$cid/default-client-scopes/$sid" -r "$REALM" \
+			2>/dev/null && echo "  $cid += $want" || true
+	done
+done
+
+# Read back, because the failure mode above is a silent no-op.
+echo "default scopes per DCR client (must include email and roles):"
+for cid in $("$KCADM" get clients -r "$REALM" --fields clientId --format csv --noquotes \
+             2>/dev/null | grep -E '^[0-9a-f]{8}-' || true); do
+	printf '  %s: ' "$cid"
+	"$KCADM" get "clients/$cid/default-client-scopes" -r "$REALM" --fields name \
+		--format csv --noquotes 2>/dev/null | tr '\n' ' '
+	echo
+done
+
 # -- dynamic client registration -----------------------------------------------
 # claude.ai has never seen this server before, so it must register itself
 # (RFC 7591). Keycloak blocks anonymous registration by default; the policies
