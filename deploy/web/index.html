@@ -103,16 +103,33 @@ header { display: flex; justify-content: space-between; align-items: center; }
 }
 .acct-panel .state { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--dim); }
 .acct-btn {
-  display: block; text-align: center; text-decoration: none;
+  display: block; width: 100%; text-align: center; text-decoration: none;
+  border: 0; cursor: pointer; font: inherit;
   border-radius: 8px; padding: 8px 10px; font-weight: 700; font-size: 0.85rem;
   background: var(--brand-deep); color: #fff;
 }
 .acct-btn:hover { background: var(--brand); }
+.acct-btn:disabled { opacity: 0.6; cursor: default; }
 .acct-btn.ghost {
   background: none; border: 1px solid var(--brand); color: var(--brand);
-  margin-top: 8px; font-weight: 600;
+  font-weight: 600;
 }
 .acct-btn.ghost:hover { background: rgba(255, 92, 138, 0.1); }
+.acct-panel form { display: flex; flex-direction: column; gap: 8px; }
+.acct-input {
+  width: 100%; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-family: var(--mono); font-size: 0.78rem;
+}
+.acct-input::placeholder { color: var(--muted); }
+.acct-input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.acct-err { color: #E36A6A; font-size: 0.74rem; display: none; }
+.acct-sep {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--muted); font-family: var(--mono); font-size: 0.64rem;
+  margin: 10px 0 8px;
+}
+.acct-sep::before, .acct-sep::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .acct-links { margin-top: 4px; font-family: var(--mono); font-size: 0.72rem; }
 .acct-links a { color: var(--dim); }
 .acct-links a:hover { color: var(--ink); }
@@ -249,9 +266,20 @@ footer a:hover { color: var(--ink); }
       <span class="acct-dot" id="acct-dot"></span> account
     </summary>
     <div class="acct-panel" id="acct-panel">
-      <!-- default: not signed in; script.js swaps this after /auth/status -->
-      <a class="acct-btn" href="/auth/login?register=1">Create account</a>
-      <a class="acct-btn ghost" href="/auth/login">Log in</a>
+      <!-- default: not signed in; the script swaps this after /auth/status -->
+      <form id="login-form">
+        <input class="acct-input" type="email" name="email" placeholder="email"
+               required autocomplete="email">
+        <input class="acct-input" type="password" name="password" placeholder="password"
+               required autocomplete="current-password">
+        <button class="acct-btn" type="submit">Sign in</button>
+        <div class="acct-err" id="login-err" role="alert"></div>
+      </form>
+      <div class="acct-sep">new here?</div>
+      <a class="acct-btn ghost" href="/auth/login?register=1" data-popup>Create account</a>
+      <div class="acct-links" style="margin-top:8px">
+        <a href="/auth/login" data-popup>Forgot password?</a>
+      </div>
     </div>
   </details>
 </header>
@@ -314,6 +342,15 @@ footer a:hover { color: var(--ink); }
 
 <script>
 (function () {
+  /* -- popup hand-back ------------------------------------------------------
+     Register/forgot open in a small named window. When that flow finishes,
+     Keycloak lands the popup back on this page: recognize the window name,
+     refresh the opener (it picks up the new cookie) and close. */
+  if (window.name === 'catknows-auth' && window.opener) {
+    try { window.opener.location.reload(); } catch (e) {}
+    window.close();
+  }
+
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* -- the answer types itself -------------------------------------------- */
@@ -367,6 +404,48 @@ footer a:hover { color: var(--ink); }
       }
     })
     .catch(function () { /* stranger default stands */ });
+
+  /* -- inline sign-in ------------------------------------------------------ */
+  var lf = document.getElementById('login-form');
+  if (lf) lf.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var err = document.getElementById('login-err');
+    var btn = lf.querySelector('button');
+    err.style.display = 'none';
+    btn.disabled = true;
+    fetch('/auth/password', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: new URLSearchParams(new FormData(lf))
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) { location.reload(); return; }
+        err.textContent = j.error || 'Sign-in failed.';
+        err.style.display = 'block';
+        btn.disabled = false;
+      })
+      .catch(function () {
+        err.textContent = 'Could not reach the server.';
+        err.style.display = 'block';
+        btn.disabled = false;
+      });
+  });
+
+  /* register / forgot: small window, the page stays put */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-popup]'), function (a) {
+    a.addEventListener('click', function (e) {
+      var w = window.open(a.href, 'catknows-auth', 'width=520,height=780');
+      if (w) e.preventDefault(); /* blocked popup → plain navigation */
+    });
+  });
+
+  /* opening the panel puts the cursor in the email field */
+  document.getElementById('account').addEventListener('toggle', function () {
+    if (this.open) {
+      var f = this.querySelector('input[name="email"]');
+      if (f) f.focus();
+    }
+  });
 })();
 </script>
 </body>

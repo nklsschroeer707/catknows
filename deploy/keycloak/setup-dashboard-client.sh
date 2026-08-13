@@ -26,28 +26,34 @@ existing=$("$KCADM" get clients -r "$REALM" -q "clientId=$CLIENT" --fields id 2>
 #
 # The redirect URI is exact — no wildcard. A wildcard here is the classic
 # open-redirect that hands an attacker the authorization code.
+#
+# Direct access grants ON (2026-08-13, Niklas' call): the landing page signs
+# people in inline from the account popover — POST /auth/password relays the
+# credentials to the token endpoint on this same box. Keycloak's brute-force
+# counter sees those attempts like any others. Registration and password reset
+# stay on the Keycloak pages; only the sign-in moved inline.
 if [ -z "$existing" ]; then
 	"$KCADM" create clients -r "$REALM" \
 	  -s "clientId=$CLIENT" \
 	  -s enabled=true \
 	  -s publicClient=true \
 	  -s standardFlowEnabled=true \
-	  -s directAccessGrantsEnabled=false \
+	  -s directAccessGrantsEnabled=true \
 	  -s serviceAccountsEnabled=false \
 	  -s 'attributes."pkce.code.challenge.method"=S256' \
 	  -s "redirectUris=[\"$BASE/auth/callback\"]" \
 	  -s "webOrigins=[\"$BASE\"]" \
 	  -s "baseUrl=$BASE"
-	echo "client $CLIENT created (public + PKCE S256)"
+	echo "client $CLIENT created (public + PKCE S256, direct grants for the popover)"
 else
 	"$KCADM" update "clients/$existing" -r "$REALM" \
 	  -s publicClient=true \
 	  -s standardFlowEnabled=true \
-	  -s directAccessGrantsEnabled=false \
+	  -s directAccessGrantsEnabled=true \
 	  -s 'attributes."pkce.code.challenge.method"=S256' \
 	  -s "redirectUris=[\"$BASE/auth/callback\"]" \
 	  -s "webOrigins=[\"$BASE\"]"
-	echo "client $CLIENT updated"
+	echo "client $CLIENT updated (direct grants on, for the popover sign-in)"
 fi
 
 # The dashboard requests mcp:tools so its access token carries the

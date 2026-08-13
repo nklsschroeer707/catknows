@@ -309,6 +309,82 @@ async def status(request):
         {"signed_in": True, "email": s["email"], "skool_connected": stored})
 
 
+async def password_login(request):
+    """Inline sign-in from the landing page's account popover.
+
+    Relays the credentials to Keycloak's token endpoint on this same box
+    (direct access grant) and sets the same cookie the OAuth callback sets.
+    The password passes through this process once and is never stored or
+    logged. Registration and password reset stay on the Keycloak pages —
+    email verification lives there. Keycloak's brute-force counter sees
+    these attempts like any others."""
+    # Same-origin only: a cross-site form must not be able to sign a browser
+    # into an account of its choosing (login CSRF).
+    origin = request.headers.get("origin")
+    if origin is not None and origin != _base_url():
+        return JSONResponse({"ok": False, "error": "Wrong origin."}, status_code=403)
+
+    form = await request.form()
+    email = str(form.get("email") or "").strip()
+    password = str(form.get("password") or "")
+    if not email or not password:
+        return JSONResponse({"ok": False, "error": "Email and password, please."},
+                            status_code=400)
+
+    cid, secret = _client()
+    body = {
+        "grant_type": "password",
+        "client_id": cid,
+        "username": email,
+        "password": password,
+        "scope": "openid email mcp:tools",
+    }
+    if secret:
+        body["client_secret"] = secret
+
+    import urllib.error
+
+    import anyio
+
+    try:
+        payload = await anyio.to_thread.run_sync(_post_form, _oidc("token"), body)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode()).get("error_description", "")
+        except Exception:
+            detail = ""
+        if "not fully set up" in detail:
+            msg = "Confirm your email first — the link is in your inbox."
+        else:
+            msg = "Wrong email or password."
+        return JSONResponse({"ok": False, "error": msg}, status_code=401)
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": f"Could not reach the login server: {e}"},
+            status_code=502)
+
+    claims = _verify_id_token(payload.get("id_token", ""))
+    if claims is None:
+        return JSONResponse({"ok": False, "error": "The login response didn't verify."},
+                            status_code=400)
+
+    # Same entitlement read as the OAuth callback, for the same reason.
+    from .auth_oauth import may_use_service
+
+    access = _verify_access_token(payload.get("access_token", ""))
+    cleared = access is not None and not may_use_service(access)
+
+    sid = _new_session(claims.get("sub", ""), claims.get("email", ""), cleared=cleared)
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        COOKIE, sid,
+        max_age=COOKIE_TTL, httponly=True, samesite="lax",
+        secure=not _base_url().startswith("http://localhost"),
+        path="/",
+    )
+    return resp
+
+
 # -- pages ---------------------------------------------------------------------
 
 
@@ -669,6 +745,7 @@ app = Starlette(
         Route("/auth/callback", callback),
         Route("/auth/logout", logout, methods=["GET", "POST"]),
         Route("/auth/status", status),
+        Route("/auth/password", password_login, methods=["POST"]),
         Route("/connect", connect),
         Route("/session/delete", delete_session, methods=["POST"]),
         WebSocketRoute("/connect/ws", connect_ws),
@@ -778,6 +855,24 @@ def _self_check() -> None:
     # ?register=1 must land on Keycloak's registration form, not the login form.
     reg = asyncio.run(login(QReq(register="1")))
     assert "/registrations?" in reg.headers["location"]
+
+    # /auth/password: cross-site posts are refused (login CSRF), empty fields
+    # are a 400, and neither path crashes. The happy path needs a live realm;
+    # check-realm.sh plus a browser cover that.
+    class FReq:
+        def __init__(self, origin=None, **fields):
+            self.headers = {"origin": origin} if origin else {}
+            self.cookies = {}
+            self._fields = fields
+
+        async def form(self):
+            return self._fields
+
+    foreign = asyncio.run(password_login(FReq(origin="https://evil.example",
+                                              email="a@b.c", password="x")))
+    assert foreign.status_code == 403, foreign.status_code
+    empty = asyncio.run(password_login(FReq()))
+    assert empty.status_code == 400 and json.loads(empty.body)["ok"] is False
 
     # The panel must never promise more than the MCP server will honour.
     green = _panel("a@b.c", stored=True, skool="Ada L.", cleared=True)
