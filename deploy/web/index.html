@@ -244,6 +244,56 @@ footer {
 footer a { color: var(--muted); text-underline-offset: 3px; }
 footer a:hover { color: var(--ink); }
 
+/* -- the streamed Skool login, in a modal on this page -------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(6, 5, 5, 0.74);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  width: min(920px, 100%); max-height: 94dvh; overflow: auto;
+  padding: 16px 18px;
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.modal-head strong { font-family: var(--serif); font-weight: 900; font-size: 1.15rem; }
+.modal-x {
+  background: none; border: 0; color: var(--dim);
+  font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 2px 8px;
+}
+.modal-x:hover, .modal-x:focus-visible { color: var(--ink); }
+.modal-note { color: var(--dim); font-size: 0.82rem; margin-bottom: 12px; max-width: 70ch; }
+.modal-note strong { color: var(--ink); }
+#sstage { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #060505; }
+#sstage[hidden] { display: none; }
+#sstage img { display: block; width: 100%; touch-action: none; }
+.modal-msg { font-family: var(--mono); font-size: 0.76rem; color: var(--dim); margin-top: 10px; min-height: 1.3em; }
+.modal-msg.ok { color: #5DBE72; }
+.modal-msg.bad { color: #E36A6A; }
+#sstart { width: auto; display: inline-block; padding: 9px 16px; }
+
+/* -- wide screens: two columns, the terminal is the counterpart ----------- */
+.wide-only { display: none; }
+@media (min-width: 980px) {
+  .shell { max-width: 1160px; padding-left: 40px; padding-right: 40px; }
+  main {
+    display: grid; grid-template-columns: 1.06fr 0.94fr;
+    column-gap: 72px; align-content: center;
+  }
+  main > * { grid-column: 1; }
+  main > .demo { grid-column: 2; grid-row: 1 / span 7; align-self: center; margin: 0; }
+  .whiskers { width: 200px; }
+  h1 { font-size: clamp(2.6rem, 3.4vw, 3.9rem); }
+  .kicker { font-size: 0.78rem; }
+  .demo-bar { font-size: 0.74rem; padding: 10px 15px; }
+  .demo-body { font-size: 0.92rem; padding: 16px 19px; }
+  .steps { margin-top: 24px; font-size: 0.78rem; }
+  .trust { max-width: 58ch; }
+  .wide-only { display: block; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .whisker, .snout, .heart { animation: none; stroke-dashoffset: 0; opacity: 1; }
   .caret { animation: none; }
@@ -310,6 +360,8 @@ footer a:hover { color: var(--ink); }
     <div class="demo-body">
       <div class="you">Who joined this month but never posted?</div>
       <div id="typed"><span class="caret"></span></div>
+      <div class="you wide-only" style="margin-top:10px">Which post pulled the most comments this week?</div>
+      <div class="wide-only">&ldquo;Ship it Friday&rdquo; &mdash; <span class="num">23</span> comments, <span class="num">9</span> from first-timers.</div>
     </div>
   </div>
 
@@ -325,7 +377,7 @@ footer a:hover { color: var(--ink); }
   <p class="trust">
     Hosted in Germany. Your community&rsquo;s data isn&rsquo;t stored &mdash; fetched,
     answered, gone. Your Skool password goes to Skool,
-    <a href="/connect">never to us</a>.
+    <a href="privacy.html">never to us</a>.
   </p>
 </main>
 
@@ -338,6 +390,26 @@ footer a:hover { color: var(--ink); }
   &nbsp;&mdash;&nbsp; unofficial, not affiliated with Skool
 </footer>
 
+</div>
+
+<!-- The streamed Skool login, without leaving this page. Same protocol as
+     /connect, which stays available as the fallback. -->
+<div class="modal" id="skool-modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="skool-title">
+    <div class="modal-head">
+      <strong id="skool-title">Connect Skool</strong>
+      <button class="modal-x" id="skool-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-note">
+      A browser opens <strong>on the server</strong> and is streamed here. You log
+      in to Skool inside it &mdash; email and password, or Google/Apple. Your
+      password goes to Skool, never to us; we keep only the session cookie the
+      login produces, encrypted.
+    </p>
+    <p><button class="acct-btn" id="sstart" type="button">Open the streamed login</button></p>
+    <div id="sstage" hidden><img id="sscreen" alt="Skool login, streamed from the server" tabindex="0"></div>
+    <div id="smsg" class="modal-msg"></div>
+  </div>
 </div>
 
 <script>
@@ -393,13 +465,15 @@ footer a:hover { color: var(--ink); }
         dot.className = 'acct-dot ok';
         panel.innerHTML = who +
           '<div class="state"><span class="acct-dot ok"></span> Skool connected</div>' +
-          '<div class="acct-links"><a href="/connect">Manage on /connect</a> &middot; ' +
+          '<button class="acct-btn ghost" type="button" data-disconnect-skool>Disconnect Skool</button>' +
+          '<div class="acct-links" style="margin-top:8px">' +
+          '<a href="#" data-connect-skool>Reconnect</a> &middot; ' +
           '<a href="/auth/logout">Log out</a></div>';
       } else {
         dot.className = 'acct-dot warn';
         panel.innerHTML = who +
           '<div class="state"><span class="acct-dot warn"></span> Skool not connected yet</div>' +
-          '<a class="acct-btn" href="/connect">Connect Skool</a>' +
+          '<button class="acct-btn" type="button" data-connect-skool>Connect Skool</button>' +
           '<div class="acct-links" style="margin-top:8px"><a href="/auth/logout">Log out</a></div>';
       }
     })
@@ -445,6 +519,116 @@ footer a:hover { color: var(--ink); }
       var f = this.querySelector('input[name="email"]');
       if (f) f.focus();
     }
+  });
+
+  /* -- Skool: the streamed login, in a modal on this page -------------------
+     Same wire protocol as /connect (ready / frame / done / error out,
+     mouse+key gestures in). /connect stays as the fallback page. */
+  var modal = document.getElementById('skool-modal');
+  var sstage = document.getElementById('sstage');
+  var simg = document.getElementById('sscreen');
+  var smsg = document.getElementById('smsg');
+  var sstart = document.getElementById('sstart');
+  var sws = null, ssize = null;
+
+  function ssay(t, cls) { smsg.textContent = t; smsg.className = 'modal-msg ' + (cls || ''); }
+  function ssend(m) { if (sws && sws.readyState === 1) sws.send(JSON.stringify(m)); }
+  function sat(e) {
+    var r = simg.getBoundingClientRect();
+    var t = (e.touches && e.touches[0]) || e;
+    return { x: (t.clientX - r.left) / r.width * ssize.width,
+             y: (t.clientY - r.top) / r.height * ssize.height };
+  }
+  function openSkool() {
+    document.getElementById('account').open = false;
+    modal.hidden = false;
+    sstage.hidden = true;
+    sstart.disabled = false;
+    ssay('');
+  }
+  function closeSkool() {
+    if (sws) { try { ssend({ type: 'bye' }); sws.close(); } catch (e) {} sws = null; }
+    modal.hidden = true;
+    sstage.hidden = true;
+  }
+
+  sstart.addEventListener('click', function () {
+    sstart.disabled = true;
+    ssay('Starting a browser on the server…');
+    sws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') +
+                        location.host + '/connect/ws');
+    sws.onmessage = function (ev) {
+      var m = JSON.parse(ev.data);
+      if (m.type === 'ready') {
+        ssize = { width: m.width, height: m.height };
+        sstage.hidden = false;
+        ssay('Log in to Skool in the window above.');
+        simg.focus();
+      } else if (m.type === 'frame') {
+        simg.src = 'data:image/jpeg;base64,' + m.data;
+      } else if (m.type === 'done') {
+        sstage.hidden = true;
+        var who = m.skool ? ' as ' + m.skool : '';
+        if (m.mismatch) {
+          ssay('Connected' + who + ' — note this is a different email than your ' +
+               'catknows account. If that was not intended, disconnect and connect again.');
+        } else {
+          ssay('Connected' + who + '. Your Skool session is stored, encrypted.', 'ok');
+          setTimeout(function () { location.reload(); }, 1400);
+        }
+      } else if (m.type === 'error') {
+        ssay(m.message, 'bad');
+        sstart.disabled = false;
+      }
+    };
+    sws.onclose = function () {
+      if (!/ok|bad/.test(smsg.className)) ssay('Stream closed.');
+      sstart.disabled = false;
+    };
+    sws.onerror = function () { ssay('Connection failed.', 'bad'); sstart.disabled = false; };
+  });
+
+  /* pointer and touch both map to the same mouse events server-side */
+  simg.addEventListener('pointerdown', function (e) {
+    e.preventDefault(); simg.focus();
+    var p = sat(e); ssend({ type: 'mousePressed', x: p.x, y: p.y });
+  });
+  simg.addEventListener('pointerup', function (e) {
+    e.preventDefault();
+    var p = sat(e); ssend({ type: 'mouseReleased', x: p.x, y: p.y });
+  });
+  simg.addEventListener('pointermove', function (e) {
+    if (e.buttons) { var p = sat(e); ssend({ type: 'mouseMoved', x: p.x, y: p.y }); }
+  });
+  simg.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var p = sat(e);
+    ssend({ type: 'scroll', x: p.x, y: p.y, deltaX: e.deltaX, deltaY: e.deltaY });
+  }, { passive: false });
+  simg.addEventListener('keydown', function (e) {
+    e.preventDefault();
+    ssend({ type: 'keyDown', key: e.key, code: e.code, keyCode: e.keyCode,
+            text: e.key.length === 1 ? e.key : '' });
+  });
+  simg.addEventListener('keyup', function (e) {
+    e.preventDefault();
+    ssend({ type: 'keyUp', key: e.key, code: e.code, keyCode: e.keyCode });
+  });
+
+  /* the popover's buttons are injected after the status call → delegate */
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-connect-skool],[data-disconnect-skool]');
+    if (!t) return;
+    e.preventDefault();
+    if (t.hasAttribute('data-connect-skool')) { openSkool(); return; }
+    if (!confirm('Delete the stored Skool session? The tools stop working until you connect again.')) return;
+    fetch('/session/delete', { method: 'POST', credentials: 'same-origin' })
+      .then(function () { location.reload(); });
+  });
+  document.getElementById('skool-close').addEventListener('click', closeSkool);
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeSkool(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) closeSkool();
   });
 })();
 </script>
