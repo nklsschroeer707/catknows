@@ -142,8 +142,16 @@ one click:
 
 1. **They sign up** at `catknows.app` and confirm the address Keycloak mails
    them. No involvement from you, and nothing gained yet.
-2. **You set the attribute:** admin console → realm `catknows` → Users → the
-   account → *Attributes* → key `catknows_service`, value `true` → Save.
+2. **You grant the attribute:**
+
+   ```bash
+   deploy/keycloak/grant-service.sh <their-email>          # let them in
+   deploy/keycloak/grant-service.sh <their-email> false    # kill switch
+   ```
+
+   Use the script, not `kcadm -s 'attributes.catknows_service=true'` — that
+   exits 0 and writes nothing. The admin console works too; the script exists
+   because the obvious command line does not.
 3. **They connect Skool** at `catknows.app/connect` through the streamed
    browser (§8). Either order works — step 3 does not depend on step 2.
 
@@ -163,12 +171,21 @@ can itself break.
 their current access token expires (minutes), without touching anyone else and
 without deleting their data.
 
-> Why an attribute and not a realm role — the obvious choice, tried first: the
-> documented `oidc-usermodel-realm-role-mapper` produced no `realm_access` claim
-> at all, on a scope where the audience and `email_verified` mappers demonstrably
-> worked, with nothing in Keycloak's log. An attribute uses the same mapper type
-> as `email_verified`, which does work here. Don't "fix" this back to a role
-> without checking a real token first.
+> **Before you touch this, know what was already tried.** An earlier version of
+> this note claimed the realm-role mapper was broken. It is not — it works, and
+> it was only ever measured against a DCR client, which carries no roles in its
+> token by construction. A symptom at one client says nothing about the system.
+>
+> The real blocker was neither mapper: Keycloak 24+ only stores attributes its
+> User Profile schema **declares**. `catknows_service` was not declared, so it
+> could not be written at all, and any mapper reading it carried nothing —
+> silently, with nothing in the log. `setup-realm.sh` declares it now
+> (admin-only for view and edit; with `user` there, anyone could clear their own
+> gate). Run `check-realm.sh` if you suspect drift.
+>
+> Either mapper would work today. The attribute stays because it is one field to
+> set, and because the check is meant to become a paid-membership lookup later —
+> not because roles failed.
 
 #### Getting a session in by hand
 
