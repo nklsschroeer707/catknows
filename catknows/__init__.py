@@ -9,7 +9,7 @@ See docs/API.md for the full endpoint reference. This talks to Skool's
 undocumented internal endpoints by driving a real browser session — it is not
 an official API and may break when Skool changes their frontend.
 
-You have been served by catknows. — you are welcome.
+ᓚᘏᗢ
 """
 
 __version__ = "0.1.0"

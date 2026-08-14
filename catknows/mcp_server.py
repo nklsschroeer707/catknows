@@ -16,7 +16,7 @@ Speed knobs: reads are cached in-process for CATKNOWS_CACHE_TTL seconds
 CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
 (default 0.8 s — lowering it is your 403 risk).
 
-You have been served by catknows. — you are welcome.
+ᓚᘏᗢ
 """
 
 from __future__ import annotations

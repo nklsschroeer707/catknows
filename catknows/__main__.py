@@ -85,7 +85,7 @@ def _pull(args) -> int:
     print(f"  {written_posts} posts written.")
 
     print(f"\n✓ Done. Vault at: {vault_dir}")
-    print("\nYou have been served by catknows. — you are welcome.")
+    print("\nᓚᘏᗢ")
     return 0
 
 

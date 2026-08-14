@@ -12,7 +12,7 @@ Skool has no API. catknows is the one.
   → straight into Claude, ChatGPT, Cursor — or a vault, or raw JSON
   now you can finally talk to your own data.
   no subscription · no middleman · you own it.
-  You have been served by catknows. — you are welcome.
+  ᓚᘏᗢ
 ```
 
 `#skool` &nbsp;·&nbsp; `#mcp` &nbsp;·&nbsp; `#open-source` &nbsp;·&nbsp; `#free-forever` &nbsp;·&nbsp; `#own-your-data`
@@ -55,7 +55,7 @@ Give the cat a notebook (a vault 📓) and it also **remembers** everything it f
 
 It costs **nothing.** 🆓 Only *you* see your things. The cat works for you, in your own house, forever.
 
-*You have been served. 🐈*
+*ᓚᘏᗢ*
 
 <br>
 
@@ -392,6 +392,6 @@ MIT. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for the ToS caveats.
 
 <div align="center">
 
-*You have been served by catknows. — you are welcome.*
+*ᓚᘏᗢ*
 
 </div>
