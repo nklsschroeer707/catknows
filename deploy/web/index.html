@@ -312,9 +312,15 @@ h1 em { font-style: normal; color: var(--brand); }
   max-width: 108ch; margin: 0 auto;
   padding: 10px clamp(18px, 2vw, 30px);
 }
-.fineprint > span { text-wrap: balance; }
+/* Above the scrim, which sits at 0. Without this the flat backdrop below would
+   paint straight over the sentences. */
+.fineprint > span { text-wrap: balance; position: relative; z-index: 1; }
 .fineprint::before {
-  content: ""; position: absolute; inset: -6px -12px; z-index: -1;
+  /* z-index 0, not -1: `.fineprint` is only `position: relative`, so it opens no
+     stacking context of its own and a negative index escaped to the root — where
+     it landed beside the -2 video instead of over it, and the clip showed
+     through this box. Staying at 0 keeps the scrim inside its own element. */
+  content: ""; position: absolute; inset: -6px -12px; z-index: 0;
   border-radius: 10px;
   /* Flat, not a gradient: the desk's neon strip sits right behind this line at
      some viewport heights, and a gradient's soft edge let it through. */
