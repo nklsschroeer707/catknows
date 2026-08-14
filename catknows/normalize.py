@@ -246,6 +246,18 @@ def about_pricing(data: dict) -> dict:
     }
 
 
+def _either(d: dict, camel: str, snake: str, default=None):
+    """Read a field that Skool spells differently per endpoint.
+
+    ``self/groups`` returns snake_case (``display_name``, ``total_members``)
+    while other endpoints return camelCase. Reading only one spelling silently
+    yields None/0 — which is exactly how blank names and 0-member counts
+    shipped. Accept both; the self-check fixtures cover both spellings.
+    """
+    v = d.get(camel)
+    return d.get(snake, default) if v is None else v
+
+
 def my_community(group: dict, my_user_id: str = "") -> dict:
     """Flatten one ``self/groups`` entry into "a community I'm in" record.
 
@@ -262,14 +274,14 @@ def my_community(group: dict, my_user_id: str = "") -> dict:
     if my_user_id and owner and owner == my_user_id:
         role = "owner"
     return {
-        "slug": group.get("name", ""),  # `name` is the slug, displayName is the label
-        "display_name": meta.get("displayName", ""),
+        "slug": group.get("name", ""),  # `name` is the slug, display_name is the label
+        "display_name": _either(meta, "displayName", "display_name", ""),
         "role": role or "member",
-        "total_members": int(meta.get("totalMembers", 0) or 0),
+        "total_members": int(_either(meta, "totalMembers", "total_members", 0) or 0),
         "is_owner": bool(my_user_id and owner and owner == my_user_id),
-        "joined_at": _ns_or_iso_to_dt(group.get("createdAt")),
+        "joined_at": _ns_or_iso_to_dt(_either(group, "createdAt", "created_at")),
         "color": meta.get("color", ""),
-        "logo_url": meta.get("logoUrl", ""),
+        "logo_url": _either(meta, "logoUrl", "logo_url", ""),
     }
 
 
@@ -388,13 +400,15 @@ if __name__ == "__main__":
     for leak in ("acct_", "pk_live_", "zap_secret", "billingEmail", "4242"):
         assert leak not in blob, f"scrub leaked {leak!r}"
 
-    # my_community: shaped like a real self/groups entry — `name` is the slug,
-    # the label lives in metadata.displayName, and an owned group carries NO
-    # role at all (that's what the owner id has to resolve).
+    # my_community: shaped like a REAL self/groups entry — verified against live
+    # api2 output, which is snake_case throughout. The fixtures used to be
+    # camelCase, so the tests passed while production shipped blank names and
+    # 0 members. `name` is the slug, the label lives in metadata.display_name,
+    # and an owned group carries NO role at all (the owner id has to resolve it).
     owned = my_community(
-        {"name": "catnose", "createdAt": "2025-01-02T03:04:05.000000Z",
-         "metadata": {"displayName": "catknows.", "owner": "me-uuid",
-                      "totalMembers": 29, "logoUrl": "https://x/y.png"}},
+        {"name": "catnose", "created_at": "2025-01-02T03:04:05.000000Z",
+         "metadata": {"display_name": "catknows.", "owner": "me-uuid",
+                      "total_members": 29, "logo_url": "https://x/y.png"}},
         my_user_id="me-uuid",
     )
     assert owned["slug"] == "catnose", owned
@@ -402,6 +416,15 @@ if __name__ == "__main__":
     assert owned["role"] == "owner", f"owner has no role field, must be derived: {owned}"
     assert owned["is_owner"] is True and owned["total_members"] == 29, owned
     assert owned["joined_at"] and owned["joined_at"].year == 2025, owned
+    assert owned["logo_url"] == "https://x/y.png", owned
+    # Other endpoints spell the same fields camelCase — both must read.
+    camel = my_community(
+        {"name": "catnose", "createdAt": "2025-01-02T03:04:05.000000Z",
+         "metadata": {"displayName": "catknows.", "owner": "me-uuid",
+                      "totalMembers": 29, "logoUrl": "https://x/y.png"}},
+        my_user_id="me-uuid",
+    )
+    assert camel == owned, f"camelCase and snake_case must normalize alike: {camel}"
     # Same group seen by somebody else: not the owner, keeps its stated role.
     other = my_community(
         {"name": "catnose", "role": "member",
