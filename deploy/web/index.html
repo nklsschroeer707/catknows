@@ -78,10 +78,10 @@ body {
 @media (min-width: 980px) {
   .bg-veil {
     background:
-      linear-gradient(to right, rgba(15, 14, 12, 0.95) 0%, rgba(15, 14, 12, 0.9) 38%,
-        rgba(15, 14, 12, 0.45) 62%, rgba(15, 14, 12, 0.4) 100%),
-      linear-gradient(to bottom, rgba(15, 14, 12, 0.75) 0%, rgba(15, 14, 12, 0.3) 20%,
-        rgba(15, 14, 12, 0.3) 78%, rgba(15, 14, 12, 0.8) 100%);
+      linear-gradient(to right, rgba(15, 14, 12, 0.93) 0%, rgba(15, 14, 12, 0.86) 34%,
+        rgba(15, 14, 12, 0.3) 58%, rgba(15, 14, 12, 0.12) 100%),
+      linear-gradient(to bottom, rgba(15, 14, 12, 0.6) 0%, rgba(15, 14, 12, 0.1) 18%,
+        rgba(15, 14, 12, 0.1) 80%, rgba(15, 14, 12, 0.7) 100%);
   }
 }
 /* Header and footer span the real viewport corners; only the middle column
@@ -93,15 +93,30 @@ body {
 }
 
 /* -- header: wordmark top left, account top right, real corners ---------- */
+/* Three slots: mark, the two outbound links, account. The middle one is
+   centred against the viewport, not against its neighbours. */
 header {
-  display: flex; justify-content: space-between; align-items: center;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   padding: 12px clamp(18px, 2vw, 30px) 0;
 }
-.wordmark {
-  font-family: var(--serif); font-weight: 900;
-  font-size: 1.35rem; color: var(--ink); text-decoration: none;
+header > .account { justify-self: end; }
+
+.mark { display: block; width: 92px; line-height: 0; padding: 6px 0; }
+.mark svg { width: 100%; height: auto; overflow: visible; }
+.mark:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 4px; }
+
+.social {
+  display: flex; gap: 16px; align-items: center;
+  font-family: var(--mono); font-size: 0.74rem;
 }
-.wordmark b, .wordmark i { font-weight: 900; font-style: normal; color: var(--brand-deep); }
+.social a {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--dim); text-decoration: none;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.social a:hover { color: var(--ink); border-color: var(--line); }
+.social svg { width: 15px; height: 15px; flex: 0 0 15px; }
 
 .account { position: relative; }
 .account summary {
@@ -169,7 +184,6 @@ header {
 /* -- the one screen ------------------------------------------------------ */
 main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 12px 0 10px; }
 
-.whiskers { width: min(42vw, 176px); margin: 0 0 0 -6px; }
 .whisker, .snout {
   fill: none; stroke: var(--ink); stroke-width: 2.6; stroke-linecap: round;
 }
@@ -209,12 +223,42 @@ h1 em { font-style: normal; color: var(--brand); }
   letter-spacing: 0.18em; color: var(--dim);
 }
 
+/* Three numbered lines. The counter draws the numerals, so the markup stays a
+   plain <ol> and screen readers announce a real list. */
 .steps {
-  font-family: var(--mono); font-size: clamp(0.68rem, 2.6vw, 0.76rem);
-  color: var(--dim); margin: 12px 0;
+  list-style: none; counter-reset: step;
+  font-family: var(--mono); font-size: clamp(0.72rem, 2.6vw, 0.8rem);
+  color: var(--dim); margin: 18px 0 22px;
+  display: flex; flex-direction: column; gap: 9px;
 }
-.steps b { color: var(--brand); font-weight: 600; }
-.steps .step { white-space: nowrap; }
+.steps li {
+  counter-increment: step;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.steps li::before {
+  content: counter(step);
+  flex: 0 0 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(255, 92, 138, 0.14); color: var(--brand);
+  font-size: 0.68rem; font-weight: 600;
+}
+.steps li > span { color: var(--ink); }
+
+.copy {
+  display: inline-flex; align-items: center; gap: 9px;
+  background: rgba(26, 24, 22, 0.72); color: var(--dim);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 9px; font: inherit; cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.copy:hover { border-color: var(--brand); color: var(--ink); }
+.copy:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.copy code { font-family: var(--mono); font-size: 0.94em; color: var(--ink); }
+.copy-state {
+  font-size: 0.82em; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.copy-state.done { color: var(--ok); }
 
 .cta {
   display: block; text-align: center; text-decoration: none;
@@ -230,17 +274,15 @@ h1 em { font-style: normal; color: var(--brand); }
   transform: translateY(-1px);
 }
 .cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-.unlock {
-  text-align: center; font-size: 0.78rem; color: var(--dim);
-  margin-top: 9px;
-}
 
-.trust {
-  font-family: var(--mono); font-size: 0.68rem; line-height: 1.7;
-  color: var(--dim); margin-top: 14px;
+.fineprint {
+  font-family: var(--mono); font-size: 0.66rem; line-height: 1.7;
+  color: var(--muted); text-align: center; text-wrap: balance;
+  max-width: 82ch; margin: 0 auto;
+  padding: 0 clamp(18px, 2vw, 30px) 8px;
 }
-.trust a { color: var(--dim); }
-.trust a:hover { color: var(--ink); }
+.fineprint a { color: var(--muted); }
+.fineprint a:hover { color: var(--ink); }
 
 /* -- footer: full width, centered ----------------------------------------- */
 footer {
@@ -283,20 +325,45 @@ footer .unofficial { color: var(--brand); }
 .modal-msg.bad { color: #E36A6A; }
 #sstart { width: auto; display: inline-block; padding: 9px 16px; }
 
-/* -- wide screens: copy keeps the left half, the clip's chat gets the right */
+/* -- wide screens: the copy sits inboard, the clip's chat keeps the right --- */
 @media (min-width: 980px) {
-  .shell { max-width: 1160px; padding-left: 40px; padding-right: 40px; }
-  main { max-width: 46%; }
-  .whiskers { width: 200px; }
-  h1 { font-size: clamp(2.6rem, 3.4vw, 3.9rem); }
+  .shell { max-width: none; padding-left: 0; padding-right: 0; }
+  main {
+    /* Pushed off the left edge — it was hugging the viewport — while the
+       headline gets enough width to keep "in your AI." on one line. */
+    margin-left: clamp(80px, 17vw, 300px);
+    max-width: min(40vw, 545px);
+  }
+  h1 { font-size: clamp(2.7rem, 3.6vw, 4.1rem); }
   .kicker { font-size: 0.78rem; }
-  .steps { margin-top: 24px; font-size: 0.78rem; }
-  .trust { max-width: 46ch; }
+  .steps { font-size: 0.8rem; }
+  .cta { display: inline-block; align-self: start; padding: 14px 30px; }
 }
+
+/* The heart nose from the mark, as the pointer. Inline SVG in a data: URI —
+   no extra file, no route. The 32px cap is what browsers accept; the hotspot
+   sits at the heart's dip so the click point is where the tip looks. */
+body {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cpath d='M13 7.4C11.6 5.7 9.3 5 8 6.4c-1.4 1.4-.4 3.4 5 6.8 5.4-3.4 6.4-5.4 5-6.8-1.3-1.4-3.6-.7-5 1z' fill='%23FF5C8A' stroke='%230F0E0C' stroke-width='1.1'/%3E%3C/svg%3E") 13 7, auto;
+}
+a, button, summary, [role="button"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 26 26'%3E%3Cpath d='M13 7.4C11.6 5.7 9.3 5 8 6.4c-1.4 1.4-.4 3.4 5 6.8 5.4-3.4 6.4-5.4 5-6.8-1.3-1.4-3.6-.7-5 1z' fill='%23FF4F7E' stroke='%23F5F0EB' stroke-width='1.2'/%3E%3C/svg%3E") 15 8, pointer;
+}
+input, textarea { cursor: text; }
 
 @media (prefers-reduced-motion: reduce) {
   .whisker, .snout, .heart { animation: none; stroke-dashoffset: 0; opacity: 1; }
   .cta { transition: none; }
+}
+/* Phones: the three-slot header does not fit, so the labels go and the icons
+   tuck in beside the mark. */
+@media (max-width: 700px) {
+  header { grid-template-columns: auto 1fr auto; gap: 10px; }
+  .mark { width: 66px; }
+  .social { justify-self: start; gap: 4px; font-size: 0; }
+  .social a { padding: 6px; gap: 0; }
+  .social span { display: none; }
+  .social svg { width: 17px; height: 17px; flex-basis: 17px; }
 }
 @media (max-width: 400px) {
   .shell { padding-left: 18px; padding-right: 18px; }
@@ -314,7 +381,51 @@ footer .unofficial { color: var(--brand); }
 <div class="bg-veil" aria-hidden="true"></div>
 
 <header>
-  <a class="wordmark" href="/"><b>cat</b>knows<i>.</i></a>
+  <!-- The mark alone, corner-sized. The full wordmark used to sit here; the
+       headline carries the name now, so the corner just needs the face. -->
+  <a class="mark" href="/" aria-label="catknows — home">
+    <svg viewBox="0 0 500 200" aria-hidden="true">
+      <path class="whisker" style="--len:210;--delay:0s"    d="M18 62 C 80 58, 148 70, 205 92"/>
+      <path class="whisker" style="--len:200;--delay:0.1s"  d="M10 96 C 76 94, 146 98, 205 104"/>
+      <path class="whisker" style="--len:214;--delay:0.2s"  d="M20 132 C 82 132, 150 124, 206 114"/>
+      <path class="whisker" style="--len:210;--delay:0.05s" d="M482 62 C 420 58, 352 70, 295 92"/>
+      <path class="whisker" style="--len:200;--delay:0.15s" d="M490 96 C 424 94, 354 98, 295 104"/>
+      <path class="whisker" style="--len:214;--delay:0.25s" d="M480 132 C 418 132, 350 124, 294 114"/>
+      <path class="snout" d="M250 108 C 250 132, 240 146, 226 146 C 214 146, 208 137, 208 128"/>
+      <path class="snout" d="M250 108 C 250 132, 260 146, 274 146 C 286 146, 292 137, 292 128"/>
+      <path class="heart" d="M250 104 C 243 96, 232 92, 226 99 C 219 106, 224 116, 250 132
+                             C 276 116, 281 106, 274 99 C 268 92, 257 96, 250 104 Z"/>
+    </svg>
+  </a>
+
+  <nav class="social" aria-label="catknows elsewhere">
+    <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener"
+       aria-label="Our Skool community">
+      <!-- Skool's mark is theirs; a neutral glyph says "community" without it. -->
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11Z"/>
+        <path d="M2.6 19.4c0-3 2.9-4.9 6.4-4.9s6.4 1.9 6.4 4.9"/>
+        <path d="M16.4 10.6a2.6 2.6 0 1 0 0-5.2"/>
+        <path d="M18 14.9c2.1.5 3.4 1.8 3.4 3.6"/>
+      </svg>
+      <span>Community</span>
+    </a>
+    <a href="https://github.com/nklsschroeer707/catknows" target="_blank" rel="noopener"
+       aria-label="catknows on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+          0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+          -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+          .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+          -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27
+          c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15
+          0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
+          0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
 
   <details class="account" id="account">
     <summary aria-label="Account menu">
@@ -342,51 +453,44 @@ footer .unofficial { color: var(--brand); }
 <div class="shell">
 
 <main>
-  <!-- The mark, drawn small and visible — banner scale, not wallpaper scale. -->
-  <svg class="whiskers" viewBox="0 0 500 200" aria-hidden="true">
-    <path class="whisker" style="--len:210;--delay:0s"    d="M18 62 C 80 58, 148 70, 205 92"/>
-    <path class="whisker" style="--len:200;--delay:0.1s"  d="M10 96 C 76 94, 146 98, 205 104"/>
-    <path class="whisker" style="--len:214;--delay:0.2s"  d="M20 132 C 82 132, 150 124, 206 114"/>
-    <path class="whisker" style="--len:210;--delay:0.05s" d="M482 62 C 420 58, 352 70, 295 92"/>
-    <path class="whisker" style="--len:200;--delay:0.15s" d="M490 96 C 424 94, 354 98, 295 104"/>
-    <path class="whisker" style="--len:214;--delay:0.25s" d="M480 132 C 418 132, 350 124, 294 114"/>
-    <path class="snout" d="M250 108 C 250 132, 240 146, 226 146 C 214 146, 208 137, 208 128"/>
-    <path class="snout" d="M250 108 C 250 132, 260 146, 274 146 C 286 146, 292 137, 292 128"/>
-    <path class="heart" d="M250 104 C 243 96, 232 92, 226 99 C 219 106, 224 116, 250 132
-                           C 276 116, 281 106, 274 99 C 268 92, 257 96, 250 104 Z"/>
-  </svg>
-
   <h1>Your Skool data, <em>in your AI.</em></h1>
   <p class="kicker">FREE. OPEN SOURCE. YOUR DATA.</p>
 
   <!-- The typed demo is gone: the background clip now shows a real catknows
        conversation, so a second mock chat only competed with it. -->
 
-  <p class="steps">
-    <span class="step"><b>1</b> Create an account</span> &middot;
-    <span class="step"><b>2</b> Confirm your email</span> &middot;
-    <span class="step"><b>3</b> Connect Skool</span>
-  </p>
+  <ol class="steps">
+    <li><span>Create an account</span></li>
+    <li><span>Connect Skool</span></li>
+    <li>
+      <span>Add it to your AI</span>
+      <button type="button" class="copy" id="copy-mcp"
+              data-url="https://mcp.catknows.app/mcp">
+        <code>mcp.catknows.app/mcp</code>
+        <span class="copy-state" id="copy-state" aria-live="polite">copy</span>
+      </button>
+    </li>
+  </ol>
 
   <a class="cta" href="/auth/login?register=1">Get started &mdash; free while in testing</a>
-  <p class="unlock">Accounts are unlocked by hand during the test phase &mdash; you&rsquo;ll get a mail.</p>
-
-  <p class="trust">
-    Hosted in Germany. Your Skool data isn&rsquo;t stored &mdash; fetched,
-    answered, gone. Your Skool password goes to Skool,
-    <a href="privacy.html">never to us</a>.
-  </p>
 </main>
 
 </div>
+
+<!-- The small print rides above the footer: it has to stay on the page, but it
+     was making the hero block long enough to fight the headline. -->
+<p class="fineprint">
+  Accounts are unlocked by hand during the test phase &mdash; you&rsquo;ll get a mail.
+  Hosted in Germany. Your Skool data isn&rsquo;t stored &mdash; fetched, answered,
+  gone. Your Skool password goes to Skool, <a href="/privacy">never to us</a>.
+</p>
 
 <footer>
   <nav>
     <a href="/privacy">Privacy</a> &middot;
     <a href="/dpa">Processing agreement</a> &middot;
     <a href="/legal">Legal</a> &middot;
-    <a href="/impressum">Imprint</a> &middot;
-    <a href="https://github.com/nklsschroeer707/catknows">GitHub</a>
+    <a href="/impressum">Imprint</a>
   </nav>
   <p class="unofficial">Independent &amp; unofficial &mdash; not affiliated with Skool.</p>
 </footer>
@@ -454,6 +558,38 @@ footer .unofficial { color: var(--brand); }
       };
       document.addEventListener('touchstart', once, { passive: true });
     }
+  }
+
+  /* -- copy the MCP endpoint ----------------------------------------------
+     navigator.clipboard needs a secure context; over plain http (or an old
+     browser) it is undefined, so fall back to selecting the text instead of
+     failing silently. */
+  var copyBtn = document.getElementById('copy-mcp');
+  if (copyBtn) {
+    var state = document.getElementById('copy-state');
+    copyBtn.addEventListener('click', function () {
+      var url = copyBtn.getAttribute('data-url');
+      var done = function () {
+        state.textContent = 'copied';
+        state.classList.add('done');
+        setTimeout(function () {
+          state.textContent = 'copy';
+          state.classList.remove('done');
+        }, 2000);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(done, function () {
+          state.textContent = 'press ctrl+c';
+        });
+      } else {
+        var r = document.createRange();
+        r.selectNodeContents(copyBtn.querySelector('code'));
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        state.textContent = 'press ctrl+c';
+      }
+    });
   }
 
   /* -- account button: ask the server who we are --------------------------
