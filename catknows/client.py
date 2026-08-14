@@ -237,7 +237,13 @@ class SkoolClient:
         return self.http.get_api2(f"/groups/{group_skool_id}/discovery")
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
-        """Admin dashboard metrics (owner/admin only, raw api2 response)."""
+        """Admin dashboard metrics (owner/admin only, raw api2 response).
+
+        ``range_`` is effectively fixed: Skool 400s ("unsupported time range")
+        on 7d, 60d, 90d, 1y, 12m and bare numbers — only ``30d`` is accepted
+        (probed live 2026-08-14). The parameter stays because the endpoint
+        takes one; don't advertise other values.
+        """
         return self.http.get_api2(
             f"/groups/{group_skool_id}/admin-metrics?range={range_}&amt=monthly"
         )

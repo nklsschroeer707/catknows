@@ -259,7 +259,7 @@ def get_discovery_rank(community_slug: str) -> dict:
 
 @mcp.tool()
 def get_admin_metrics(community_slug: str, range: str = "30d") -> dict:
-    """Get admin metrics for a community you own (growth, engagement). range e.g. 7d, 30d, 90d."""
+    """Get admin metrics for a community you own (growth, engagement). range is always 30d — Skool rejects every other value."""
     client = _get_client()
     return _safe_raw(client.admin_metrics(client.group_id_for(community_slug), range_=range))
 

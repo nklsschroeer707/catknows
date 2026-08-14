@@ -287,6 +287,9 @@ missing.
 **`admin-metrics`** (owner-only) returns `total_members[]` and `active_members[]`
 as 30-day time series (`{value, time}` points) plus `latest_active_members` and a
 `daily_activities` range — the raw numbers behind a community's admin dashboard.
+`range` only accepts **`30d`**; 7d/60d/90d/1y/12m and bare numbers all answer
+`400 unsupported time range` (probed live 2026-08-14). `daily_activities` covers
+a full year regardless, so the long view is in there even though the query isn't.
 
 **`groups/{gid}/discovery`** (owner) is *your own* community's discovery
 standing: `{is_showing, rank, category:{id,name}, category_rank, language_code,
