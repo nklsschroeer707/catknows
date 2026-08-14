@@ -643,10 +643,10 @@ _READ_ONLY = {
     "list_members", "list_posts", "get_post_comments", "get_post_likes",
     "get_member_profile", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
-    "list_chat_channels",
+    "list_chat_channels", "list_my_communities",
 }
 # Acts as the user, visible to real members, can't be taken back.
-_DESTRUCTIVE = {"create_post", "send_dm"}
+_DESTRUCTIVE = {"create_post", "create_comment", "send_dm"}
 
 
 def _annotate_tools() -> None:
@@ -771,10 +771,21 @@ def _self_check() -> None:
             assert not ann.read_only_hint, f"{name} writes — must not be read-only"
         assert ann.destructive_hint is (name in _DESTRUCTIVE), name
     assert not (_READ_ONLY & writers), "a tool cannot be both read-only and a writer"
+    # A new tool in NEITHER set is annotated a writer by default. That fails
+    # closed, but silently: a read tool then asks for confirmation forever and
+    # nobody notices. Name it here on purpose, either way.
+    unclassified = set(tools) - _READ_ONLY - writers
+    assert not unclassified, (
+        f"tools in neither _READ_ONLY nor _DESTRUCTIVE: {sorted(unclassified)} — "
+        "add each one (see AGENTS.md)"
+    )
     # The write tools only exist with CATKNOWS_ALLOW_WRITE=1; when they do, they
     # must be the destructive ones — a silent rename would drop the flag.
+    # Registering them here is what lets one --self-check cover both modes.
     if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         assert _DESTRUCTIVE <= set(tools), f"write tools missing from registry: {tools.keys()}"
+    else:
+        assert not (_DESTRUCTIVE & set(tools)), "write tools must stay gated"
     print(f"mcp_server self-check OK ({len(tools)} tools annotated)")
 
 
