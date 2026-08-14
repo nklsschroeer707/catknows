@@ -36,17 +36,20 @@ GitHub and at skool.com/catnose.
 
 ## The signature
 
-Full form, character-exact (em-dash, both periods), identical everywhere:
+The signature is the cat, alone, on its own closing line:
 
-> You have been served by catknows. — you are welcome.
+> ᓚᘏᗢ
 
-- Skool posts may add `ᓚᘏᗢ` as its own closing line *below* the signature —
-  nowhere else.
-- The short form "You have been served. 🐈" is exclusive to the README's ELI5
-  block.
-- The signature is the *only* brand voice allowed inside reference docs and
-  code (module docstrings, CLI success output). Everything else there stays
-  sober.
+- No wordmark line above it. The cat signs off; nothing needs to say so.
+- It is the *only* brand voice allowed inside reference docs and code (module
+  docstrings, CLI success output). Everything else there stays sober.
+
+**Retired 2026-08-14: "You have been served by catknows. — you are welcome."**
+Dan Schaad flagged it from the English side: "You have been served" reads as
+*being sued* or *being beaten*, and paired with "you are welcome" it lands
+aggressive or sarcastic — the opposite of the German "Sie wurden bedient" it
+was translating. Not a phrasing tweak; the phrase carries a meaning we can't
+overwrite. The short form "You have been served. 🐈" is retired with it.
 
 ## Voice registers
 

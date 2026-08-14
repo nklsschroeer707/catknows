@@ -12,7 +12,7 @@ Skool has no API. catknows is the one.
   → straight into Claude, ChatGPT, Cursor — or a vault, or raw JSON
   now you can finally talk to your own data.
   no subscription · no middleman · you own it.
-  You have been served by catknows. — you are welcome.
+  ᓚᘏᗢ
 ```
 
 `#skool` &nbsp;·&nbsp; `#mcp` &nbsp;·&nbsp; `#open-source` &nbsp;·&nbsp; `#free-forever` &nbsp;·&nbsp; `#own-your-data`
@@ -55,7 +55,7 @@ Give the cat a notebook (a vault 📓) and it also **remembers** everything it f
 
 It costs **nothing.** 🆓 Only *you* see your things. The cat works for you, in your own house, forever.
 
-*You have been served. 🐈*
+*ᓚᘏᗢ*
 
 <br>
 
@@ -232,6 +232,26 @@ draft-first (the AI must show you the draft, then call again with
 `confirm=true`), and emailing all members (`notify_members`) is a separate
 explicit switch. Test in a private community first — these post as *you*.
 
+### Running it over HTTP (self-hosting)
+
+Same server, remote transport — for running catknows on your own machine or box
+instead of spawning it per client:
+
+```bash
+CATKNOWS_HTTP=1 python -m catknows.mcp_server     # http://127.0.0.1:8000/mcp
+```
+
+`CATKNOWS_PORT` moves the port, `CATKNOWS_HOST` the bind address. Inspect it
+with `npx @modelcontextprotocol/inspector`, transport *Streamable HTTP*, URL
+`http://127.0.0.1:8000/mcp`.
+
+**It binds loopback on purpose: there is no authentication yet.** Anyone who can
+reach the port has your Skool session. Keep it on `127.0.0.1` and put a reverse
+proxy with TLS and auth in front before it leaves the machine — don't set
+`CATKNOWS_HOST=0.0.0.0` on a public box. And since no browser window can open on
+a server, an expired session errors out instead of hanging: pre-seed the profile
+by running the stdio server once locally, or set `CATKNOWS_COOKIE`.
+
 ---
 
 ## Keeping it updated
@@ -372,6 +392,6 @@ MIT. See [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md) for the ToS caveats.
 
 <div align="center">
 
-*You have been served by catknows. — you are welcome.*
+*ᓚᘏᗢ*
 
 </div>
