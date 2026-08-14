@@ -261,7 +261,7 @@ def get_discovery_rank(community_slug: str) -> dict:
 def get_admin_metrics(community_slug: str, range: str = "30d") -> dict:
     """Get admin metrics for a community you own (growth, engagement). range e.g. 7d, 30d, 90d."""
     client = _get_client()
-    return client.admin_metrics(client.group_id_for(community_slug), range_=range)
+    return _safe_raw(client.admin_metrics(client.group_id_for(community_slug), range_=range))
 
 
 @mcp.tool()
@@ -426,7 +426,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             video_links=video_links,
             notify_members=notify_members,
         )
-        return {"status": "posted", "post": created}
+        return {"status": "posted", "post": _safe_raw(created)}
 
     @mcp.tool()
     def send_dm(channel_id: str, content: str, confirm: bool = False) -> dict:
@@ -443,7 +443,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                 "next_step": "Show this to the user; call again with confirm=true once they approve.",
             }
         sent = _get_client().send_dm(channel_id, content)
-        return {"status": "sent", "message": sent}
+        return {"status": "sent", "message": _safe_raw(sent)}
 
 
 def main() -> None:
