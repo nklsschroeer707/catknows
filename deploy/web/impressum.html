@@ -3,37 +3,67 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>catknows &mdash; Impressum</title>
+<title>catknows. Impressum</title>
 <style>
+/* Kept in step with build-legal.py's STYLE — this page is hand-written
+   because it is not generated from a Markdown source. */
+:root {
+  --bg: #0F0E0C; --card: #1A1816; --line: #2A2724;
+  --ink: #F5F0EB; --dim: #9C9690;
+  --brand: #FF5C8A; --brand-deep: #E04570; --coral: #F0786A;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-       background: #1a1a2e; color: #e0e0e0; min-height: 100vh; padding: 40px 16px; }
+       background: var(--bg); color: var(--ink); min-height: 100vh;
+       padding: 28px 16px 40px; -webkit-font-smoothing: antialiased; }
 .container { max-width: 820px; margin: 0 auto; }
-.header { text-align: center; margin-bottom: 32px; }
-.header h1 { font-size: 1.8em; color: #e94560; margin-bottom: 6px; }
-.header p { opacity: 0.6; font-size: 0.95em; }
-.card { background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
-        padding: 24px 28px; line-height: 1.7; margin-bottom: 20px; }
-h2 { color: #e94560; font-size: 1.2em; margin: 28px 0 12px; }
+.topbar { display: flex; align-items: center; justify-content: space-between;
+          gap: 16px; margin-bottom: 26px; }
+.wordmark { font-weight: 800; font-size: 1.15rem; color: var(--ink);
+            text-decoration: none; letter-spacing: -0.01em; }
+.wordmark b, .wordmark i { font-weight: 800; font-style: normal; color: var(--brand-deep); }
+.home { font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
+        text-decoration: none; border: 1px solid var(--line);
+        padding: 7px 13px; border-radius: 999px; white-space: nowrap; }
+.home:hover { color: var(--ink); border-color: var(--brand); }
+.header { margin-bottom: 26px; }
+.header h1 { font-size: 1.7em; color: var(--ink); margin-bottom: 6px;
+             letter-spacing: -0.02em; }
+.header p { color: var(--dim); font-size: 0.92em; font-family: var(--mono); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+        padding: 26px 30px; line-height: 1.75; margin-bottom: 20px; }
+h2 { color: var(--brand); font-size: 1.18em; margin: 30px 0 12px;
+     letter-spacing: -0.01em; }
 h2:first-child { margin-top: 0; }
 p { margin-bottom: 10px; font-size: 0.95em; }
-a { color: #e94560; }
-pre { background: #0f1729; border: 1px solid #0f3460; border-radius: 6px;
-      padding: 14px 16px; margin: 12px 0; font-family: inherit; font-size: 0.95em; }
-.back { display: block; text-align: center; margin-top: 20px;
-        color: #e94560; text-decoration: none; font-size: 0.9em; }
+a { color: var(--brand); text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+pre { background: #131110; border: 1px solid var(--line); border-radius: 8px;
+      padding: 14px 16px; margin: 12px 0; font-family: var(--mono);
+      font-size: 0.9em; line-height: 1.6; overflow-x: auto; }
+.back { display: inline-block; margin-top: 4px; color: var(--brand);
+        text-decoration: none; font-size: 0.9em; font-family: var(--mono); }
 .back:hover { text-decoration: underline; }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
+        justify-content: center; margin-top: 26px; padding-top: 18px;
+        border-top: 1px solid var(--line);
+        font-family: var(--mono); font-size: 0.74rem; }
+.foot a { color: var(--dim); text-decoration: none; }
+.foot a:hover { color: var(--ink); text-decoration: underline; }
 </style>
 </head>
 <body>
 <div class="container">
+  <div class="topbar">
+    <a class="wordmark" href="/"><b>cat</b>knows<i>.</i></a>
+    <a class="home" href="/">&larr; Zur&uuml;ck zu catknows.app</a>
+  </div>
   <div class="header">
-    <h1>catknows</h1>
-    <p>Impressum</p>
+    <h1>Impressum</h1>
+    <p>Angaben gem&auml;&szlig; &sect; 5 DDG</p>
   </div>
   <div class="card">
-
-<h2>Angaben gem&auml;&szlig; &sect; 5 DDG</h2>
 
 <pre>Niklas Schr&ouml;er
 Am Pickerweg 32
@@ -59,9 +89,9 @@ Deutschland</pre>
 
 <p>
   Welche Daten der gehostete catknows-Dienst verarbeitet, steht in der
-  <a href="privacy.html">Datenschutzerkl&auml;rung</a>. F&uuml;r die
+  <a href="/privacy">Datenschutzerkl&auml;rung</a>. F&uuml;r die
   Skool-Mitgliederdaten, die Nutzer &uuml;ber den Dienst abrufen, gilt der
-  <a href="dpa.html">Auftragsverarbeitungsvertrag nach Art.&nbsp;28 DSGVO</a>.
+  <a href="/dpa">Auftragsverarbeitungsvertrag nach Art.&nbsp;28 DSGVO</a>.
 </p>
 
 <p>
@@ -76,7 +106,7 @@ Deutschland</pre>
   catknows ist ein unabh&auml;ngiges, nicht offizielles Werkzeug und steht in
   keiner Verbindung zu Skool. &bdquo;Skool&ldquo; ist eine Marke des jeweiligen
   Inhabers. Einzelheiten in den
-  <a href="legal.html">rechtlichen Hinweisen zum Werkzeug</a>.
+  <a href="/legal">rechtlichen Hinweisen zum Werkzeug</a>.
 </p>
 
 <h2>Haftung f&uuml;r Links</h2>
@@ -89,7 +119,12 @@ Deutschland</pre>
 </p>
 
   </div>
-  <a class="back" href="/">&larr; catknows.app</a>
+  <a class="back" href="/">&larr; Zur&uuml;ck zu catknows.app</a>
+  <div class="foot">
+    <a href="/privacy">Datenschutz</a>
+    <a href="/dpa">Auftragsverarbeitung</a>
+    <a href="/legal">Rechtliches</a>
+  </div>
 </div>
 </body>
 </html>
