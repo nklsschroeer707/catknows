@@ -1,4 +1,4 @@
-# Legal pages for catknows.app
+# The catknows.app pages
 
 Standalone HTML, no dependencies, no build tooling on the host. Upload and done.
 
@@ -9,11 +9,25 @@ Standalone HTML, no dependencies, no build tooling on the host. Upload and done.
 | `dpa.html` | `catknows.app/dpa` | `../DPA.md` |
 | `legal.html` | `catknows.app/legal` | `../../LEGAL.md` |
 | `impressum.html` | `catknows.app/impressum` | hand-written (German, §5 DDG) |
+| `header-loop.mp4` | `catknows.app/media/…` | rendered clip, 1920×960 |
+| `header-loop-mobile.mp4` | `catknows.app/media/…` | same clip, 1280×640 |
+| `header-poster.jpg` | `catknows.app/media/…` | its first frame |
 
-`index.html` is the landing page: the catknows mark animated as the background
-(whiskers draw in, then sway; the heart beats), all in CSS so there is no
-animation JavaScript to load or fail. It carries the footer links the legal pages
-need and is the surface the OAuth dashboard (plan §2a) will attach to.
+`index.html` is the landing page: one screen, no scrolling, with the clip
+running full-bleed behind the copy. Fonts are embedded as `data:` URIs — no CDN,
+and `font-src 'self' data:` in the Caddyfile is what lets them load at all.
+
+**The clip loops across two stacked `<video>` elements**, not with the `loop`
+attribute. It brightens ~17% from first frame to last, so it has no frame that
+matches its own start: a plain loop jumped visibly (PSNR 20.5 dB against 44 dB
+for an ordinary frame step), and playing it forward-then-reversed read as
+exactly that. The idle copy starts underneath and the pair swap opacity over the
+last 0.9s. Replacing the clip means re-checking that, not just dropping in a
+file.
+
+Media files are served by their own route (`/media/<name>`), an allowlist in
+`dashboard.py` — the page route next to it only publishes the legal pages.
+A new asset therefore needs an entry in `LANDING_MEDIA`, or it 404s.
 
 The three generated pages come from the Markdown, which stays the source of
 truth. After editing any of it:
@@ -27,6 +41,14 @@ that contradicts its own source is worse than none.
 
 `impressum.html` is written by hand: it is German-language boilerplate with no
 Markdown counterpart, and its content is legally prescribed rather than derived.
+That makes it the page every shared change has to be applied to twice — the cat
+mark in the topbar lives in `MARK` in the generator and again, verbatim, here.
+
+Two more assertions guard the generated pages, both from bugs that shipped: no
+internal link may carry `.html`, and no entity may be double-escaped. The second
+one is the subtler failure — a subtitle written as `&mdash;` gets escaped on the
+way out and reaches the reader as the literal text `&mdash;`, which greps clean
+and only shows up in a screenshot. Write literal characters in `PAGES`.
 
 ## Why HTML pages and not just the Markdown in the repo
 
@@ -51,18 +73,25 @@ At the time of writing, one is open: verifying the sub-processor agreements
 (netcup signature, Scaleway acceptance) actually exist. The privacy policy claims
 they do — make that true before the page goes up.
 
-## Caddy
+## How these are actually served
 
-If serving from this box rather than a static host, extensionless paths need
-`try_files`:
+Not by a file server. Caddy proxies `catknows.app` to the dashboard app, and
+`dashboard.py` publishes them by name from an allowlist: `/privacy`, `/dpa`,
+`/legal`, `/impressum` — **extensionless**. `/privacy.html` is a 404.
 
-```
-catknows.app {
-	root * /var/www/catknows
-	try_files {path} {path}.html
-	file_server
-	encode zstd gzip
-}
-```
+That bit once: `build-legal.py` wrote `privacy.html` into every cross-reference,
+so each link between the legal pages dead-ended on the live site while working
+fine when opened from disk. The generator now asserts that no internal link
+carries `.html` and that every page links home, so it cannot come back quietly.
 
-Without the `try_files` line, `/privacy` is a 404 and only `/privacy.html` works.
+Two consequences when adding a page:
+
+- a new legal page needs its name in the page allowlist in `dashboard.py`, and
+  a new asset needs its filename in `LANDING_MEDIA` — otherwise it 404s;
+- `catknows/*.py` changes need `systemctl restart catknows-dashboard` on the
+  box. Changing only files in this directory needs just a `git pull`.
+
+The CSP lives in `deploy/Caddyfile`, and it is not incidental: the landing
+embeds its fonts as `data:` URIs, which `font-src 'self' data:` is what permits.
+Editing that file means copying it to `/etc/caddy/`, `caddy validate`, and
+`systemctl reload caddy` — a `git pull` alone changes nothing.
