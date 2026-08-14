@@ -28,7 +28,9 @@ PAGES = [
     ("DPA.md", "dpa.html", "Data Processing Agreement", "GDPR art. 28 · catknows hosted"),
     # Lives in the repo root, not deploy/ — it's about the tool, not the service,
     # but users following a link from the privacy policy still need to land on it.
-    ("../LEGAL.md", "legal.html", "Legal & Responsible Use", "catknows &mdash; the tool"),
+    # Literal characters, not entities: the subtitle is escaped on the way out,
+    # so an "&mdash;" here reaches the page as visible text.
+    ("../LEGAL.md", "legal.html", "Legal & Responsible Use", "catknows — the tool"),
 ]
 
 STYLE = """
@@ -351,6 +353,14 @@ def main() -> int:
                       "".join((HERE / out).read_text(encoding="utf-8")
                               for _, out, _, _ in PAGES))
     assert not dead, f"internal links still carry .html: {sorted(set(dead))}"
+
+    # A double-escaped entity renders as its own source text ("&mdash;" on the
+    # page). Shipped once, in the one subtitle that was written as an entity.
+    # A bare "&amp;" is correct — that's a literal & in prose.
+    for _, out, _, _ in PAGES:
+        text = (HERE / out).read_text(encoding="utf-8")
+        bad = re.findall(r"&amp;(?=[a-zA-Z]+;|#\d+;)", text)
+        assert not bad, f"{out} double-escapes an entity — it will render as text"
 
     # And a reader who lands here from a search result needs a way home.
     for _, out, _, _ in PAGES:
