@@ -27,7 +27,7 @@ mcp.catknows.app {
 		flush_interval -1
 	}
 
-	encode zstd gzip
+	encode gzip
 
 	# Skool sessions live behind this. Don't advertise the stack.
 	header {
@@ -61,7 +61,7 @@ mcp.catknows.app {
 auth.catknows.app {
 	reverse_proxy 127.0.0.1:8080
 
-	encode zstd gzip
+	encode gzip
 
 	header {
 		-Server
@@ -104,7 +104,7 @@ catknows.app {
 		flush_interval -1
 	}
 
-	encode zstd gzip
+	encode gzip
 
 	header {
 		-Server

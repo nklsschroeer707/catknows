@@ -346,9 +346,11 @@ footer .unofficial { color: var(--brand); }
 .modal[hidden] { display: none; }
 .modal-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  width: min(920px, 100%); max-height: 94dvh; overflow: auto;
+  /* Narrow while it is only the explainer; widens once the stream is up. */
+  width: min(560px, 100%); max-height: 94dvh; overflow: auto;
   padding: 16px 18px;
 }
+.modal-card:has(#sstage:not([hidden])) { width: min(920px, 100%); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .modal-head strong { font-family: var(--serif); font-weight: 900; font-size: 1.15rem; }
 .modal-x {
@@ -360,11 +362,18 @@ footer .unofficial { color: var(--brand); }
 .modal-note strong { color: var(--ink); }
 #sstage { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #060505; }
 #sstage[hidden] { display: none; }
-#sstage img { display: block; width: 100%; touch-action: none; }
+/* The streamed frame is ~1280x800; cap its height so the card never needs a
+   scrollbar — the rest of the card is ~180px, so 68dvh leaves room. */
+#sstage img {
+  display: block; width: 100%; max-height: 68dvh;
+  object-fit: contain; touch-action: none;
+}
 .modal-msg { font-family: var(--mono); font-size: 0.76rem; color: var(--dim); margin-top: 10px; min-height: 1.3em; }
 .modal-msg.ok { color: #5DBE72; }
 .modal-msg.bad { color: #E36A6A; }
-#sstart { width: auto; display: inline-block; padding: 9px 16px; }
+/* .acct-btn is sized for the narrow account popover; in the wide modal it
+   only needs to be as big as its label. */
+#sstart { width: auto; display: inline-block; padding: 7px 14px; font-size: 0.8rem; }
 
 /* -- wide screens: the copy sits inboard, the clip's chat keeps the right --- */
 @media (min-width: 980px) {
