@@ -291,14 +291,23 @@ class SkoolHTTP:
                     continue
                 break
             if code == 404 and '"notFound":true' in body:
-                # Skool returns notFound for gated data you can't see — almost
-                # always: the logged-in account isn't a member of this community.
+                # Skool answers notFound both for data you may not see and for
+                # a query you may not use. `t=active` on members.json is the
+                # known case of the second kind: admin-only filter, flat 404 for
+                # everyone else. If a 404 shows up on some communities but not
+                # others, suspect the query before concluding it's permissions.
+                extra = (
+                    "If posts/comments work for this community, this is a query "
+                    "problem, not access — check for admin-only filters in the "
+                    "URL (see AGENTS.md).\n"
+                    if "/-/members.json" in url else ""
+                )
                 raise SkoolHTTPError(
-                    f"HTTP 404 on {url}: not found. The logged-in Skool account "
-                    "likely has no access to this community — not joined, or "
-                    "banned/removed (member/post data is members-only). Use an "
-                    "account that's in it. Public info (about, discovery) works "
-                    "without membership.",
+                    f"HTTP 404 on {url}: not found.\n{extra}"
+                    "Otherwise the logged-in Skool account has no access to this "
+                    "community — not joined, or banned/removed (member/post data "
+                    "is members-only). Use an account that's in it. Public info "
+                    "(about, discovery) works without membership.",
                     code,
                 )
             if not (200 <= code < 300):

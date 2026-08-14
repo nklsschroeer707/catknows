@@ -88,6 +88,13 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Gated 404:** member/post data is members-only. If the logged-in account isn't
   in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
   member" error. `about`/`discovery` are public and work without membership.
+  **Don't send `t=active` to `members.json`** — it's the admin-only "active
+  members" tab. Admins get a list, everyone else gets a flat 404, so the whole
+  endpoint looks gated when only that one filter is. Without it the members
+  list works for every member (verified 2026-08-11: 600 members returned from
+  a community where the account is a plain member, 404 with the filter).
+  A 404 that appears only on *some* communities is a parameter problem, not a
+  permission one — probe the query before concluding the data is unreachable.
 - Remote/mobile hosting (streamable-http transport + auth) is planned, not built:
   see [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md). The two-doors model
   (open repo self-host, no auth / hosted with login-auth) lives there.
