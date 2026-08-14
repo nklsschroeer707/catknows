@@ -138,10 +138,28 @@ if [ -z "$scope_id" ]; then
 fi
 [ -n "$scope_id" ] || { echo "FATAL: cannot resolve the $SCOPE scope id"; exit 1; }
 
-# Optional, not default: a client gets this audience only by asking for the
-# scope, so tokens minted for anything else stay unusable against the MCP server.
+# Realm-wide DEFAULT, not optional-by-request. Until 2026-08-14 this was
+# optional-only ("a client gets the audience only by asking") — which held for
+# claude.ai (requests the scope explicitly, see dashboard.py) and silently broke
+# ChatGPT: it never asks, so its DCR clients ended up without the scope, tokens
+# carried neither aud nor the entitlement claims, and every /mcp call died as a
+# bare 401 before may_use_service() could even log a refusal. As realm default
+# every future client (DCR included) inherits the claims no matter what it
+# requests. Trade-off accepted: every token this realm mints now carries the MCP
+# audience — fine while all clients here (MCP clients, dashboard) act for the
+# same subject with the same rights.
+# `+=` on list fields is a silent no-op (Falle 13); the sub-resource PUT is the
+# form that works, and the read-back is the only proof (Falle 14).
 "$KCADM" update "realms/$REALM" -s "defaultOptionalClientScopes+=$SCOPE" 2>/dev/null \
-	|| echo "  (scope already in optional list)"
+	|| true   # keep it in the optional list too: harmless, and existing clients reference it there
+if "$KCADM" get default-default-client-scopes -r "$REALM" | grep -q "\"$SCOPE\""; then
+	echo "realm default scope: $SCOPE already assigned"
+else
+	"$KCADM" update "default-default-client-scopes/$scope_id" -r "$REALM"
+	"$KCADM" get default-default-client-scopes -r "$REALM" | grep -q "\"$SCOPE\"" \
+		|| { echo "FATAL: assigning $SCOPE as realm default did nothing"; exit 1; }
+	echo "realm default scope: $SCOPE assigned (every new client inherits it)"
+fi
 
 # -- claims the entitlement check needs ----------------------------------------
 # may_use_service() (catknows/auth_oauth.py) reads `email_verified` and

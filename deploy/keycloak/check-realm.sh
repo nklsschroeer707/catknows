@@ -46,6 +46,10 @@ check "brute force"        '"bruteForceProtected" : true' "$realm_json" \
 check "smtp host"          'smtp.tem.scaleway.com'        "$realm_json" \
 	"no verification mail goes out, signups stall forever"
 
+check "realm default scope"  "\"$SCOPE\"" \
+	"$("$KCADM" get default-default-client-scopes -r "$REALM")" \
+	"clients that don't request the scope (ChatGPT) get tokens without aud/claims — silent 401"
+
 echo "user profile:"
 check "catknows_service declared" '"catknows_service"' "$("$KCADM" get "users/profile" -r "$REALM")" \
 	"the attribute cannot be stored at all, so the mapper carries nothing"
