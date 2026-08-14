@@ -54,8 +54,12 @@ over `SkoolClient`; don't duplicate client logic in it.
 
 - Read tools (always on): members, posts, comments, likes, member profile,
   community about, discovery, admin metrics, calendar, classroom, chat channels,
-  and `pull_to_vault`.
-- Write tools (`create_post`, `send_dm`): **only registered when
+  `list_my_communities`, and `pull_to_vault`.
+- `list_my_communities` is the entry point for cross-community questions —
+  every other tool needs a slug, and this is where slugs come from. Skool omits
+  `role` for communities you own, so it's derived by comparing
+  `metadata.owner` against your own `/self` id (`normalize.my_community`).
+- Write tools (`create_post`, `create_comment`, `send_dm`): **only registered when
   `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first — `confirm=false` returns the
   draft without posting; `confirm=true` actually writes. `notify_members` (email
   broadcast) is a separate explicit flag. Never weaken this: writes act as the

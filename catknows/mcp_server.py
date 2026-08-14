@@ -325,6 +325,23 @@ def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
 
 
 @mcp.tool()
+def list_my_communities(raw: bool = False) -> list[dict]:
+    """List every Skool community YOUR account is in, with your role (owner/admin/moderator/member).
+
+    Start here for cross-community questions ("which communities do I own?",
+    "where am I barely active?") — every other tool needs a community_slug,
+    and this is where the slugs come from. Skool omits the role for
+    communities you own, so it's resolved against your own user id.
+    """
+    client = _get_client()
+    groups = client.self_groups()
+    if raw:
+        return _safe_raw(groups)
+    my_id = (client.self_user() or {}).get("id", "")
+    return [_jsonable(normalize.my_community(g, my_id)) for g in groups]
+
+
+@mcp.tool()
 def update_catknows(confirm: bool = False) -> dict:
     """Update the local catknows install from GitHub (pull + reinstall + self-check).
 
@@ -427,6 +444,41 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             notify_members=notify_members,
         )
         return {"status": "posted", "post": _safe_raw(created)}
+
+    @mcp.tool()
+    def create_comment(
+        community_slug: str,
+        post_id: str,
+        content: str,
+        parent_comment_id: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Write a REAL comment under a post, or a reply under a comment, as the logged-in user.
+
+        Leave parent_comment_id empty to comment on the post itself; set it to
+        a comment's id (from get_post_comments) to reply beneath that comment.
+        post_id is always the post the thread belongs to, even for a reply.
+
+        Draft-first: with confirm=false (the default) NOTHING is written — you
+        get the draft back to show the user. Only call again with confirm=true
+        after the user explicitly approved it.
+        """
+        draft = {
+            "community": community_slug,
+            "post_id": post_id,
+            "content": content,
+            "replying_to_comment": parent_comment_id or "(none — top-level comment on the post)",
+        }
+        if not confirm:
+            return {
+                "status": "DRAFT — nothing was written",
+                "would_comment": draft,
+                "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
+            }
+        created = _get_client().create_comment(
+            community_slug, post_id, content, parent_comment_id=parent_comment_id
+        )
+        return {"status": "commented", "comment": _safe_raw(created)}
 
     @mcp.tool()
     def send_dm(channel_id: str, content: str, confirm: bool = False) -> dict:

@@ -270,6 +270,35 @@ class SkoolClient:
             f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only=false"
         )
 
+    # -- your own account ------------------------------------------------------
+
+    def self_user(self) -> dict:
+        """Your own user object (docs/API.md §4). Only bare ``/self`` works."""
+        return self.http.get_api2("/self")
+
+    def self_groups(self, *, all_pages: bool = True) -> list[dict]:
+        """Every community you're in, with your role (docs/API.md §4).
+
+        Pages 30 at a time; ``has_more`` says when to stop. Roles are absent
+        for communities you own — `normalize.my_community` resolves that
+        against your own user id.
+        """
+        out: list[dict] = []
+        offset = 0
+        while True:
+            if offset:
+                time.sleep(_INTER_PAGE_DELAY_S)
+            data = self.http.get_api2(
+                f"/self/groups?offset={offset}&limit=30&prefs=false&members=true"
+            )
+            page = data.get("groups") or []
+            out.extend(page)
+            # Trust has_more, but stop on a short/empty page too: a missing
+            # flag must not turn into an endless loop (the 32-post bug).
+            if not data.get("has_more") or not page:
+                return out
+            offset += len(page)
+
     # -- writing (docs/API.md §5) ----------------------------------------------
     # These act as YOU, visible to real members. Test in a private community
     # first; notify_members emails everyone in the group.
@@ -302,6 +331,32 @@ class SkoolClient:
                 "post_type": "generic",
                 "group_id": self.group_id_for(community_slug),
                 "metadata": metadata,
+            },
+        )
+
+    def create_comment(
+        self,
+        community_slug: str,
+        post_id: str,
+        content: str,
+        *,
+        parent_comment_id: str = "",
+    ) -> dict:
+        """Comment on a post, or reply to a comment (§5.8).
+
+        A comment IS a post with ``post_type: "comment"`` — same endpoint as
+        `create_post`. ``root_id`` is always the post; ``parent_id`` is the
+        comment being replied to, or the post itself for a top-level comment.
+        Returns the created comment object.
+        """
+        return self.http.post_api2(
+            "/posts?follow=false",
+            {
+                "post_type": "comment",
+                "group_id": self.group_id_for(community_slug),
+                "root_id": post_id,
+                "parent_id": parent_comment_id or post_id,
+                "metadata": {"title": "", "content": content},
             },
         )
 
