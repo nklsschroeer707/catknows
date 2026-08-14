@@ -546,49 +546,78 @@ async def connect_ws(ws: WebSocket):
 
 _SHELL = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>catknows &mdash; {title}</title><style>
+<title>catknows. {title}</title><style>
+/* Brand tokens, same values as deploy/web/. This shell carries the error
+   pages and /connect — the surface where someone types their Skool
+   password, so it must not look like a different site. */
+:root{{--bg:#0F0E0C;--card:#1A1816;--line:#2A2724;--ink:#F5F0EB;--dim:#9C9690;
+--muted:#6B6560;--brand:#FF5C8A;--brand-deep:#E04570;--coral:#F0786A;
+--ok:#2F9E44;--warn:#F08C00;
+--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace}}
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-background:#1a1a2e;color:#e0e0e0;min-height:100vh;padding:40px 16px;line-height:1.65}}
+background:var(--bg);color:var(--ink);min-height:100vh;padding:28px 16px 40px;
+line-height:1.65;-webkit-font-smoothing:antialiased}}
 .shell{{max-width:760px;margin:0 auto}}
-h1{{font-size:1.6rem;color:#e94560;margin-bottom:6px;letter-spacing:-0.02em}}
-.sub{{color:#a8adc0;font-size:0.92rem;margin-bottom:26px}}
-.card{{background:#16213e;border:1px solid #0f3460;border-radius:10px;
+.brandbar{{display:flex;align-items:center;justify-content:space-between;
+gap:16px;margin-bottom:26px}}
+/* Only pages that actually show the fixed account panel need to keep the back
+   pill clear of it. */
+.shell:has(#panel) .brandbar{{padding-right:300px}}
+@media (max-width:640px){{.shell:has(#panel) .brandbar{{padding-right:0}}}}
+.wordmark{{font-weight:800;font-size:1.15rem;color:var(--ink);
+text-decoration:none;letter-spacing:-0.01em}}
+.wordmark b,.wordmark i{{font-weight:800;font-style:normal;color:var(--brand-deep)}}
+.homelink{{font-family:var(--mono);font-size:0.78rem;color:var(--dim);
+text-decoration:none;border:1px solid var(--line);padding:7px 13px;
+border-radius:999px;white-space:nowrap}}
+.homelink:hover{{color:var(--ink);border-color:var(--brand)}}
+h1{{font-size:1.6rem;color:var(--ink);margin-bottom:6px;letter-spacing:-0.02em}}
+.sub{{color:var(--dim);font-size:0.92rem;margin-bottom:26px;font-family:var(--mono)}}
+.card{{background:var(--card);border:1px solid var(--line);border-radius:12px;
 padding:22px 24px;margin-bottom:18px}}
-h2{{font-size:1.05rem;margin-bottom:10px}}
-p{{color:#a8adc0;font-size:0.95rem;margin-bottom:10px}}
-p strong{{color:#e0e0e0}}
-a{{color:#e94560}}
-button{{font:inherit;font-weight:600;padding:10px 18px;border-radius:7px;
-border:1px solid #e94560;background:none;color:#e94560;cursor:pointer;
-transition:background .3s,color .3s}}
-button:hover{{background:#e94560;color:#12121f}}
-button.ghost{{border-color:#0f3460;color:#a8adc0}}
-button.ghost:hover{{background:#0f3460;color:#e0e0e0}}
+h2{{font-size:1.05rem;margin-bottom:10px;color:var(--ink)}}
+p{{color:var(--dim);font-size:0.95rem;margin-bottom:10px}}
+p strong{{color:var(--ink)}}
+a{{color:var(--brand);text-underline-offset:3px}}
+a:hover{{color:var(--ink)}}
+button{{font:inherit;font-weight:700;padding:11px 20px;border-radius:8px;
+border:0;background:var(--brand-deep);color:#fff;cursor:pointer;
+transition:background .2s ease}}
+button:hover{{background:var(--brand)}}
+button:focus-visible{{outline:2px solid var(--ink);outline-offset:3px}}
+button.ghost{{background:none;border:1px solid var(--line);color:var(--dim)}}
+button.ghost:hover{{background:none;border-color:var(--brand);color:var(--ink)}}
 button:disabled{{opacity:.5;cursor:default}}
-#stage{{margin-top:16px;border:1px solid #0f3460;border-radius:10px;
-overflow:hidden;background:#0f1729;display:none}}
+#stage{{margin-top:16px;border:1px solid var(--line);border-radius:10px;
+overflow:hidden;background:#0B0A09;display:none}}
 #stage img{{display:block;width:100%;touch-action:none;cursor:default}}
-#msg{{font-size:0.9rem;color:#a8adc0;margin-top:12px;min-height:1.4em}}
-.ok{{color:#5ad07a}}.bad{{color:#e94560}}
-.foot{{margin-top:28px;font-size:0.85rem;color:#a8adc0}}
-.foot a{{margin-right:18px}}
+#msg{{font-size:0.9rem;color:var(--dim);margin-top:12px;min-height:1.4em;
+font-family:var(--mono)}}
+.ok{{color:#5DBE72}}.bad{{color:#E36A6A}}
+.foot{{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:28px;padding-top:18px;
+border-top:1px solid var(--line);font-family:var(--mono);font-size:0.78rem}}
+.foot a{{color:var(--dim);text-decoration:none}}
+.foot a:hover{{color:var(--ink);text-decoration:underline}}
 /* The account panel: small, top right, out of the way of the streamed login. */
-#panel{{position:fixed;top:14px;right:14px;z-index:10;background:#16213e;
-border:1px solid #0f3460;border-radius:9px;padding:11px 14px;max-width:290px;
-font-size:0.85rem;box-shadow:0 6px 20px rgba(0,0,0,.35)}}
+#panel{{position:fixed;top:14px;right:14px;z-index:10;background:var(--card);
+border:1px solid var(--line);border-radius:10px;padding:11px 14px;max-width:290px;
+font-size:0.85rem;box-shadow:0 6px 20px rgba(0,0,0,.45)}}
 #panel .row{{display:flex;align-items:center;gap:8px}}
-#panel .who{{color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-#panel .mail{{color:#a8adc0;font-size:0.78rem;margin-top:3px;overflow:hidden;
+#panel .who{{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+#panel .mail{{color:var(--dim);font-size:0.78rem;margin-top:3px;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap}}
 #panel a{{font-size:0.78rem}}
-.dot{{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:#6b7280}}
-.dot.on{{background:#5ad07a;box-shadow:0 0 0 3px rgba(90,208,122,.16)}}
-.dot.off{{background:#e9a545}}
+.dot{{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:var(--muted)}}
+.dot.on{{background:var(--ok);box-shadow:0 0 0 3px rgba(47,158,68,.18)}}
+.dot.off{{background:var(--warn)}}
 @media (max-width:640px){{#panel{{position:static;max-width:none;margin-bottom:18px}}}}
-</style></head><body><div class="shell">{body}
+</style></head><body><div class="shell">
+<div class="brandbar"><a class="wordmark" href="/"><b>cat</b>knows<i>.</i></a>
+<a class="homelink" href="/">&larr; Back to catknows.app</a></div>
+{body}
 <div class="foot"><a href="/privacy">Privacy</a><a href="/dpa">Processing agreement</a>
-<a href="/impressum">Impressum</a></div></div>{script}</body></html>"""
+<a href="/legal">Legal</a><a href="/impressum">Imprint</a></div></div>{script}</body></html>"""
 
 
 def _page_error(msg: str) -> str:
@@ -596,7 +625,9 @@ def _page_error(msg: str) -> str:
 
     return _SHELL.format(
         title="Problem", script="",
-        body=f'<h1>catknows</h1><div class="card"><h2>That didn\'t work</h2>'
+        # The wordmark is in the shell now, so this heading names the problem
+        # instead of repeating the brand.
+        body=f'<h1>That didn\'t work</h1><div class="card">'
              f'<p>{escape(msg)}</p><p><a href="/">Back to the start</a></p></div>',
     )
 
@@ -641,21 +672,21 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
         state = ('<p class="ok">A Skool session is stored for your account. '
                  'Connecting again replaces it.</p>')
     else:
-        state = ('<p>No Skool session stored yet &mdash; the tools stay unavailable '
+        state = ('<p>No Skool session stored yet: the tools stay unavailable '
                  'until you connect one.</p>')
 
+    # The wordmark and the way home live in the shell; this heading names the
+    # task the visitor came for.
     body = f"""{_panel(email, stored, skool, cleared)}
-<h1><a href="/" style="color:inherit;text-decoration:none">catknows</a></h1>
-<div class="sub"><a href="/">&larr; back to the homepage</a> &middot;
-Signed in as {escape(email or 'your account')} &mdash;
+<h1>Connect Skool</h1>
+<div class="sub">Signed in as {escape(email or 'your account')} &middot;
 <a href="/auth/logout">sign out</a></div>
 
 <div class="card">
-  <h2>Connect Skool</h2>
   {state}
   <p>
     A browser opens <strong>on the server</strong> and is streamed here. You log
-    in to Skool inside it &mdash; email and password, or Google/Apple. Your
+    in to Skool inside it: email and password, or Google/Apple. Your
     password goes to Skool, never to us; we only keep the session cookie the
     login produces, encrypted.
   </p>
