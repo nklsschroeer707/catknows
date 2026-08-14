@@ -18,14 +18,18 @@ encrypted sessions later is the migration you don't want.
 > Requests arriving *through* Caddy are authenticated (Keycloak OAuth, §7) and
 > answered per user (§5), so more than one person can use this safely.
 >
-> **Registration is open since 2026-08-13, and access is not.** Anyone can sign
-> up and confirm an address; nobody reaches a tool until their account carries
-> the user attribute `catknows_service=true`. You grant it with
-> `deploy/keycloak/grant-service.sh <email>` — not with `kcadm -s`, which
-> silently does nothing (see the header of that script for why). That check
-> lives in `may_use_service()` in `catknows/auth_oauth.py` and every request
-> passes through it. `grant-service.sh <email> false` is the per-user kill
-> switch, effective within an access token's lifetime.
+> **Sign-up is self-service since 2026-08-14.** Anyone can register, confirm
+> their address, connect Skool and use the tools — no operator step in between.
+> The only entitlement check left is `email_verified`, in `may_use_service()`
+> in `catknows/auth_oauth.py`, which every request passes through.
+>
+> The old `catknows_service=true` attribute gated this until 2026-08-14 and no
+> longer does: a per-account approval nobody performs is not a gate, it is a
+> dead end. The realm still declares and mints the claim, and
+> `deploy/keycloak/grant-service.sh` still writes it, so the billing check that
+> replaces it later has its plumbing ready — but nothing reads it today, and
+> setting it grants nothing. **There is no per-user kill switch right now**; to
+> lock one account out, disable the user in Keycloak.
 >
 > What still has to be true before you hand out access: [PRIVACY.md](PRIVACY.md)
 > and [DPA.md](DPA.md) are published where users can reach them, and the
@@ -137,35 +141,27 @@ your secrets live.
 
 #### Onboarding a user
 
-Self-signup is on (`registrationAllowed=true`). The user does everything except
-one click:
+Self-signup is on (`registrationAllowed=true`) and needs nothing from you:
 
 1. **They sign up** at `catknows.app` and confirm the address Keycloak mails
-   them. No involvement from you, and nothing gained yet.
-2. **You grant the attribute:**
+   them.
+2. **They connect Skool** at `catknows.app/connect` through the streamed
+   browser (§8).
+3. **They add the connector** — `https://mcp.catknows.app/mcp` — in their AI
+   client. Done.
 
-   ```bash
-   deploy/keycloak/grant-service.sh <their-email>          # let them in
-   deploy/keycloak/grant-service.sh <their-email> false    # kill switch
-   ```
+Two things must be true before any tool answers: the address is confirmed, and
+a Skool session is stored. Miss the first and every call is refused at the token
+check (`may_use_service`, logged to the journal with the reason); miss the
+second and the tools refuse for want of a session. The `/connect` page names
+whichever is missing rather than leaving the user at an unexplained 401.
 
-   Use the script, not `kcadm -s 'attributes.catknows_service=true'` — that
-   exits 0 and writes nothing. The admin console works too; the script exists
-   because the obvious command line does not.
-3. **They connect Skool** at `catknows.app/connect` through the streamed
-   browser (§8). Either order works — step 3 does not depend on step 2.
-
-Two independent things must both be true before any tool answers: the account
-carries `catknows_service=true`, and a Skool session is stored. Miss the first
-and every call is refused at the token check (`may_use_service`, logged to the
-journal with the reason); miss the second and the tools refuse for want of a
-session. The `/connect` page names whichever is missing rather than leaving the
-user at an unexplained 401.
-
-To find who is waiting, sort Users by creation date — an account without the
-attribute is one that signed up and hasn't been let in. There is intentionally
-no notification: at this scale a look at the console beats a mail pipeline that
-can itself break.
+Until 2026-08-14 this list had a step 2 for you — granting
+`catknows_service=true` per account. It is gone, along with the kill switch that
+came with it. `grant-service.sh` still works and the realm still mints the
+claim; nothing reads it. Re-arming it means putting the `if` back in
+`may_use_service()` — and whatever grants it then has to do so automatically,
+or new users are stranded exactly as before.
 
 **Removing the attribute is the per-user kill switch.** It takes effect when
 their current access token expires (minutes), without touching anyone else and

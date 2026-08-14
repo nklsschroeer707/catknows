@@ -646,7 +646,7 @@ def _panel(email: str, stored: bool, skool: str, cleared: bool) -> str:
     if stored and cleared:
         cls, who = "on", skool or "Skool connected"
     elif stored:
-        cls, who = "off", (skool or "Skool connected") + " — awaiting approval"
+        cls, who = "off", (skool or "Skool connected") + " — confirm your email"
     else:
         cls, who = "off", "No Skool account connected"
 
@@ -662,12 +662,12 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
     from html import escape
 
     if not cleared:
-        # The account is real and the address confirmed; what's missing is the
-        # operator's yes. Saying so beats letting them connect Skool and meet an
-        # unexplained 401 at the first tool call.
-        state = ('<p class="ok">Your email is confirmed and your account is waiting '
-                 'to be switched on. You will be able to use the tools once it is. '
-                 'You can connect Skool now either way.</p>')
+        # Since the manual gate came out (2026-08-14) this means one thing: the
+        # address is not confirmed yet. Naming it beats letting them connect
+        # Skool and meet an unexplained 401 at the first tool call.
+        state = ('<p>Confirm your email address to finish setting up your account — '
+                 'check your inbox for the link. You can connect Skool now either '
+                 'way.</p>')
     elif stored:
         state = ('<p class="ok">A Skool session is stored for your account. '
                  'Connecting again replaces it.</p>')
@@ -932,14 +932,17 @@ def _self_check() -> None:
                  _panel("a@b.c", stored=False, skool="", cleared=True)):
         assert 'class="dot on"' not in html, \
             "green requires BOTH a stored session and a cleared account"
-    assert "awaiting approval" in _panel("a@b.c", True, "Ada L.", False)
+    assert "confirm your email" in _panel("a@b.c", True, "Ada L.", False)
 
     # It renders user-controlled text, so it has to escape it.
     assert "<script>" not in _panel("<script>x</script>", True, "<script>y</script>", True)
 
-    # A user who is not cleared yet must be told, not left to hit a silent 401.
+    # A user who is not cleared yet must be told what to do about it — since the
+    # manual gate came out, that is always "confirm your email", never "wait".
     waiting = _page_connect("a@b.c", stored=False, cleared=False)
-    assert "waiting to be switched on" in waiting
+    assert "Confirm your email address" in waiting
+    assert "switched on" not in waiting and "approv" not in waiting, \
+        "nothing may promise an operator step that no longer exists"
 
     # Static pages: only the published names, no path traversal.
     for bad in ("../PRIVACY", "..%2Fetc%2Fpasswd", "index", "secret"):

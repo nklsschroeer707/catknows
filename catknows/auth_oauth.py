@@ -43,17 +43,22 @@ def may_use_service(claims: dict[str, Any]) -> str:
     here at all — and it is the whole reason registration can be open: signing
     up is free, using the service is not automatic.
 
-    Two conditions today:
+    One condition today:
 
     * ``email_verified`` — an unconfirmed address is an unowned address, and
       account recovery goes to it.
-    * ``catknows_service`` — the operator's deliberate yes, and the kill switch
-      for one user without touching anyone else.
 
-    This is the seam where a paid-membership check belongs later: swap the
-    attribute lookup for whatever identifies a paying member and nothing else
-    moves. It stays free of any billing logic until that question is actually
-    answerable.
+    ``catknows_service`` used to gate this too: signing up was open, using the
+    service was the operator's manual yes (``deploy/keycloak/grant-service.sh``).
+    Dropped 2026-08-14 — a per-account approval nobody performs is not a gate,
+    it is a dead end, and it stranded users who had done every step asked of
+    them. Sign-up is now self-service end to end.
+
+    This stays the seam where the paid check belongs once catknows bills through
+    Skool: put the membership lookup here and nothing else moves. The claim is
+    still minted (see setup-realm.sh) and ``_truthy`` still reads Keycloak's
+    three encodings, so re-arming it is one ``if`` — but it must come back with
+    something that grants it automatically, not by hand.
 
     Returns a short reason on refusal rather than a bool, because the caller
     logs it — "which check failed" is the difference between a two-minute
@@ -61,8 +66,6 @@ def may_use_service(claims: dict[str, Any]) -> str:
     """
     if not claims.get("email_verified"):
         return "email not verified"
-    if not _truthy(claims.get(SERVICE_CLAIM)):
-        return f"missing {SERVICE_CLAIM} claim"
     return ""
 
 
@@ -72,6 +75,11 @@ def _truthy(value: Any) -> bool:
     A user attribute is stored as text, so it usually arrives as "true"; with a
     jsonType of boolean it arrives as a real bool; multivalued mappers wrap it
     in a list. Anything else — absent, "false", empty — is not a yes.
+
+    No caller since the manual entitlement gate came out (2026-08-14). Kept, and
+    kept under test below, because the Skool-billing check will read a Keycloak
+    attribute the same three ways — this is the part of that gate that was
+    right.
     """
     if isinstance(value, list):
         return any(_truthy(v) for v in value)
@@ -223,34 +231,36 @@ def _self_check() -> None:
     assert v._verify_sync(jwt.encode(base, None, algorithm="none")) is None, \
         "alg=none must never be honoured"
 
-    # Entitlement: registration is open, so a perfectly valid token from a
-    # brand-new account must still be refused until the account is cleared.
-    # These are the paths that keep self-signup from being self-service access.
+    # Entitlement: a confirmed address is the whole check. An unconfirmed one
+    # is an unowned one — anyone could sign up as anyone — so this must hold
+    # even though the service is otherwise self-service.
     assert v._verify_sync(sign({**base, "email_verified": False})) is None, \
         "an unverified email must fail — anyone could claim someone else's address"
     base_no_email = {k: val for k, val in base.items() if k != "email_verified"}
     assert v._verify_sync(sign(base_no_email)) is None, \
         "a missing email_verified claim must fail closed, not be assumed true"
-    base_not_cleared = {k: val for k, val in base.items() if k != "catknows_service"}
-    assert v._verify_sync(sign(base_not_cleared)) is None, \
-        "a fresh signup without the claim must fail — this is the whole gate"
-    assert v._verify_sync(sign({**base, "catknows_service": "false"})) is None, \
-        "an explicit false must fail"
-    assert v._verify_sync(sign({**base, "catknows_service": ""})) is None, \
-        "an empty attribute must fail closed"
 
-    # Keycloak delivers a user attribute as text, as a bool, or wrapped in a
-    # list depending on the mapper's jsonType and multivalued flag. All three
-    # mean yes, and none of them may be read as no.
-    for yes in ("true", True, ["true"], "True", "1"):
-        assert may_use_service({**base, "catknows_service": yes}) == "", repr(yes)
-    for no in ("false", False, [], [""], None, "", "0", "no"):
-        assert may_use_service({**base, "catknows_service": no}) != "", repr(no)
+    # Sign-up is self-service since 2026-08-14: a fresh account with a confirmed
+    # address reaches the tools with no operator step in between. The old manual
+    # grant stranded users who had done everything asked of them.
+    base_no_grant = {k: val for k, val in base.items() if k != SERVICE_CLAIM}
+    assert v._verify_sync(sign(base_no_grant)) is not None, \
+        "a fresh confirmed signup must pass — no hand-granted attribute required"
+    assert may_use_service(base_no_grant) == "", \
+        "no manual entitlement may stand between signup and the tools"
+    assert may_use_service({**base, SERVICE_CLAIM: "false"}) == "", \
+        "a leftover false from the old gate must not lock anyone out"
 
-    # ...and the reasons are distinguishable, so a refusal can be diagnosed.
+    # ...and the one refusal that remains is diagnosable.
     assert may_use_service({**base, "email_verified": False}) == "email not verified"
-    assert SERVICE_CLAIM in may_use_service(base_not_cleared)
-    assert may_use_service(base) == "", "a cleared account must pass"
+    assert may_use_service(base) == "", "a confirmed account must pass"
+
+    # _truthy has no caller today; the Skool-billing check will need it to read
+    # a Keycloak attribute in all three encodings, so it stays verified.
+    for yes in ("true", True, ["true"], "True", "1"):
+        assert _truthy(yes), repr(yes)
+    for no in ("false", False, [], [""], None, "", "0", "no"):
+        assert not _truthy(no), repr(no)
 
     # The SDK awaits verify_token; a sync def there returns None and the
     # request dies as "'NoneType' object can't be awaited" — a 500, not a 401.
