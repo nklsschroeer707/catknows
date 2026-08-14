@@ -215,8 +215,9 @@ Then just talk to your AI:
 > members?" · "Send this week's new posts to my Notion" (via your Notion
 > connector — your AI is the router, catknows is the data tap.)
 
-**Writing (posting & DMs) is off by default.** The server only registers
-`create_post` and `send_dm` when you opt in with an env var in the MCP config:
+**Writing (posts, comments & DMs) is off by default.** The server only registers
+`create_post`, `create_comment` and `send_dm` when you opt in with an env var in
+the MCP config:
 
 ```json
 "catknows": {
@@ -322,13 +323,13 @@ joining — its price, plan, size, active plugins, and owner. Plus any member's
 public profile stats.
 
 The reference also documents Skool's **write** endpoints — creating posts (with
-GIFs, images, videos, polls, attachments, category labels, and email broadcast)
-and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-skool-posts-polls-gifs-images-videos-dms).
-The client implements the two everyday ones: `create_post` and `send_dm`
-(plain posts with optional category label and video link; the rich-media
-upload flows stay documented for you to build on). **Write carefully** — these
-act as *you*, visible to real members; see the MCP section for the safety
-switch.
+GIFs, images, videos, polls, attachments, category labels, and email broadcast),
+commenting, and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-skool-posts-polls-gifs-images-videos-dms).
+The client implements the everyday ones: `create_post`, `create_comment` (one
+tool for both a comment and a reply) and `send_dm` (plain posts with optional
+category label and video link; the rich-media upload flows stay documented for
+you to build on). **Write carefully** — these act as *you*, visible to real
+members; see the MCP section for the safety switch.
 
 ---
 

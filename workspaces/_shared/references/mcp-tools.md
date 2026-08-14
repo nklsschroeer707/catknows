@@ -8,6 +8,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | Tool | Args | Returns |
 |---|---|---|
 | `login_to_skool` | – | call once if other tools report auth errors |
+| `list_my_communities` | – | every community YOUR account is in: slug, display name, your role (owner/admin/moderator/member), member count. **Start here when the job has no slug yet** — every other tool needs one |
 | `list_members` | slug, limit=25 | name, handle, role, points, level, last-active (most recently active first) |
 | `list_posts` | slug, limit=25 | title, author, likes, comment count, content, **post id** |
 | `get_post_comments` | slug, post_id | full nested comment thread (post_id from `list_posts`) |
@@ -25,10 +26,15 @@ The only way workspaces touch Skool. Never import the Python client directly.
 
 ## Write tools (exist only when the server runs with CATKNOWS_ALLOW_WRITE=1)
 
-`create_post`, `send_dm` — both draft-first: the first call returns a preview,
-nothing is sent until called again with `confirm=true` after the human
-approved the exact text. Never set `notify_members` (it emails everyone)
-unless the human explicitly asked for that.
+`create_post`, `create_comment`, `send_dm` — all draft-first: the first call
+returns a preview, nothing is sent until called again with `confirm=true` after
+the human approved the exact text. Never set `notify_members` (it emails
+everyone) unless the human explicitly asked for that.
+
+`create_comment(slug, post_id, content, parent_comment_id="")` covers both
+cases: leave `parent_comment_id` empty to comment under the post, set it to a
+comment id (from `get_post_comments`) to reply beneath that comment. `post_id`
+stays the post either way.
 
 ## Rules of thumb
 
