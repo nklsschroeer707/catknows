@@ -316,17 +316,26 @@ h1 em { font-style: normal; color: var(--brand); }
    paint straight over the sentences. */
 .fineprint > span { text-wrap: balance; position: relative; z-index: 1; }
 .fineprint::before {
-  /* z-index 0, not -1: `.fineprint` is only `position: relative`, so it opens no
-     stacking context of its own and a negative index escaped to the root — where
-     it landed beside the -2 video instead of over it, and the clip showed
-     through this box. Staying at 0 keeps the scrim inside its own element. */
-  content: ""; position: absolute; inset: -6px -12px; z-index: 0;
-  border-radius: 10px;
-  /* Flat, not a gradient: the desk's neon strip sits right behind this line at
-     some viewport heights, and a gradient's soft edge let it through. */
-  background: rgba(15, 14, 12, 0.93);
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
-  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  /* Two things were wrong here at once, and each hid the other.
+     1. z-index:-1 — `.fineprint` is only `position: relative`, so it opens no
+        stacking context and the negative index escaped to the root, landing
+        beside the -2 video instead of over it.
+     2. Even at z-index:0 the scrim was an island: `max-width: 108ch` on the
+        parent capped it at ~684px and the horizontal mask faded another 6% off
+        each end. The desk's neon strip is wider than that and ran straight
+        through the sentences either way.
+     So: full bleed, no horizontal mask. Measured after the fix by screenshotting
+     this area with the video shown and hidden — 13% of pixels changed before,
+     which is what "the clip bleeds through" looks like in numbers. */
+  content: ""; position: absolute; z-index: 0;
+  top: -6px; bottom: -6px; left: 50%; right: auto;
+  width: 100vw; transform: translateX(-50%);
+  /* Flat across the middle, soft only at top and bottom — vertically there is
+     no text to protect, so the fade cannot expose anything. A horizontal fade
+     can, and did. */
+  background: linear-gradient(
+    to bottom, rgba(15, 14, 12, 0.72), rgba(15, 14, 12, 0.95) 32%,
+    rgba(15, 14, 12, 0.95) 68%, rgba(15, 14, 12, 0.72));
 }
 .fineprint a { color: #B4ADA6; }
 .fineprint a:hover { color: var(--ink); }
