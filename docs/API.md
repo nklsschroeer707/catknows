@@ -388,8 +388,12 @@ POST https://api2.skool.com/posts?follow=true
 ```
 
 Add `notify=members` to email every member (`?notify=members&follow=true`) — this
-is Skool's "email broadcast", so use it sparingly and mind the group's cooldown
-(readable from `groups/{gid}`).
+is Skool's "email broadcast", so use it sparingly and mind the group's cooldown:
+one admin broadcast per 72 hours ("Admins can only send a post via email once
+every 72 hours"). A successful send stamps the group's `lastNotifyAll` (ns
+timestamp) with the post's `createdAt` — that field is the proof the broadcast
+fired; members can individually opt out of admin broadcast emails, so one empty
+inbox proves nothing. Verified live 2026-08-13.
 
 Body:
 
