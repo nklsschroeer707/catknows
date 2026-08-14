@@ -395,10 +395,19 @@ async def home(request):
     return HTMLResponse("<h1>catknows</h1><p><a href='/auth/login'>Sign in</a></p>")
 
 
+# The landing page's own media, by exact filename. An allowlist, not a
+# directory: /media/<name> can never reach anything but these four files.
+LANDING_MEDIA = frozenset({
+    "bg.mp4", "header-loop.mp4", "header-loop-mobile.mp4", "header-poster.jpg",
+})
+
+
 async def background_video(request):
-    """The landing page's background clip. Own route on purpose: the page
-    allowlist below stays exactly what it is — published legal pages."""
-    f = WEB / "bg.mp4"
+    # /bg.mp4 keeps working for anything still pointing at the old URL.
+    name = request.path_params.get("asset", "bg.mp4")
+    if name not in LANDING_MEDIA:
+        return HTMLResponse(_page_error("No such page."), status_code=404)
+    f = WEB / name
     if f.exists():
         return FileResponse(f)
     return HTMLResponse(_page_error("No such page."), status_code=404)
@@ -756,7 +765,8 @@ app = Starlette(
         Route("/auth/status", status),
         Route("/auth/password", password_login, methods=["POST"]),
         Route("/connect", connect),
-        Route("/bg.mp4", background_video),
+        Route("/media/{asset:str}", background_video),
+        Route("/bg.mp4", background_video, name="bg_legacy"),
         Route("/session/delete", delete_session, methods=["POST"]),
         WebSocketRoute("/connect/ws", connect_ws),
         # Last: a bare name falls through to the published legal pages.
@@ -905,6 +915,12 @@ def _self_check() -> None:
         class PReq:
             path_params = {"name": bad}
         assert asyncio.run(static_page(PReq())).status_code == 404, bad
+
+    # /media serves the four landing assets and nothing else — no traversal.
+    for bad in ("../index.html", "..%2Fetc%2Fpasswd", "index.html", "sessions.json"):
+        class MReq:
+            path_params = {"asset": bad}
+        assert asyncio.run(background_video(MReq())).status_code == 404, bad
 
     print("dashboard self-check OK (opaque sessions, PKCE, CSRF, page allowlist, panel)")
 
