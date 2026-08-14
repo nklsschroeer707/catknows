@@ -21,6 +21,7 @@ CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import sys
 from contextlib import redirect_stdout
@@ -325,6 +326,25 @@ def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
 
 
 @mcp.tool()
+def read_dms(channel_id: str, count: int = 30, raw: bool = False) -> dict:
+    """Read the messages of one DM channel (ids via list_chat_channels), newest last.
+
+    count is how many of the most recent messages to return — there is no page
+    to walk, so ask for the window you want in one call.
+    """
+    data = _get_client().chat_messages(channel_id, count=count)
+    if raw:
+        return _safe_raw(data)
+    out = [_jsonable(normalize.chat_message(m)) for m in data.get("messages") or []]
+    return {
+        "channel_id": channel_id,
+        "count": len(out),
+        "has_more": bool(data.get("has_more_before")),
+        "messages": out,
+    }
+
+
+@mcp.tool()
 def list_my_communities(raw: bool = False) -> list[dict]:
     """List every Skool community YOUR account is in, with your role (owner/admin/moderator/member).
 
@@ -403,6 +423,35 @@ def pull_to_vault(
 
 if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
+    def _attachment_preview(paths: str) -> list[dict]:
+        """Describe local files for the draft, without uploading anything yet.
+
+        The draft has to show what will be attached BEFORE it is sent, so this
+        only stats the files. A missing file must fail here, at preview time —
+        not halfway through a confirmed post.
+        """
+        out = []
+        for p in [s.strip() for s in paths.split(",") if s.strip()]:
+            f = Path(p)
+            if not f.is_file():
+                raise ValueError(f"Attachment not found: {p}")
+            out.append({
+                "file": f.name,
+                "type": mimetypes.guess_type(f.name)[0] or "application/octet-stream",
+                "size_bytes": f.stat().st_size,
+                "path": str(f),
+            })
+        return out
+
+    def _upload_all(community_slug: str, paths: str) -> str:
+        """Upload each local file, return the comma-joined ids Skool expects."""
+        client = _get_client()
+        ids = [
+            client.upload_file(community_slug, p.strip())["id"]
+            for p in paths.split(",") if p.strip()
+        ]
+        return ",".join(ids)
+
     @mcp.tool()
     def create_post(
         community_slug: str,
@@ -410,10 +459,15 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         content: str,
         labels: str = "",
         video_links: str = "",
+        attachments: str = "",
         notify_members: bool = False,
         confirm: bool = False,
     ) -> dict:
         """Create a REAL post in the community, as the logged-in user, visible to all members.
+
+        attachments is a comma-separated list of LOCAL FILE PATHS (images, PDFs,
+        ...). They are uploaded to Skool only when confirm=true; the draft just
+        lists their name, type and size.
 
         Draft-first: with confirm=false (the default) NOTHING is posted — you get
         the exact payload back to show the user for approval. Only call again with
@@ -427,6 +481,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "content": content,
             "labels": labels,
             "video_links": video_links,
+            "attachments": _attachment_preview(attachments),
             "notify_members (emails everyone!)": notify_members,
         }
         if not confirm:
@@ -441,6 +496,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             content,
             labels=labels,
             video_links=video_links,
+            attachments=_upload_all(community_slug, attachments),
             notify_members=notify_members,
         )
         return {"status": "posted", "post": _safe_raw(created)}
@@ -451,6 +507,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         post_id: str,
         content: str,
         parent_comment_id: str = "",
+        attachments: str = "",
         confirm: bool = False,
     ) -> dict:
         """Write a REAL comment under a post, or a reply under a comment, as the logged-in user.
@@ -458,6 +515,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         Leave parent_comment_id empty to comment on the post itself; set it to
         a comment's id (from get_post_comments) to reply beneath that comment.
         post_id is always the post the thread belongs to, even for a reply.
+        attachments is a comma-separated list of LOCAL FILE PATHS, uploaded only
+        when confirm=true.
 
         Draft-first: with confirm=false (the default) NOTHING is written — you
         get the draft back to show the user. Only call again with confirm=true
@@ -468,6 +527,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "post_id": post_id,
             "content": content,
             "replying_to_comment": parent_comment_id or "(none — top-level comment on the post)",
+            "attachments": _attachment_preview(attachments),
         }
         if not confirm:
             return {
@@ -476,13 +536,20 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                 "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
             }
         created = _get_client().create_comment(
-            community_slug, post_id, content, parent_comment_id=parent_comment_id
+            community_slug, post_id, content,
+            parent_comment_id=parent_comment_id,
+            attachments=_upload_all(community_slug, attachments),
         )
         return {"status": "commented", "comment": _safe_raw(created)}
 
     @mcp.tool()
-    def send_dm(channel_id: str, content: str, confirm: bool = False) -> dict:
+    def send_dm(
+        channel_id: str, content: str, attachments: str = "", confirm: bool = False
+    ) -> dict:
         """Send a REAL direct message into an existing chat channel (ids via list_chat_channels).
+
+        attachments is a comma-separated list of LOCAL FILE PATHS (images, PDFs,
+        GIFs, ...), uploaded only when confirm=true; the draft just lists them.
 
         Draft-first: with confirm=false (the default) NOTHING is sent — you get a
         preview back. Only call again with confirm=true after the user explicitly
@@ -491,10 +558,30 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         if not confirm:
             return {
                 "status": "DRAFT — nothing was sent",
-                "would_send": {"channel_id": channel_id, "content": content},
+                "would_send": {
+                    "channel_id": channel_id,
+                    "content": content,
+                    "attachments": _attachment_preview(attachments),
+                },
                 "next_step": "Show this to the user; call again with confirm=true once they approve.",
             }
-        sent = _get_client().send_dm(channel_id, content)
+        client = _get_client()
+        ids: list[str] = []
+        if attachments:
+            # A DM has no community slug — the file is owned by the group the
+            # channel belongs to, so read that off the channel itself.
+            gid = next(
+                (c.get("group_id") for c in client.chat_channels(offset=0, limit=100)
+                 .get("channels") or [] if c.get("id") == channel_id),
+                "",
+            )
+            if not gid:
+                raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
+            ids = [
+                client.upload_file(gid, p.strip())["id"]
+                for p in attachments.split(",") if p.strip()
+            ]
+        sent = client.send_dm(channel_id, content, attachments=ids)
         return {"status": "sent", "message": _safe_raw(sent)}
 
 

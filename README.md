@@ -326,9 +326,11 @@ The reference also documents Skool's **write** endpoints — creating posts (wit
 GIFs, images, videos, polls, attachments, category labels, and email broadcast),
 commenting, and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-skool-posts-polls-gifs-images-videos-dms).
 The client implements the everyday ones: `create_post`, `create_comment` (one
-tool for both a comment and a reply) and `send_dm` (plain posts with optional
-category label and video link; the rich-media upload flows stay documented for
-you to build on). **Write carefully** — these act as *you*, visible to real
+tool for both a comment and a reply) and `send_dm` — all three with optional
+file **attachments**: pass local paths and they are uploaded for you
+(`upload_file` does the register → S3 two-step). Category labels and video
+links are supported too; GIF, video and poll attachments stay documented for
+you to build on. **Write carefully** — these act as *you*, visible to real
 members; see the MCP section for the safety switch.
 
 ---

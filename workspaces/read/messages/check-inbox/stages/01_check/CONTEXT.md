@@ -4,10 +4,13 @@
 - none (your own inbox — no community parameter)
 
 ## Process
-1. `list_chat_channels(limit=30)`.
-2. Write two sections: **Waiting for you** (unread — who, last line, when)
+1. `list_chat_channels(limit=30)` (30 is Skool's max — a larger limit is refused).
+2. For an unread channel whose last line alone doesn't say what it's about,
+   `read_dms(channel_id, count=20)` to see the recent exchange. Don't do this
+   for every channel — only where the summary would otherwise be a guess.
+3. Write two sections: **Waiting for you** (unread — who, last line, when)
    and **Recent conversations** (read — one line each).
-3. Suggest nothing, send nothing. If a message clearly needs a reply, flag
+4. Suggest nothing, send nothing. If a message clearly needs a reply, flag
    it with "needs an answer" and leave it to the human.
 
 ## Outputs

@@ -225,6 +225,23 @@ class SkoolHTTP:
         except json.JSONDecodeError as e:
             raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {resp.text[:200]}", code) from e
 
+    def put_bytes(self, url: str, data: bytes, headers: dict) -> None:
+        """PUT raw bytes to a presigned upload URL (docs/API.md §5.3).
+
+        Not a Skool endpoint — the presigned S3 URL carries its own auth in the
+        query string, so this sends NO cookies, bearer or WAF token. Like
+        `post_api2` it does not retry.
+        """
+        try:
+            resp = self._http.put(url, headers=headers, data=data, timeout=FETCH_TIMEOUT_S)
+        except RequestException as e:
+            raise SkoolHTTPError(f"Network error uploading to {url[:80]}...: {e}") from e
+        if not (200 <= resp.status_code < 300):
+            raise SkoolHTTPError(
+                f"HTTP {resp.status_code} uploading bytes: {resp.text[:300]}",
+                resp.status_code,
+            )
+
     def _api2_headers(self) -> dict:
         headers = {
             "Cookie": self._cookie_header(),

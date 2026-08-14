@@ -62,6 +62,18 @@ def _sp_data(meta: dict) -> dict:
     return {}
 
 
+# Skool's internal role names -> the nomenclature docs/API.md uses. Anything
+# unlisted passes through unchanged rather than being swallowed into "member".
+# Used by EVERY path that reports a role: the member list and self/groups spell
+# the same thing differently, and a caller filtering for admins must not have to
+# know which endpoint a record came from.
+_ROLE_NAMES = {"group-admin": "admin", "group-moderator": "moderator"}
+
+
+def _role(raw: str) -> str:
+    return _ROLE_NAMES.get(raw, raw)
+
+
 def member(user: dict) -> dict:
     """Flatten one raw ``pageProps.users[]`` object into a member record."""
     m = user.get("member") or {}
@@ -75,7 +87,7 @@ def member(user: dict) -> dict:
         "email": user.get("email", ""),
         "first_name": user.get("firstName", ""),
         "last_name": user.get("lastName", ""),
-        "role": m.get("role", ""),
+        "role": _role(m.get("role", "")),
         "group_id": m.get("groupId", ""),
         # Points live in metadata.spData.pts (a JSON string), NOT in
         # member.metadata.points (which is absent → always read as 0).
@@ -85,6 +97,41 @@ def member(user: dict) -> dict:
         "last_active": _ns_or_iso_to_dt(last_offline),
         "picture_url": meta.get("pictureProfile") or meta.get("picture", ""),
         "bio": meta.get("bio", ""),
+    }
+
+
+def chat_message(msg: dict) -> dict:
+    """Flatten one raw DM message (docs/API.md §1.6).
+
+    Everything worth having sits in ``metadata``. Note the sender field is
+    ``src`` (with ``dst`` for the recipient) — not ``user``/``user_id``, which
+    do not exist here; reading those gives every message the same blank author
+    and makes a whole conversation look like it came from one person.
+
+    ``attachments`` is a comma-joined id string like a post's, and
+    ``attachments_data`` (a JSON string) carries the file name, type and a
+    ready-to-use ``read_url`` per attachment — surfaced as ``files``.
+    """
+    md = msg.get("metadata") or {}
+    files = []
+    for f in maybe_json(md.get("attachments_data")) or []:
+        if not isinstance(f, dict):
+            continue
+        fm = f.get("metadata") or {}
+        files.append({
+            "id": f.get("id", ""),
+            "file_name": fm.get("file_name", ""),
+            "content_type": fm.get("content_type", ""),
+            "url": fm.get("read_url") or fm.get("image_md_url", ""),
+        })
+    return {
+        "message_id": msg.get("id", ""),
+        "from_user_id": md.get("src", ""),
+        "to_user_id": md.get("dst", ""),
+        "content": md.get("content", ""),
+        "attachments": md.get("attachments", ""),
+        "files": files,
+        "created_at": _ns_or_iso_to_dt(msg.get("created_at")),
     }
 
 
@@ -175,7 +222,7 @@ def profile(user: dict) -> dict:
         "email": user.get("email", ""),
         "first_name": user.get("firstName", ""),
         "last_name": user.get("lastName", ""),
-        "role": m.get("role", ""),
+        "role": _role(m.get("role", "")),
         "total_posts": int(pd.get("totalPosts", 0) or 0),
         "total_followers": int(pd.get("totalFollowers", 0) or 0),
         "total_following": int(pd.get("totalFollowing", 0) or 0),
@@ -261,25 +308,38 @@ def _either(d: dict, camel: str, snake: str, default=None):
 def my_community(group: dict, my_user_id: str = "") -> dict:
     """Flatten one ``self/groups`` entry into "a community I'm in" record.
 
-    Skool omits ``role`` for communities you own, so an owner looks like a
-    plain member. ``metadata.owner`` (a user UUID, sometimes a JSON string)
-    against your own id is what tells them apart — pass ``my_user_id`` to get
-    ``role: "owner"`` instead of an empty one.
+    Two fields do NOT live where they look like they do. ``group.role`` does
+    not exist in this payload at all, and ``group.created_at`` is when the
+    *community* was founded, not when you joined it. Both really live in
+    ``metadata.member`` — a JSON *string* holding your membership row
+    (``role``, ``created_at``). Reading the outer fields is how every
+    community came back as "member", joined on its founding date.
+
+    Owners are a special case: Skool lists them as ``group-admin`` in
+    ``metadata.member``, so ``metadata.owner`` (a user UUID, sometimes a JSON
+    string) against your own id still wins and yields ``role: "owner"``.
     """
     meta = group.get("metadata") or {}
     owner = maybe_json(meta.get("owner"))
     if isinstance(owner, dict):  # some payloads nest the id
         owner = owner.get("id") or owner.get("userId") or ""
-    role = group.get("role") or ""
-    if my_user_id and owner and owner == my_user_id:
+    member = maybe_json(meta.get("member"))
+    if not isinstance(member, dict):
+        member = {}
+    role = _role(member.get("role") or group.get("role") or "")
+    is_owner = bool(my_user_id and owner and owner == my_user_id)
+    if is_owner:
         role = "owner"
+    joined = _either(member, "createdAt", "created_at") or _either(
+        group, "createdAt", "created_at"
+    )
     return {
         "slug": group.get("name", ""),  # `name` is the slug, display_name is the label
         "display_name": _either(meta, "displayName", "display_name", ""),
         "role": role or "member",
         "total_members": int(_either(meta, "totalMembers", "total_members", 0) or 0),
-        "is_owner": bool(my_user_id and owner and owner == my_user_id),
-        "joined_at": _ns_or_iso_to_dt(_either(group, "createdAt", "created_at")),
+        "is_owner": is_owner,
+        "joined_at": _ns_or_iso_to_dt(joined),
         "color": meta.get("color", ""),
         "logo_url": _either(meta, "logoUrl", "logo_url", ""),
     }
@@ -353,6 +413,37 @@ if __name__ == "__main__":
                              "spData": '{"pts":42,"lv":3}'}})
     assert m["points"] == 42 and m["level"] == 3, "spData points/level parse failed"
     assert m["is_online"] and m["role"] == "admin"
+    # Skool's own names must map the same way on EVERY path — the member list
+    # said "group-admin" while list_my_communities said "admin", so a caller
+    # filtering for admins got different answers per tool. Verified live
+    # against a community holding both roles.
+    mod = member({"id": "u2", "member": {"role": "group-moderator"}})
+    assert mod["role"] == "moderator", mod
+    adm = member({"id": "u3", "member": {"role": "group-admin"}})
+    assert adm["role"] == "admin", adm
+    prof = profile({"id": "u4", "profileData": {"member": {"role": "group-moderator"}}})
+    assert prof["role"] == "moderator", prof
+
+    # DM message: body, sender and attachments all sit in metadata, and the
+    # attachment id is a comma-joined string like a post's — not an array.
+    dm = chat_message({
+        "id": "m1", "created_at": "2026-08-14T16:27:49.772220Z",
+        "metadata": {
+            "content": "hi", "src": "u9", "dst": "u8", "attachments": "f1",
+            "attachments_data": '[{"id":"f1","metadata":{"file_name":"a.pdf",'
+                                '"content_type":"application/pdf",'
+                                '"read_url":"https://x/a.pdf"}}]',
+        },
+    })
+    # src/dst, NOT user/user_id — reading the wrong field blanks every author
+    # and a whole conversation looks like one person wrote it.
+    assert dm["from_user_id"] == "u9" and dm["to_user_id"] == "u8", dm
+    assert dm["content"] == "hi" and dm["attachments"] == "f1", dm
+    assert dm["files"][0]["file_name"] == "a.pdf", dm
+    assert dm["files"][0]["url"] == "https://x/a.pdf", dm
+    assert dm["created_at"].year == 2026, dm
+    bare = chat_message({"id": "m2"})
+    assert bare["content"] == "" and bare["files"] == [], bare
 
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"
@@ -440,4 +531,34 @@ if __name__ == "__main__":
     # No id to compare against: never claim ownership, fall back to member.
     unknown = my_community({"name": "g", "metadata": {"owner": "me-uuid"}})
     assert unknown["role"] == "member" and unknown["is_owner"] is False, unknown
+    # metadata.member is a JSON *string* — role and join date both live in it.
+    # Outer created_at is the community's founding date and must lose to it.
+    admin = my_community(
+        {"name": "some-group", "created_at": "2019-12-04T00:00:00.000000Z",
+         "metadata": {"display_name": "Some Group", "owner": "someone-else",
+                      "member": '{"role": "group-admin",'
+                                ' "created_at": "2024-10-14T18:51:43.707306Z"}'}},
+        my_user_id="me-uuid",
+    )
+    assert admin["role"] == "admin", f"group-admin must map to admin: {admin}"
+    assert admin["joined_at"].year == 2024, f"joined_at must not be the founding date: {admin}"
+    # Owner beats metadata.member, which lists owners as group-admin too.
+    owner_admin = my_community(
+        {"name": "catnose",
+         "metadata": {"owner": "me-uuid", "member": '{"role": "group-admin"}'}},
+        my_user_id="me-uuid",
+    )
+    assert owner_admin["role"] == "owner", f"owner must outrank group-admin: {owner_admin}"
+    moderator = my_community(
+        {"name": "g", "metadata": {"member": '{"role": "group-moderator"}'}}
+    )
+    assert moderator["role"] == "moderator", moderator
+    # Unknown role values pass through instead of being swallowed into member.
+    odd = my_community({"name": "g", "metadata": {"member": '{"role": "wat"}'}})
+    assert odd["role"] == "wat", odd
+    # Missing/unparseable metadata.member falls back, never crashes.
+    for broken in ({}, {"member": "not json"}, {"member": None}):
+        fb = my_community({"name": "g", "created_at": "2019-12-04T00:00:00.000000Z",
+                           "metadata": broken})
+        assert fb["role"] == "member" and fb["joined_at"].year == 2019, fb
     print("normalize self-check OK")

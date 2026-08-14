@@ -20,7 +20,8 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |
 | `get_calendar` | slug, cal_date=0 | events; cal_date = unix ts for a future month |
 | `get_admin_metrics` | slug, range="30d" | growth/engagement (members, active, activity series) — owner/admin only; no visitors/conversion/MRR (see skool-quirks.md) |
-| `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread |
+| `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread (limit above 30 is refused) |
+| `read_dms` | channel_id, count=30 | full message history of one channel, oldest→newest: who wrote what, when, plus attachment file names + urls. Pages back through the whole conversation — Skool caps a single read at 50, this walks past it |
 | `pull_to_vault` | slug, vault_dir, include_comments | full community → Obsidian Markdown vault |
 | `update_catknows` | confirm=false | update the local install from GitHub — draft-first: without confirm it only reports what's new; after an update the human must reconnect their AI client |
 
@@ -35,6 +36,11 @@ everyone) unless the human explicitly asked for that.
 cases: leave `parent_comment_id` empty to comment under the post, set it to a
 comment id (from `get_post_comments`) to reply beneath that comment. `post_id`
 stays the post either way.
+
+All three take `attachments`: a comma-separated list of **local file paths**
+(images, PDFs, …). Nothing is uploaded while drafting — the preview just lists
+each file's name, type and size, and a path that doesn't exist fails there
+rather than halfway through a confirmed post.
 
 ## Rules of thumb
 
