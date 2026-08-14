@@ -59,9 +59,17 @@ body {
 }
 
 /* -- the background clip: plays once, then holds its last frame ----------- */
+/* Two stacked copies. The clip drifts brighter from start to end, so it has no
+   frame that matches its own first one — no cut can hide that. Instead the
+   second copy fades in over the last second while the first fades out, and
+   they swap roles forever. */
 .bg-video {
   position: fixed; inset: 0; width: 100%; height: 100%;
   object-fit: cover; z-index: -2;
+  opacity: 0; transition: opacity 900ms linear;
+  will-change: opacity;
+}
+.bg-video.on { opacity: 1; }
   /* Phones crop to the cat and the desk lamp glow, pushing the clip's own
      chat window off-frame — the copy sits there. Wide screens re-centre. */
   object-position: 50% 88%;
@@ -78,8 +86,8 @@ body {
 @media (min-width: 980px) {
   .bg-veil {
     background:
-      linear-gradient(to right, rgba(15, 14, 12, 0.93) 0%, rgba(15, 14, 12, 0.86) 34%,
-        rgba(15, 14, 12, 0.3) 58%, rgba(15, 14, 12, 0.12) 100%),
+      linear-gradient(to right, rgba(15, 14, 12, 0.93) 0%, rgba(15, 14, 12, 0.88) 42%,
+        rgba(15, 14, 12, 0.28) 64%, rgba(15, 14, 12, 0.12) 100%),
       linear-gradient(to bottom, rgba(15, 14, 12, 0.6) 0%, rgba(15, 14, 12, 0.1) 18%,
         rgba(15, 14, 12, 0.1) 80%, rgba(15, 14, 12, 0.7) 100%);
   }
@@ -182,7 +190,19 @@ header > .account { justify-self: end; }
 .acct-links a:hover { color: var(--ink); }
 
 /* -- the one screen ------------------------------------------------------ */
-main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 12px 0 10px; }
+main {
+  flex: 1; display: flex; flex-direction: column; justify-content: center;
+  padding: 12px 0 10px; position: relative;
+}
+/* A soft pool of ground under the copy. The side-wide veil alone leaves the
+   brightest patches of clip at ~2.3:1 behind the smaller type; this lifts
+   every line clear of 4.5:1 without dimming the whole frame. */
+main::before {
+  content: ""; position: absolute; z-index: -1;
+  inset: -8% -14% -8% -40%;
+  background: radial-gradient(ellipse 68% 62% at 42% 50%,
+    rgba(15, 14, 12, 0.9) 0%, rgba(15, 14, 12, 0.74) 48%, rgba(15, 14, 12, 0) 100%);
+}
 
 .whisker, .snout {
   fill: none; stroke: var(--ink); stroke-width: 2.6; stroke-linecap: round;
@@ -239,10 +259,14 @@ h1 em { font-style: normal; color: var(--brand); }
   content: counter(step);
   flex: 0 0 20px; height: 20px; border-radius: 50%;
   display: grid; place-items: center;
-  background: rgba(255, 92, 138, 0.14); color: var(--brand);
+  /* Solid ground under the numeral: pink on video alone never clears 4.5:1. */
+  background: #2A1119; color: #FF8FAF;
   font-size: 0.68rem; font-weight: 600;
 }
 .steps li > span { color: var(--ink); }
+/* Over the clip, --dim is not enough: the brightest patch of video behind the
+   copy leaves it at 2.3:1. These sit on --ink instead, dropped in weight. */
+.steps, .kicker { color: #CFC8C1; }
 
 .copy {
   display: inline-flex; align-items: center; gap: 9px;
@@ -275,13 +299,25 @@ h1 em { font-style: normal; color: var(--brand); }
 }
 .cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
+/* Its own scrim: the clip runs bright right here (desk lamp, keyboard glow),
+   and small mono type at 0.66rem needs the full 4.5:1. */
 .fineprint {
+  position: relative;
   font-family: var(--mono); font-size: 0.66rem; line-height: 1.7;
-  color: var(--muted); text-align: center; text-wrap: balance;
+  color: #B4ADA6; text-align: center; text-wrap: balance;
   max-width: 82ch; margin: 0 auto;
-  padding: 0 clamp(18px, 2vw, 30px) 8px;
+  padding: 10px clamp(18px, 2vw, 30px) 10px;
 }
-.fineprint a { color: var(--muted); }
+.fineprint::before {
+  content: ""; position: absolute; inset: -6px -12px; z-index: -1;
+  border-radius: 10px;
+  /* Flat, not a gradient: the desk's neon strip sits right behind this line at
+     some viewport heights, and a gradient's soft edge let it through. */
+  background: rgba(15, 14, 12, 0.93);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+.fineprint a { color: #B4ADA6; }
 .fineprint a:hover { color: var(--ink); }
 
 /* -- footer: full width, centered ----------------------------------------- */
@@ -376,8 +412,10 @@ input, textarea { cursor: text; }
      forever. Muted + playsinline is what allows autoplay at all. src sits
      directly on the tag: iOS Safari is flaky about autoplay with <source>
      children — the narrow phone cut is swapped in by script below. -->
-<video class="bg-video" src="/media/header-loop.mp4" poster="/media/header-poster.jpg"
-       autoplay muted loop playsinline preload="auto" aria-hidden="true"></video>
+<video class="bg-video" id="bgv-a" src="/media/header-loop.mp4" poster="/media/header-poster.jpg"
+       autoplay muted playsinline preload="auto" aria-hidden="true"></video>
+<video class="bg-video" id="bgv-b" src="/media/header-loop.mp4"
+       muted playsinline preload="auto" aria-hidden="true"></video>
 <div class="bg-veil" aria-hidden="true"></div>
 
 <header>
@@ -528,32 +566,60 @@ input, textarea { cursor: text; }
 
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* reduced motion: the clip holds its first frame instead of playing.
-     Otherwise nudge playback — iOS ignores the autoplay attribute in
-     Low Power Mode and sometimes until play() is called explicitly;
-     the first touch is the last resort it does allow. */
-  var bgv = document.querySelector('.bg-video');
-  if (bgv) {
+  /* Cross-faded loop across two <video> elements. The clip ends brighter than
+     it starts, so restarting it in place jumps; instead the idle copy starts
+     underneath and the pair swap opacity over the last second.
+     reduced motion: no playback at all, just the first frame. */
+  var vids = [document.getElementById('bgv-a'), document.getElementById('bgv-b')];
+  if (vids[0] && vids[1]) {
+    var FADE = 0.9; /* seconds — matches the CSS transition */
+
     /* Phones get the lighter cut. Set before play: swapping src mid-playback
        restarts the clip. A <source media=…> would not work — that attribute
        is honoured for <picture>, not for <video>. */
     if (window.matchMedia('(max-width: 820px)').matches) {
-      bgv.src = '/media/header-loop-mobile.mp4';
+      vids[0].src = '/media/header-loop-mobile.mp4';
+      vids[1].src = '/media/header-loop-mobile.mp4';
     }
+
+    vids[0].classList.add('on');
+
     if (reduce) {
-      bgv.removeAttribute('autoplay');
-      bgv.removeAttribute('loop');
-      bgv.pause();
+      vids[0].removeAttribute('autoplay');
+      vids[0].pause();
+      vids[1].remove();
     } else {
-      bgv.muted = true; /* property, not just attribute — old Safari quirk */
-      var nudge = function () {
-        var p = bgv.play();
+      var live = 0;
+      var play = function (v) {
+        v.muted = true; /* property, not just attribute — old Safari quirk */
+        var p = v.play();
         if (p && p.catch) p.catch(function () {});
       };
-      bgv.addEventListener('loadedmetadata', nudge);
-      nudge();
+
+      /* One timeupdate handler for both: whoever is live and near the end
+         hands over. timeupdate fires ~4x a second, which is enough. */
+      var handover = function () {
+        var cur = vids[live];
+        if (cur.paused || !cur.duration) return;
+        if (cur.currentTime < cur.duration - FADE) return;
+        var next = vids[1 - live];
+        if (!next.paused) return; /* already handed over */
+        next.currentTime = 0;
+        play(next);
+        next.classList.add('on');
+        cur.classList.remove('on');
+        live = 1 - live;
+        /* Park the old one once it is invisible, ready for its next turn. */
+        setTimeout(function () { cur.pause(); cur.currentTime = 0; }, FADE * 1000);
+      };
+      vids[0].addEventListener('timeupdate', handover);
+      vids[1].addEventListener('timeupdate', handover);
+
+      vids[0].addEventListener('loadedmetadata', function () { play(vids[0]); });
+      play(vids[0]);
+
       var once = function () {
-        if (bgv.paused && !bgv.ended) nudge();
+        if (vids[live].paused) play(vids[live]);
         document.removeEventListener('touchstart', once);
       };
       document.addEventListener('touchstart', once, { passive: true });
