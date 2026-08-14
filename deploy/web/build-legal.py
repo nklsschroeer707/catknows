@@ -45,9 +45,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .container { max-width: 820px; margin: 0 auto; }
 .topbar { display: flex; align-items: center; justify-content: space-between;
           gap: 16px; margin-bottom: 26px; }
-.wordmark { font-weight: 800; font-size: 1.15rem; color: var(--ink);
-            text-decoration: none; letter-spacing: -0.01em; }
-.wordmark b, .wordmark i { font-weight: 800; font-style: normal; color: var(--brand-deep); }
+/* The cat mark from the landing page, corner-sized. Static: on a legal page
+   the draw animation is noise, and it would replay on every navigation. */
+.mark { display: block; width: 72px; line-height: 0; padding: 2px 0; }
+.mark svg { width: 100%; height: auto; overflow: visible; }
+.mark:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px;
+                      border-radius: 4px; }
+.mark .whisker, .mark .snout { fill: none; stroke: var(--ink);
+                               stroke-width: 2.6; stroke-linecap: round; }
+.mark .heart { fill: var(--brand); }
 .home { font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
         text-decoration: none; border: 1px solid var(--line);
         padding: 7px 13px; border-radius: 999px; white-space: nowrap; }
@@ -91,6 +97,23 @@ th { background: #221F1C; color: var(--ink); font-weight: 600; }
 .foot a { color: var(--dim); text-decoration: none; }
 .foot a:hover { color: var(--ink); text-decoration: underline; }
 """
+
+# The landing page's mark, copied verbatim from index.html minus the animation
+# hooks (--len/--delay drive the draw, which these pages don't run).
+MARK = """<a class="mark" href="/" aria-label="catknows &mdash; home">
+      <svg viewBox="0 0 500 200" aria-hidden="true">
+        <path class="whisker" d="M18 62 C 80 58, 148 70, 205 92"/>
+        <path class="whisker" d="M10 96 C 76 94, 146 98, 205 104"/>
+        <path class="whisker" d="M20 132 C 82 132, 150 124, 206 114"/>
+        <path class="whisker" d="M482 62 C 420 58, 352 70, 295 92"/>
+        <path class="whisker" d="M490 96 C 424 94, 354 98, 295 104"/>
+        <path class="whisker" d="M480 132 C 418 132, 350 124, 294 114"/>
+        <path class="snout" d="M250 108 C 250 132, 240 146, 226 146 C 214 146, 208 137, 208 128"/>
+        <path class="snout" d="M250 108 C 250 132, 260 146, 274 146 C 286 146, 292 137, 292 128"/>
+        <path class="heart" d="M250 104 C 243 96, 232 92, 226 99 C 219 106, 224 116, 250 132
+                               C 276 116, 281 106, 274 99 C 268 92, 257 96, 250 104 Z"/>
+      </svg>
+    </a>"""
 
 # Inline: code first, so ** and _ inside backticks stay literal.
 _CODE = re.compile(r"`([^`]+)`")
@@ -269,7 +292,7 @@ def convert(md: str) -> str:
 
 
 def page(title: str, subtitle: str, body: str, out: str) -> str:
-    """One page. The wordmark and the pill both go home — a reader who lands
+    """One page. The mark and the pill both go home — a reader who lands
     here from a search result needs a way back that is visible without
     scrolling to the bottom."""
     nav = "".join(
@@ -288,7 +311,7 @@ def page(title: str, subtitle: str, body: str, out: str) -> str:
 <body>
 <div class="container">
   <div class="topbar">
-    <a class="wordmark" href="/"><b>cat</b>knows<i>.</i></a>
+    {MARK}
     <a class="home" href="/">&larr; Back to catknows.app</a>
   </div>
   <div class="header">

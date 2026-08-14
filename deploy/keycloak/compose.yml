@@ -64,6 +64,10 @@ services:
       # up, then remove them again and `docker compose up -d --force-recreate`:
       #   KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USER}
       #   KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    volumes:
+      # The login theme, read-only. Mounted rather than baked into an image, so
+      # editing the CSS is a restart rather than a rebuild.
+      - ./themes/catknows:/opt/keycloak/themes/catknows:ro
     ports:
       # Loopback only. Caddy reaches it here; the internet never does.
       - "127.0.0.1:8080:8080"

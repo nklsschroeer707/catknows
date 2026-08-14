@@ -1,0 +1,256 @@
+/* catknows login theme — repaint only, no templates.
+ *
+ * Keycloak's login screens are built from PatternFly. Rather than restyle every
+ * component by hand, this file overrides the PatternFly custom properties the
+ * markup already reads, then fixes the handful of places that hardcode a value.
+ * Same tokens as deploy/web/: the register form is the first thing a tester
+ * sees after clicking "Get started", and it must not look like another site.
+ */
+
+:root {
+  --ck-bg: #0F0E0C;
+  --ck-card: #1A1816;
+  --ck-line: #2A2724;
+  --ck-ink: #F5F0EB;
+  --ck-dim: #9C9690;
+  --ck-muted: #6B6560;
+  --ck-brand: #FF5C8A;
+  --ck-brand-deep: #E04570;   /* white text needs this for 3:1 */
+  --ck-coral: #F0786A;
+  --ck-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* PatternFly reads these everywhere; setting them once covers most of the UI. */
+  --pf-v5-global--BackgroundColor--100: var(--ck-card);
+  --pf-v5-global--BackgroundColor--200: var(--ck-bg);
+  --pf-v5-global--Color--100: var(--ck-ink);
+  --pf-v5-global--Color--200: var(--ck-dim);
+  --pf-v5-global--BorderColor--100: var(--ck-line);
+  --pf-v5-global--primary-color--100: var(--ck-brand-deep);
+  --pf-v5-global--primary-color--200: var(--ck-brand);
+  --pf-v5-global--link--Color: var(--ck-brand);
+  --pf-v5-global--link--Color--hover: var(--ck-ink);
+  --pf-v5-global--danger-color--100: #E36A6A;
+  --pf-v5-global--success-color--100: #2F9E44;
+  --pf-v5-global--warning-color--100: #F08C00;
+}
+
+/* ---- page ------------------------------------------------------------- */
+
+body,
+.pf-v5-c-background-image,
+.login-pf,
+.login-pf body {
+  background: var(--ck-bg) !important;
+  color: var(--ck-ink);
+}
+
+/* Keycloak paints a tiled polygon image behind the card. */
+.pf-v5-c-background-image::before,
+.login-pf-page .login-pf-page-header,
+body.login-pf::before {
+  background-image: none !important;
+}
+
+.login-pf-page {
+  padding-top: 32px;
+}
+
+/* ---- the mark, in place of the wordmark -------------------------------- */
+
+/* The header prints "CATKNOWS" (the realm display name) as text. Hide the
+   text without removing the element — it is the accessible name — and draw
+   the whisker mark above the card instead. Inline SVG in a data: URI: the
+   theme stays a single CSS file, no image to serve or cache-bust. */
+#kc-header-wrapper,
+.login-pf-page .login-pf-header h1 {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
+  letter-spacing: normal !important;
+}
+
+#kc-header-wrapper::after,
+.login-pf-page .login-pf-header h1::after {
+  content: "";
+  display: block;
+  width: 132px;
+  height: 53px;
+  margin: 0 auto 22px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 200'%3E%3Cg fill='none' stroke='%23F5F0EB' stroke-width='9' stroke-linecap='round'%3E%3Cpath d='M18 62C80 58 148 70 205 92'/%3E%3Cpath d='M10 96C76 94 146 98 205 104'/%3E%3Cpath d='M20 132C82 132 150 124 206 114'/%3E%3Cpath d='M482 62C420 58 352 70 295 92'/%3E%3Cpath d='M490 96C424 94 354 98 295 104'/%3E%3Cpath d='M480 132C418 132 350 124 294 114'/%3E%3Cpath d='M250 108C250 132 240 146 226 146 214 146 208 137 208 128'/%3E%3Cpath d='M250 108C250 132 260 146 274 146 286 146 292 137 292 128'/%3E%3C/g%3E%3Cpath d='M250 104C243 96 232 92 226 99c-7 7-2 17 24 33 26-16 31-26 24-33-6-7-17-3-24 5z' fill='%23FF5C8A'/%3E%3C/svg%3E");
+}
+
+/* ---- card -------------------------------------------------------------- */
+
+.card-pf,
+.pf-v5-c-login__main,
+.login-pf-page .card-pf {
+  background: var(--ck-card) !important;
+  border: 1px solid var(--ck-line) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45) !important;
+  /* The stock theme paints a blue rule across the top of the card. */
+  border-top: 1px solid var(--ck-line) !important;
+}
+
+#kc-page-title,
+.pf-v5-c-login__main-header-desc,
+.pf-v5-c-title {
+  color: var(--ck-ink) !important;
+  letter-spacing: -0.01em;
+}
+
+/* ---- fields ------------------------------------------------------------ */
+
+.pf-v5-c-form-control,
+.pf-v5-c-form-control > input,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+select,
+textarea {
+  background: #131110 !important;
+  color: var(--ck-ink) !important;
+  border: 1px solid var(--ck-line) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.pf-v5-c-form-control:focus-within,
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--ck-brand) !important;
+  outline: 2px solid rgba(255, 92, 138, 0.35) !important;
+  outline-offset: 1px;
+}
+
+.pf-v5-c-form__label-text,
+label {
+  color: var(--ck-ink) !important;
+  font-weight: 600;
+}
+
+/* The required-field asterisk and hint text. */
+.pf-v5-c-form__label-required,
+.required {
+  color: var(--ck-coral) !important;
+}
+.pf-v5-c-form__helper-text,
+#kc-registration-required-fields,
+.pf-v5-c-form__group-label-help {
+  color: var(--ck-dim) !important;
+}
+
+/* The show-password eye. */
+.pf-v5-c-button.pf-m-control {
+  background: #131110 !important;
+  border: 1px solid var(--ck-line) !important;
+  color: var(--ck-dim) !important;
+  border-radius: 8px !important;
+}
+.pf-v5-c-button.pf-m-control:hover {
+  color: var(--ck-ink) !important;
+  border-color: var(--ck-brand) !important;
+}
+
+/* ---- buttons ----------------------------------------------------------- */
+
+.pf-v5-c-button.pf-m-primary,
+input[type="submit"],
+#kc-login,
+#kc-register {
+  background: var(--ck-brand-deep) !important;
+  border: 0 !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-radius: 9px !important;
+  padding: 12px 22px !important;
+  transition: background 0.2s ease;
+}
+.pf-v5-c-button.pf-m-primary:hover,
+input[type="submit"]:hover {
+  background: var(--ck-brand) !important;
+}
+.pf-v5-c-button.pf-m-primary:focus-visible {
+  outline: 2px solid var(--ck-ink) !important;
+  outline-offset: 3px;
+}
+
+.pf-v5-c-button.pf-m-secondary,
+.pf-v5-c-button.pf-m-link {
+  background: none !important;
+  color: var(--ck-brand) !important;
+  border-color: var(--ck-line) !important;
+}
+.pf-v5-c-button.pf-m-link:hover {
+  color: var(--ck-ink) !important;
+}
+
+/* ---- links, alerts, the rest ------------------------------------------- */
+
+a,
+#kc-registration a,
+#kc-info-message a,
+.login-pf-page a {
+  color: var(--ck-brand) !important;
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--ck-ink) !important;
+}
+
+#kc-registration,
+#kc-form-options,
+.login-pf-page .login-pf-signup {
+  color: var(--ck-dim) !important;
+}
+
+.pf-v5-c-alert {
+  background: #131110 !important;
+  border: 1px solid var(--ck-line) !important;
+  border-radius: 10px !important;
+  color: var(--ck-ink) !important;
+}
+/* The colour carries meaning here (a failed login must not read like a
+   success), so it stays — as a hairline, not a slab. */
+.pf-v5-c-alert.pf-m-danger { border-color: #E36A6A !important; }
+.pf-v5-c-alert.pf-m-success { border-color: #2F9E44 !important; }
+.pf-v5-c-alert.pf-m-warning { border-color: #F08C00 !important; }
+.pf-v5-c-alert.pf-m-danger .pf-v5-c-alert__title { color: #E36A6A !important; }
+.pf-v5-c-alert.pf-m-success .pf-v5-c-alert__title { color: #5DBE72 !important; }
+.pf-v5-c-alert__title { color: var(--ck-ink) !important; }
+
+/* Checkbox ("remember me") and its label. */
+.pf-v5-c-check__input {
+  accent-color: var(--ck-brand-deep);
+}
+.pf-v5-c-check__label {
+  color: var(--ck-dim) !important;
+}
+
+/* The language picker, when a realm has more than one locale. */
+.pf-v5-c-menu,
+.pf-v5-c-menu__list {
+  background: var(--ck-card) !important;
+  border: 1px solid var(--ck-line) !important;
+}
+.pf-v5-c-menu__list-item:hover {
+  background: #221F1C !important;
+}
+
+/* A quiet way back, since Keycloak's own screens offer none. */
+#kc-content-wrapper::after {
+  content: "";
+  display: block;
+}
+.ck-home {
+  display: block;
+  margin: 22px auto 0;
+  text-align: center;
+  font-family: var(--ck-mono);
+  font-size: 0.78rem;
+  color: var(--ck-dim);
+}
