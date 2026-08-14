@@ -270,12 +270,43 @@ plain client just returns the current set).
 | All your communities (compact) | `GET https://api2.skool.com/self/list-visibility-groups` | api2 |
 | Your saved location | `GET https://api2.skool.com/self/location` | api2 |
 | Chat channels | `GET https://api2.skool.com/self/chat-channels?offset={n}&limit=30&last=true&unread-only=false` | api2 |
-| Chat messages | `GET https://api2.skool.com/channels/{channelId}/messages?before=50` | api2 |
+| Chat messages | `GET https://api2.skool.com/channels/{channelId}/messages?before=50` (older: `&after=0&msg={oldestId}`) | api2 |
 
 > Live-verified against two logged-in accounts (Aug 2026). Notes: `/self/me`
 > and `/self/profile` return **404** — only bare `/self` works. `/self/groups`
 > pages 30 at a time (`has_more` tells you when to stop); `/self/list-visibility-groups`
 > returns everything in one call as `groups_member_of[]` + `groups_created_by_user[]`.
+> `self/chat-channels` rejects `limit=50` (`invalid limit`) — 30 works.
+
+**Chat messages** need `before` (or `after`), and the endpoint is unusually
+easy to misread — three separate traps:
+
+* `before` is **not** a timestamp and **not** a message id. It is a *count of
+  messages back from newest*: `before=1` returns the latest one, `before=3` the
+  latest three. It is **capped at 50** — larger values are refused with
+  `invalid before: N`, which reads like a format error but is a limit.
+* Getting past those 50 needs the **`msg={messageId}` cursor**: it returns a
+  window *around* that message, with `before`/`after` counting outwards from
+  it. `before=50&after=0&msg={oldestSeenId}` is the "one page further back"
+  call. Without it you are stuck at the newest 51 no matter what you pass —
+  `has_more_before` stays `true` and nothing you do to `before` advances.
+  Windows include the boundary message, so consecutive pages overlap by one:
+  dedupe by id.
+* Anything non-numeric in `before`/`after` — an ISO date, a message id, `now` —
+  is silently discarded and you get `either before or after must be set` even
+  though you set it. `before=0` also counts as unset. That error means your
+  **value** is wrong, not your parameter name.
+
+Response: `{messages[], has_more_before, has_more_after, channel}`, oldest
+first. Per message, everything sits in `metadata`: `content`, the sender in
+**`src`** and recipient in **`dst`** (there is no `user`/`user_id` field —
+reading one blanks every author), `attachments` as a comma-joined id string,
+and `attachments_data`, a JSON string with each file's `file_name`,
+`content_type` and a ready `read_url`.
+
+Implemented as `SkoolClient.chat_messages()` / the `read_dms` MCP tool, which
+walks the cursor and dedupes for you. Live-verified: a channel reporting 51
+messages actually held **248**, back to 2024-11-28.
 
 **`self/groups`** is the "which communities am I in" endpoint — paginate
 `offset` by 30 until a page is short. Each group object: `name` (the slug),
@@ -492,6 +523,14 @@ Body: <raw image bytes>
 
 Then add `file.id` to the post's `metadata.attachments` (comma-join multiple).
 
+Implemented as `SkoolClient.upload_file()`, wired into the `attachments`
+parameter of `create_post` / `create_comment` (both the client methods and the
+MCP tools, which take local file *paths* and upload only on `confirm=true`).
+Verified live: a 192-byte PDF round-tripped through register → S3 → post and
+came back on the post detail as `attachmentsData` with the right
+`content_type`, `file_name` and a working `read_url`. Note the response of
+step 1 carries **only** `file.id` — no echo of name, type or length.
+
 ### 5.4 Attach a video (upload → Google Cloud Storage)
 
 Videos register to a **different** endpoint and upload to GCS (not S3), with a
@@ -572,6 +611,17 @@ POST https://api2.skool.com/channels/{channelId}/messages?ct=wdm
 
 `{channelId}` comes from the chat-channels list (§1.6). Response is the created
 message object (with `id`). Group-DM and 1:1 channels use the same shape.
+
+`attachments` holds file ids from §5.3 — note the asymmetry against posts,
+which is easy to get wrong: **a DM sends a JSON array, a post a comma-joined
+string.** Skool stores it as a string either way, so the sent array comes back
+as `metadata.attachments: "id1,id2"` on the channel's `last_message`. The POST
+response itself does *not* echo the attachments — read the channel to confirm
+one landed, not the reply. Verified live (see §5.3).
+
+Implemented as `SkoolClient.send_dm(attachments=[...])` / the `send_dm` MCP
+tool, which takes local file *paths* and uploads them on `confirm=true`. A DM
+has no community slug: the owning group comes from the channel's `group_id`.
 
 ### 5.8 Create a comment / reply
 

@@ -14,7 +14,9 @@ handled for you and yield every page merged.
 
 from __future__ import annotations
 
+import mimetypes
 import os
+import pathlib
 import time
 from typing import Iterator
 
@@ -42,12 +44,19 @@ class SkoolClient:
         first. Walks every page by default. Each user object nests ``member``
         (role, groupId, points) and ``metadata`` (online, lastOffline in
         NANOSECONDS, pictureProfile, bio).
+
+        Deduped by user id, like ``posts()``. The sort is live — members shift
+        between pages mid-walk and reappear — and for non-admins the follow-up
+        page query can be ignored entirely, so Skool serves page 1 again. Both
+        cases used to ship as duplicates: a walk of 65 returned 65 rows of
+        which only ~30 were distinct.
         """
         # No `t=active`: that's the admin-only "active members" tab. Admins get
         # a list, everyone else gets a flat 404 — which looks like the whole
         # endpoint is gated when only that one filter is. Dropping it returns
         # the members list to every member of the community.
         out: list[dict] = []
+        seen: set[str] = set()
         page = 1
         while True:
             if page == 1:
@@ -60,8 +69,19 @@ class SkoolClient:
                      f"&annual=false&trials=false&group={community_slug}")
             data = self.http.get_next(q, community_slug)
             users = _dig(data, "pageProps", "users") or []
-            out.extend(users)
-            if not all_pages or not users:
+            fresh = []
+            for user in users:
+                uid = user.get("id")
+                if uid in seen:
+                    continue
+                if uid:
+                    seen.add(uid)
+                fresh.append(user)
+            out.extend(fresh)
+            # Empty page = past the end; all-duplicates = Skool is repeating a
+            # page it already served (also an end signal, and the guard that
+            # keeps a non-admin walk from collecting page 1 over and over).
+            if not all_pages or not users or not fresh:
                 break
             total_pages = _dig(data, "pageProps", "totalPages")
             if total_pages and page >= int(total_pages):
@@ -265,10 +285,57 @@ class SkoolClient:
     # -- chat ------------------------------------------------------------------
 
     def chat_channels(self, *, offset: int = 0, limit: int = 30) -> dict:
-        """Your DM channels (docs/API.md §1.6) — the channel ids `send_dm` needs."""
+        """Your DM channels (docs/API.md §1.6) — the channel ids `send_dm` needs.
+
+        ``limit`` above 30 is refused by Skool ("invalid limit").
+        """
         return self.http.get_api2(
             f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only=false"
         )
+
+    def chat_messages(self, channel_id: str, *, count: int = 30) -> dict:
+        """Messages of one DM channel, newest last (docs/API.md §1.6).
+
+        Two different shapes hide behind one endpoint, and only using both
+        gets you a full history:
+
+        * The opening read takes ``before=N`` — NOT a timestamp and NOT a
+          message id, but "how many messages back from newest". It is capped
+          at 50; anything larger is refused with ``invalid before``.
+        * Going further back needs the ``msg={id}`` cursor: it returns a
+          window *around* that message (``before``/``after`` then count
+          outwards from it). Walking it from the oldest message of the
+          previous window is the only way past those first 50.
+
+        Skool includes the boundary message in each window, so pages overlap;
+        results are deduped by id. Returns the raw response shape with every
+        page merged into ``messages`` (oldest first).
+        """
+        n = min(50, max(1, count))
+        data = self.http.get_api2(
+            f"/channels/{channel_id}/messages?limit={n}&before={n}"
+        )
+        msgs = list(data.get("messages") or [])
+        seen = {m.get("id") for m in msgs}
+
+        # Walk the cursor backwards while more history exists and the caller
+        # still wants more than we hold.
+        while len(msgs) < count and data.get("has_more_before") and msgs:
+            oldest = msgs[0].get("id")
+            if not oldest:
+                break
+            data = self.http.get_api2(
+                f"/channels/{channel_id}/messages?before=50&after=0&msg={oldest}"
+            )
+            fresh = [m for m in data.get("messages") or [] if m.get("id") not in seen]
+            if not fresh:  # cursor stopped moving — end of the history
+                break
+            seen.update(m.get("id") for m in fresh)
+            msgs = fresh + msgs
+            time.sleep(_INTER_PAGE_DELAY_S)
+
+        msgs.sort(key=lambda m: m.get("created_at") or "")
+        return {**data, "messages": msgs[-count:] if count < len(msgs) else msgs}
 
     # -- your own account ------------------------------------------------------
 
@@ -303,6 +370,52 @@ class SkoolClient:
     # These act as YOU, visible to real members. Test in a private community
     # first; notify_members emails everyone in the group.
 
+    def upload_file(self, community: str, path: str) -> dict:
+        """Upload a local file and return its ``{"id", "file_name", ...}`` (§5.3).
+
+        Two steps: register the file to get a presigned S3 URL, then PUT the
+        bytes there. The returned id goes into ``attachments`` on `create_post`,
+        `create_comment` or `send_dm` — the file must exist before the message
+        referencing it.
+
+        ``community`` is a slug, or the group UUID directly: a DM has no slug,
+        but its channel carries a ``group_id``, and `owner_id` wants the UUID
+        either way. Passing the UUID also skips the posts fetch a slug needs.
+
+        Content type is guessed from the extension; unknown types fall back to
+        ``application/octet-stream``, which Skool accepts.
+        """
+        data = pathlib.Path(path).read_bytes()
+        name = pathlib.Path(path).name
+        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        # A 32-char hex string is already a group UUID; anything else is a slug.
+        is_uuid = len(community) == 32 and all(c in "0123456789abcdef" for c in community)
+        reg = self.http.post_api2(
+            "/files",
+            {
+                "file_name": name,
+                "content_type": ctype,
+                "content_length": len(data),
+                "content_disposition": "",
+                "ref": "",
+                "owner_id": community if is_uuid else self.group_id_for(community),
+                "large_thumbnail": False,
+            },
+        )
+        file_obj = reg.get("file") or {}
+        write_url = reg.get("write_url") or ""
+        if not file_obj.get("id"):
+            raise SkoolHTTPError(f"Skool returned no file id for {name}: {str(reg)[:200]}")
+        # Empty write_url = external file (a GIF registered by URL) — nothing to
+        # upload. A local file always gets one; no URL here means the register
+        # call didn't take, and posting the id would attach an empty file.
+        if not write_url:
+            raise SkoolHTTPError(f"No upload URL returned for {name} — file not stored.")
+        self.http.put_bytes(
+            write_url, data, {"Content-Type": ctype, "x-amz-acl": "public-read"}
+        )
+        return file_obj
+
     def create_post(
         self,
         community_slug: str,
@@ -311,12 +424,14 @@ class SkoolClient:
         *,
         labels: str = "",
         video_links: str = "",
+        attachments: str = "",
         notify_members: bool = False,
     ) -> dict:
         """Create a normal feed post (§5.1). Returns the created post object.
 
         `labels` is a category id, `video_links` a YouTube/Loom/Vimeo URL —
-        both optional. `notify_members=True` is Skool's email broadcast: it
+        both optional. `attachments` is a comma-joined list of file ids from
+        `upload_file`. `notify_members=True` is Skool's email broadcast: it
         emails every member and is subject to the group's cooldown.
         """
         metadata: dict = {"title": title, "content": content, "action": 0}
@@ -324,6 +439,8 @@ class SkoolClient:
             metadata["labels"] = labels
         if video_links:
             metadata["video_links"] = video_links
+        if attachments:
+            metadata["attachments"] = attachments
         query = "?notify=members&follow=true" if notify_members else "?follow=true"
         return self.http.post_api2(
             f"/posts{query}",
@@ -341,14 +458,19 @@ class SkoolClient:
         content: str,
         *,
         parent_comment_id: str = "",
+        attachments: str = "",
     ) -> dict:
         """Comment on a post, or reply to a comment (§5.8).
 
         A comment IS a post with ``post_type: "comment"`` — same endpoint as
         `create_post`. ``root_id`` is always the post; ``parent_id`` is the
         comment being replied to, or the post itself for a top-level comment.
+        `attachments` is a comma-joined list of file ids from `upload_file`.
         Returns the created comment object.
         """
+        metadata: dict = {"title": "", "content": content}
+        if attachments:
+            metadata["attachments"] = attachments
         return self.http.post_api2(
             "/posts?follow=false",
             {
@@ -356,18 +478,21 @@ class SkoolClient:
                 "group_id": self.group_id_for(community_slug),
                 "root_id": post_id,
                 "parent_id": parent_comment_id or post_id,
-                "metadata": {"title": "", "content": content},
+                "metadata": metadata,
             },
         )
 
-    def send_dm(self, channel_id: str, content: str) -> dict:
+    def send_dm(self, channel_id: str, content: str, *, attachments: list[str] = ()) -> dict:
         """Send a direct message into an existing chat channel (§5.7).
 
-        `channel_id` comes from `chat_channels()`. Returns the created message.
+        `channel_id` comes from `chat_channels()`. `attachments` is a list of
+        file ids from `upload_file` — note the shape differs from posts: a DM
+        takes a real JSON **array**, a post a comma-joined string.
+        Returns the created message.
         """
         return self.http.post_api2(
             f"/channels/{channel_id}/messages?ct=wdm",
-            {"content": content, "attachments": []},
+            {"content": content, "attachments": list(attachments)},
         )
 
     # -- convenience -----------------------------------------------------------
@@ -397,3 +522,64 @@ def _dig(obj, *keys):
             return None
         obj = obj.get(k)
     return obj
+
+
+if __name__ == "__main__":  # python -m catknows.client
+    # The pagination walks are the only real logic in here, and the members
+    # walk shipped duplicates for months. Fake the transport, assert the walk.
+    class _FakeHTTP:
+        def __init__(self, pages):
+            self.pages = pages
+            self.calls = 0
+
+        def get_next(self, q, slug):
+            page = self.pages[min(self.calls, len(self.pages) - 1)]
+            self.calls += 1
+            return {"pageProps": {"users": page, "totalPages": len(self.pages)}}
+
+    def _client(pages):
+        c = SkoolClient.__new__(SkoolClient)
+        c.http = _FakeHTTP(pages)
+        return c
+
+    _INTER_PAGE_DELAY_S = 0  # noqa: F811 — don't sleep through the self-check
+    p1 = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    # Skool serving page 1 again (the non-admin case): stop, don't collect it twice.
+    repeat = _client([p1, p1, p1]).members("x")
+    assert [u["id"] for u in repeat] == ["a", "b", "c"], repeat
+    # Real page 2 that overlaps page 1 (live sort shifts a member across pages).
+    overlap = _client([p1, [{"id": "c"}, {"id": "d"}]]).members("x")
+    assert [u["id"] for u in overlap] == ["a", "b", "c", "d"], overlap
+    ids = [u["id"] for u in overlap]
+    assert len(ids) == len(set(ids)), f"members() must not return duplicates: {ids}"
+
+    # chat_messages: the first read is capped at 50, so anything longer has to
+    # walk the msg= cursor. Windows overlap on the boundary message.
+    class _ChatHTTP:
+        def __init__(self, pages):
+            self.pages, self.queries = pages, []
+
+        def get_api2(self, q):
+            self.queries.append(q)
+            page = self.pages[min(len(self.queries) - 1, len(self.pages) - 1)]
+            return {"messages": page, "has_more_before": len(self.queries) < len(self.pages)}
+
+    def _msg(i):
+        return {"id": f"m{i}", "created_at": f"2026-01-{i:02d}T00:00:00Z"}
+
+    chat = SkoolClient.__new__(SkoolClient)
+    # newest page first in wall-clock, then two older windows that each repeat
+    # their boundary message — exactly what Skool sends back.
+    chat.http = _ChatHTTP([[_msg(20), _msg(21)], [_msg(10), _msg(20)], [_msg(1), _msg(10)]])
+    got = chat.chat_messages("c1", count=99)["messages"]
+    got_ids = [m["id"] for m in got]
+    assert got_ids == ["m1", "m10", "m20", "m21"], got_ids
+    assert len(got_ids) == len(set(got_ids)), f"overlapping windows must dedupe: {got_ids}"
+    assert "before=50" in chat.http.queries[0], chat.http.queries[0]
+    assert "msg=m20" in chat.http.queries[1], chat.http.queries[1]
+    # A caller asking for less than one window must not trigger the walk.
+    short = SkoolClient.__new__(SkoolClient)
+    short.http = _ChatHTTP([[_msg(20), _msg(21)]])
+    assert len(short.chat_messages("c1", count=2)["messages"]) == 2
+    assert len(short.http.queries) == 1, "one window was enough, don't page"
+    print("client self-check OK")
