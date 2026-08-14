@@ -284,6 +284,11 @@ totalMembers, owner}`. `metadata.owner` is a user UUID; compare it to your own
 id (from `/self`) to tell **owner** apart from plain **member** when `role` is
 missing.
 
+Implemented as `SkoolClient.self_groups()` / the `list_my_communities` MCP tool
+(`normalize.my_community` does the owner resolution). Watch the naming trap:
+`name` is the **slug**, the human label is `metadata.displayName` — the same
+trap that made `list_posts` return slugs instead of titles.
+
 **`admin-metrics`** (owner-only) returns `total_members[]` and `active_members[]`
 as 30-day time series (`{value, time}` points) plus `latest_active_members` and a
 `daily_activities` range — the raw numbers behind a community's admin dashboard.
@@ -591,6 +596,11 @@ POST https://api2.skool.com/posts?follow=false
 `content` supports Skool's markdown-ish syntax; an @-mention is
 `[@Display Name](obj://user/{userId})`. Response is the created comment
 object. (`?follow=true` subscribes you to the thread.)
+
+Implemented as `SkoolClient.create_comment()` / the `create_comment` MCP tool
+(draft-first, behind `CATKNOWS_ALLOW_WRITE=1`). Note the asymmetry that makes
+this easy to get wrong: `root_id` is **always** the post, while `parent_id` is
+the *comment* for a reply and the *post* for a top-level comment.
 
 ### 5.9 What's *not* here
 

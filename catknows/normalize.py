@@ -246,6 +246,33 @@ def about_pricing(data: dict) -> dict:
     }
 
 
+def my_community(group: dict, my_user_id: str = "") -> dict:
+    """Flatten one ``self/groups`` entry into "a community I'm in" record.
+
+    Skool omits ``role`` for communities you own, so an owner looks like a
+    plain member. ``metadata.owner`` (a user UUID, sometimes a JSON string)
+    against your own id is what tells them apart — pass ``my_user_id`` to get
+    ``role: "owner"`` instead of an empty one.
+    """
+    meta = group.get("metadata") or {}
+    owner = maybe_json(meta.get("owner"))
+    if isinstance(owner, dict):  # some payloads nest the id
+        owner = owner.get("id") or owner.get("userId") or ""
+    role = group.get("role") or ""
+    if my_user_id and owner and owner == my_user_id:
+        role = "owner"
+    return {
+        "slug": group.get("name", ""),  # `name` is the slug, displayName is the label
+        "display_name": meta.get("displayName", ""),
+        "role": role or "member",
+        "total_members": int(meta.get("totalMembers", 0) or 0),
+        "is_owner": bool(my_user_id and owner and owner == my_user_id),
+        "joined_at": _ns_or_iso_to_dt(group.get("createdAt")),
+        "color": meta.get("color", ""),
+        "logo_url": meta.get("logoUrl", ""),
+    }
+
+
 # -- secret scrubbing (docs/API.md §6.6) --------------------------------------
 # Skool's page/api payloads carry credential-class fields that must NEVER leave
 # a raw=True tool result or land in a log: cleartext Zapier keys, Stripe payout
@@ -360,4 +387,34 @@ if __name__ == "__main__":
     blob = _json.dumps(payload)
     for leak in ("acct_", "pk_live_", "zap_secret", "billingEmail", "4242"):
         assert leak not in blob, f"scrub leaked {leak!r}"
+
+    # my_community: shaped like a real self/groups entry — `name` is the slug,
+    # the label lives in metadata.displayName, and an owned group carries NO
+    # role at all (that's what the owner id has to resolve).
+    owned = my_community(
+        {"name": "catnose", "createdAt": "2025-01-02T03:04:05.000000Z",
+         "metadata": {"displayName": "catknows.", "owner": "me-uuid",
+                      "totalMembers": 29, "logoUrl": "https://x/y.png"}},
+        my_user_id="me-uuid",
+    )
+    assert owned["slug"] == "catnose", owned
+    assert owned["display_name"] == "catknows.", owned
+    assert owned["role"] == "owner", f"owner has no role field, must be derived: {owned}"
+    assert owned["is_owner"] is True and owned["total_members"] == 29, owned
+    assert owned["joined_at"] and owned["joined_at"].year == 2025, owned
+    # Same group seen by somebody else: not the owner, keeps its stated role.
+    other = my_community(
+        {"name": "catnose", "role": "member",
+         "metadata": {"displayName": "catknows.", "owner": "me-uuid"}},
+        my_user_id="someone-else",
+    )
+    assert other["role"] == "member" and other["is_owner"] is False, other
+    # Skool sometimes ships metadata.owner as a JSON string / nested object.
+    nested = my_community(
+        {"name": "g", "metadata": {"owner": '{"id": "me-uuid"}'}}, my_user_id="me-uuid"
+    )
+    assert nested["role"] == "owner", f"JSON-string owner must still resolve: {nested}"
+    # No id to compare against: never claim ownership, fall back to member.
+    unknown = my_community({"name": "g", "metadata": {"owner": "me-uuid"}})
+    assert unknown["role"] == "member" and unknown["is_owner"] is False, unknown
     print("normalize self-check OK")
