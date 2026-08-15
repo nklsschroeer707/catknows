@@ -32,6 +32,16 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   and `is_draft` flag.
 
 ### Fixed
+- **A comma inside a poll option silently split it in two.** `poll_options`,
+  `attachments`, `labels` and `video_links` are comma-separated strings (MCP
+  arguments are flat text), and the split had no escape: the option
+  "Yes, the cat has served me" was posted as two separate options. Nothing
+  complained, because three options are still inside the valid 2–10 range.
+  A comma can now be escaped as `\,` in any of these arguments — plain
+  `"a,b"` splits exactly as before, so no existing call changes. The
+  option-count error now also prints the parsed list and names the escape,
+  and the tool description says to check the draft's option list before
+  confirming.
 - `send_dm` with attachments died with `HTTP 400: invalid limit: 100` before
   sending anything: the internal channel lookup listed `/self/chat-channels`
   with `limit=100`, but Skool refuses anything above 30 (measured live: 30 ok,

@@ -456,6 +456,36 @@ def pull_to_vault(
 # Only registered when CATKNOWS_ALLOW_WRITE=1 is set in the server's env.
 # Without the flag these tools don't exist at all from the AI's point of view.
 
+def _csv_arg(value: str) -> list[str]:
+    """Split a comma-separated tool argument, honouring ``\\,`` as a literal comma.
+
+    MCP arguments are flat strings, so multi-value parameters are comma-joined.
+    That silently breaks on values which legitimately contain a comma — a poll
+    option like "Yes, the cat has served me" became two options and posted that
+    way, because three options are still inside the valid 2-10 range. Escaping
+    is the fix that keeps every existing call working: no separator changes, and
+    "a,b" splits exactly as before.
+    """
+    out, buf, esc = [], [], False
+    for ch in value:
+        if esc:
+            # Only \, is an escape; anything else keeps its backslash, so a
+            # Windows path like C:\new stays intact.
+            buf.append(ch if ch == "," else "\\" + ch)
+            esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == ",":
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if esc:  # trailing lone backslash
+        buf.append("\\")
+    out.append("".join(buf))
+    return [s.strip() for s in out if s.strip()]
+
+
 if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
     def _attachment_preview(paths: str) -> list[dict]:
@@ -466,7 +496,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         not halfway through a confirmed post.
         """
         out = []
-        for p in [s.strip() for s in paths.split(",") if s.strip()]:
+        for p in _csv_arg(paths):
             f = Path(p)
             if not f.is_file():
                 raise ValueError(f"Attachment not found: {p}")
@@ -482,8 +512,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """Upload each local file, return the comma-joined ids Skool expects."""
         client = _get_client()
         ids = [
-            client.upload_file(community_slug, p.strip())["id"]
-            for p in paths.split(",") if p.strip()
+            client.upload_file(community_slug, p)["id"]
+            for p in _csv_arg(paths)
         ]
         return ",".join(ids)
 
@@ -506,7 +536,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         lists their name, type and size.
         poll_options turns the post into a native Skool poll: a comma-separated
         list of 2–10 answer options (e.g. "Yes,No"). The poll is created on
-        Skool only when confirm=true.
+        Skool only when confirm=true. An option that contains a comma must
+        escape it as \\, — otherwise it splits into two options. ALWAYS check
+        the option list in the draft before confirming.
 
         Draft-first: with confirm=false (the default) NOTHING is posted — you get
         the exact payload back to show the user for approval. Only call again with
@@ -514,9 +546,12 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         notify_members=true EMAILS EVERY MEMBER (Skool broadcast) — set it only if
         the user explicitly asked to email everyone.
         """
-        options = [o.strip() for o in poll_options.split(",") if o.strip()]
+        options = _csv_arg(poll_options)
         if options and not 2 <= len(options) <= 10:
-            raise ValueError(f"A poll needs 2–10 options, got {len(options)}.")
+            raise ValueError(
+                f"A poll needs 2–10 options, got {len(options)}: {options}. "
+                "A comma inside an option splits it — escape it as \\,"
+            )
         draft = {
             "community": community_slug,
             "title": title,
@@ -629,8 +664,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             if not gid:
                 raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
             ids = [
-                client.upload_file(gid, p.strip())["id"]
-                for p in attachments.split(",") if p.strip()
+                client.upload_file(gid, p)["id"]
+                for p in _csv_arg(attachments)
             ]
         sent = client.send_dm(channel_id, content, attachments=ids)
         return {"status": "sent", "message": _safe_raw(sent)}
