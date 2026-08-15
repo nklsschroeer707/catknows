@@ -72,11 +72,12 @@ class SkoolClient:
         :class:`MemberList` now also SAYS when the walk ended early
         (``incomplete``) instead of letting a truncated list look complete.
         """
-        # No `t=active`: it's redundant, not forbidden. Measured 2026-08-15:
-        # t=active answers 200 for admins AND regular members and returns the
-        # exact unfiltered list (it's the default view). The old "admin-only,
-        # non-admins get 404" theory was wrong — Skool 404s on *unknown*
-        # t-values (t=quatsch), which is what that diagnosis actually saw.
+        # No `t=active`: it's redundant, not forbidden — and Skool FLIPPED it
+        # server-side. Measured 2026-08-12: 404 for everyone, owners included
+        # (four communities). Measured 2026-08-15: 200 for everyone, and the
+        # response is the exact unfiltered list (it's the default view).
+        # Unknown t-values (t=quatsch) still 404. Don't re-add it: it buys
+        # nothing and its behaviour has already changed once.
         out = MemberList()
         seen: set[str] = set()
         page = 1

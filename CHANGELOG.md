@@ -26,12 +26,14 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   `limit=25` call on a 160k-member community tried to fetch all 5000+ pages
   before slicing; the walk now stops as soon as `limit` unique members are
   collected.
-- **The `t=active` diagnosis was wrong, and the docs now say what's true.**
-  Re-measured: `t=active` answers 200 for regular members too and returns
-  exactly the default view — it was never the 404 trigger (an *unknown* `t=`
-  value is). The lifecycle/status/sort filter grammar works for regular
-  members as well; documented in docs/API.md §1.1 for a future filter
-  interface. (Measured against Dan Schaad's captures — he was right.)
+- **The `t=active` story is resolved: Skool changed it server-side.** On
+  2026-08-12 the parameter measured 404 for everyone, owners included; on
+  2026-08-15 it measures 200 for everyone and returns exactly the default
+  view. Both datasets were honest — Skool moved between them, which Dan
+  Schaad's browser captures were the first to show. catknows keeps not
+  sending it (it buys nothing and has flipped once already). The
+  lifecycle/status/sort filter grammar works for regular members too;
+  documented in docs/API.md §1.1 for a future filter interface.
 - **401/403 errors now explain the real fix for both deployments.** The old
   message said "delete the profile dir", which hosted users can't do. It now
   points hosted users at reconnecting their Skool login and explains that the
