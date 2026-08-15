@@ -76,6 +76,21 @@ class SkoolHTTPError(RuntimeError):
         self.status = status
 
 
+def _auth_rejected(code: int, url: str) -> SkoolHTTPError:
+    """The 401/403 error, worded for both deployments: a stored session's WAF
+    token ages even while the year-long login stays valid, and AWS WAF then
+    rejects exactly the paginated/filtered endpoints first (measured
+    2026-08-15: a stale token turns members.json into 202-challenges/403s)."""
+    return SkoolHTTPError(
+        f"HTTP {code} on {url} — auth or WAF rejected. The stored Skool "
+        "session has likely gone stale (its WAF token expires even while the "
+        "login itself is still valid). Refresh it: hosted users reconnect "
+        "their Skool login (forget_skool_session, then log in again); local "
+        "users re-run the login (delete the profile dir if it persists).",
+        code,
+    )
+
+
 class SkoolHTTP:
     def __init__(self, session):
         """`session` is a catknows.auth.Session."""
@@ -222,11 +237,7 @@ class SkoolHTTP:
 
         code = resp.status_code
         if code == 401 or code == 403:
-            raise SkoolHTTPError(
-                f"HTTP {code} on {url} — auth or WAF rejected. "
-                "Re-login (delete the profile dir) if this persists.",
-                code,
-            )
+            raise _auth_rejected(code, url)
         if not (200 <= code < 300):
             raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
         self._cache.clear()  # a write invalidates anything we read before it
@@ -307,11 +318,7 @@ class SkoolHTTP:
             body = resp.text
 
             if code == 401 or code == 403:
-                raise SkoolHTTPError(
-                    f"HTTP {code} on {url} — auth or WAF rejected. "
-                    "Re-login (delete the profile dir) if this persists.",
-                    code,
-                )
+                raise _auth_rejected(code, url)
             if code == 202 or not body.strip():
                 # ISR deferred: page still building. Wait and retry.
                 last_err = f"HTTP {code} deferred/empty"
@@ -321,14 +328,15 @@ class SkoolHTTP:
                 break
             if code == 404 and '"notFound":true' in body:
                 # Skool answers notFound both for data you may not see and for
-                # a query you may not use. `t=active` on members.json is the
-                # known case of the second kind: admin-only filter, flat 404 for
-                # everyone else. If a 404 shows up on some communities but not
+                # a query it doesn't understand. On members.json an UNKNOWN
+                # filter value (e.g. a typo'd t=) is a flat 404 — measured
+                # 2026-08-15; the known t-values answer 200 for every member,
+                # admin or not. If a 404 shows up on some communities but not
                 # others, suspect the query before concluding it's permissions.
                 extra = (
                     "If posts/comments work for this community, this is a query "
-                    "problem, not access — check for admin-only filters in the "
-                    "URL (see AGENTS.md).\n"
+                    "problem, not access — check for unknown filter values in "
+                    "the URL (see AGENTS.md).\n"
                     if "/-/members.json" in url else ""
                 )
                 raise SkoolHTTPError(

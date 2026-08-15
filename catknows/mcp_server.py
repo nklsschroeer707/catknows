@@ -128,10 +128,26 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False) -> lis
     recently active members. community_slug is the part after skool.com/ in the
     URL. raw=True returns Skool's unmodified JSON (large — keep limit small, it's
     hard-capped to avoid exceeding the tool-result size limit).
+
+    If Skool stops serving fresh pages mid-walk (degraded/stale session), the
+    last list entry is {"incomplete": true, ...} — treat the list as truncated,
+    NOT as the whole community.
     """
-    # ponytail: fetches all pages then slices; per-page limits if huge communities hurt.
-    users = _get_client().members(community_slug)[: _cap(limit, raw)]
-    return _safe_raw(users) if raw else [_jsonable(normalize.member(u)) for u in users]
+    users = _get_client().members(community_slug, limit=_cap(limit, raw))
+    out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
+    if users.incomplete:
+        out.append({
+            "incomplete": True,
+            "unique_members_returned": len(users),
+            "pages_served": users.pages_walked,
+            "total_pages": users.total_pages,
+            "note": "Skool repeated already-served pages before the end — this "
+                    "list is truncated, not the full community. Skool does this "
+                    "per community/role/session (seen on large communities as a "
+                    "regular member, and on stale sessions). A fresh login can "
+                    "help; some communities never serve later pages to non-admins.",
+        })
+    return out
 
 
 @mcp.tool()
@@ -444,12 +460,15 @@ def pull_to_vault(
         vault.write_post(out, community_slug, prec, comment_recs)
         posts_written += 1
 
-    return {
+    result = {
         "vault": str(out),
         "members": len(members),
         "posts": posts_written,
         "comments_failed": comments_failed,
     }
+    if getattr(members, "incomplete", False):
+        result["members_incomplete"] = True  # truncated walk — not the whole community
+    return result
 
 
 # -- write tools (opt-in) ------------------------------------------------------
