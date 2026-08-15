@@ -569,12 +569,17 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         ids: list[str] = []
         if attachments:
             # A DM has no community slug — the file is owned by the group the
-            # channel belongs to, so read that off the channel itself.
-            gid = next(
-                (c.get("group_id") for c in client.chat_channels(offset=0, limit=100)
-                 .get("channels") or [] if c.get("id") == channel_id),
-                "",
-            )
+            # channel belongs to, so read that off the channel itself. The
+            # messages endpoint returns the channel object in one call; listing
+            # /self/chat-channels instead cannot work: Skool refuses limit > 30
+            # there, and accounts have hundreds of channels.
+            from .http import SkoolHTTPError
+
+            try:
+                gid = (client.chat_messages(channel_id, count=1)
+                       .get("channel") or {}).get("group_id") or ""
+            except SkoolHTTPError:
+                gid = ""
             if not gid:
                 raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
             ids = [
