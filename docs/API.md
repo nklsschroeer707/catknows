@@ -97,11 +97,22 @@ GET /_next/data/{buildId}/{slug}/-/members.json
       &annual=false&trials=false&group={slug}                     # page N
 ```
 
-**No `t=active`.** The browser sends it, but it's the admin-only "active
-members" tab: admins get a list, every other member gets a flat `404
-{"notFound":true}` — which reads as if the endpoint were gated entirely.
-Without it the list works for any member (600 members returned from a
-community where the account has no admin rights).
+**`t=active` is redundant, not forbidden** (re-measured 2026-08-15,
+correcting the earlier "admin-only → 404" note): it answers 200 for admins
+and regular members alike and returns exactly the unfiltered list — it's the
+default view, so catknows simply doesn't send it. An *unknown* `t=` value is
+what 404s (`{"notFound":true}`). The real filter grammar works for regular
+members too: `t=cancelling|churned|banned` (lifecycle), `admin=true`,
+`online=true` (status), `sortType=-memberapprovedat|-memberlastoffline|`
+`-memberpoints`, plus billing flags (`monthly|annual|oneTime|trials|free`,
+AND-combined), `tiers=a,b` (OR-combined) and `courseIds=a,b` (AND-combined —
+per Dan Schaad's captures, 2026-08-14).
+
+**Pagination can silently degrade:** per community/role/session Skool
+re-serves page 1 for every later page instead of paging (measured 2026-08-15:
+same fresh session walked a 592-member community fully as a regular member,
+but a 5.5k community repeated page 1 from page 2 on). `SkoolClient.members()`
+detects this and flags the result via `MemberList.incomplete`.
 
 `sortType=-memberlastoffline` sorts DESC by "last offline", so currently-active
 members come first. Response: `pageProps.users[]`, plus `pageProps.totalPages`

@@ -110,13 +110,19 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Gated 404:** member/post data is members-only. If the logged-in account isn't
   in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
   member" error. `about`/`discovery` are public and work without membership.
-  **Don't send `t=active` to `members.json`** — it's the admin-only "active
-  members" tab. Admins get a list, everyone else gets a flat 404, so the whole
-  endpoint looks gated when only that one filter is. Without it the members
-  list works for every member (verified 2026-08-11: 600 members returned from
-  a community where the account is a plain member, 404 with the filter).
-  A 404 that appears only on *some* communities is a parameter problem, not a
-  permission one — probe the query before concluding the data is unreachable.
+  **`t=active` on `members.json` is redundant, not forbidden** (re-measured
+  2026-08-15, correcting the 2026-08-11 "admin-only → 404" diagnosis): it
+  answers 200 for admins AND regular members and returns exactly the
+  unfiltered list — it's the default view. What DOES 404 is an *unknown*
+  `t=` value; the known lifecycle values (`t=cancelling`/`churned`/`banned`)
+  work for regular members too, as do `admin=true`, `online=true` and the
+  `sortType` variants. A 404 that appears only on *some* queries is a
+  parameter problem, not a permission one.
+  **Members pagination can silently degrade:** per community/role/session
+  Skool re-serves page 1 for every later page (seen on a 5.5k community as a
+  regular member with a fresh session; a 592-member community walked fine).
+  `members()` flags this via `MemberList.incomplete` — never treat a
+  truncated walk as the whole community.
 - Hosting catknows as a product (hosted endpoint, OAuth, multi-tenant, streamed
   Skool login) is the plan in [docs/HOSTED_MCP_PLAN.md](docs/HOSTED_MCP_PLAN.md)
   — it supersedes the older [docs/MOBILE_MCP_PLAN.md](docs/MOBILE_MCP_PLAN.md).

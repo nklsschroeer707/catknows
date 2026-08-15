@@ -11,6 +11,32 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-08-15
 
+### Fixed
+- **A truncated member list now says so instead of looking complete.** Per
+  community/role/session, Skool re-serves page 1 of the members list for
+  every later page (measured live: the same fresh session walked a 592-member
+  community fully but got page 1 repeated on a 5.5k community). The 14.08.
+  dedupe stopped the duplicate rows, but the walk then ended silently at ~30
+  members — a result that looked complete and wasn't, which is worse.
+  `list_members` now appends a final `{"incomplete": true, ...}` entry (with
+  pages served vs. total) whenever the walk ends early, and `pull_to_vault`
+  reports `members_incomplete`. Regression test: `test_members_truncation.py`.
+  (Reported by Dan Schaad)
+- **`list_members` no longer walks every page of huge communities.** A
+  `limit=25` call on a 160k-member community tried to fetch all 5000+ pages
+  before slicing; the walk now stops as soon as `limit` unique members are
+  collected.
+- **The `t=active` diagnosis was wrong, and the docs now say what's true.**
+  Re-measured: `t=active` answers 200 for regular members too and returns
+  exactly the default view — it was never the 404 trigger (an *unknown* `t=`
+  value is). The lifecycle/status/sort filter grammar works for regular
+  members as well; documented in docs/API.md §1.1 for a future filter
+  interface. (Measured against Dan Schaad's captures — he was right.)
+- **401/403 errors now explain the real fix for both deployments.** The old
+  message said "delete the profile dir", which hosted users can't do. It now
+  points hosted users at reconnecting their Skool login and explains that the
+  WAF token can go stale while the login itself is still valid.
+
 ### Added
 - **Native polls** — `create_post` takes `poll_options` (2–10 comma-separated
   answers) and creates a real Skool poll widget on the post, no more "vote via

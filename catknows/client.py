@@ -32,13 +32,28 @@ _COMMENT_PAGE_LIMIT = 25
 _MAX_COMMENT_PAGES = 400  # safety cap: 400 * 25 = 10k comments per post
 
 
+class MemberList(list):
+    """``members()`` result. ``incomplete=True`` means Skool stopped serving
+    fresh pages before ``total_pages`` was reached — the list is a truncated
+    view, NOT the whole community. Measured 2026-08-15: Skool re-serves page 1
+    per community/role/session — a fresh session walked 592-member hoomans
+    fully as a regular member, while 5.5k-member theskoolhub repeated page 1
+    from page 2 on with the very same session. A stale WAF token additionally
+    degrades members.json into 202-challenges/403s."""
+
+    incomplete = False
+    pages_walked = 1
+    total_pages = 1
+
+
 class SkoolClient:
     def __init__(self, session: Session):
         self.http = SkoolHTTP(session)
 
     # -- members ---------------------------------------------------------------
 
-    def members(self, community_slug: str, *, all_pages: bool = True) -> list[dict]:
+    def members(self, community_slug: str, *, all_pages: bool = True,
+                limit: int | None = None) -> MemberList:
         """All members of a community (raw ``pageProps.users[]`` objects).
 
         Sorted by Skool DESC on "last offline" so currently-active members come
@@ -46,19 +61,26 @@ class SkoolClient:
         (role, groupId, points) and ``metadata`` (online, lastOffline in
         NANOSECONDS, pictureProfile, bio).
 
+        ``limit`` stops paginating once that many unique members are collected
+        — callers that need the first N shouldn't walk a 160k community.
+
         Deduped by user id, like ``posts()``. The sort is live — members shift
-        between pages mid-walk and reappear — and for non-admins the follow-up
-        page query can be ignored entirely, so Skool serves page 1 again. Both
-        cases used to ship as duplicates: a walk of 65 returned 65 rows of
-        which only ~30 were distinct.
+        between pages mid-walk and reappear — and a degraded session can make
+        Skool re-serve page 1 for every follow-up page. Both cases used to
+        ship as duplicates: a walk of 65 returned 65 rows of which only ~30
+        were distinct. The dedupe fixed the rows; the returned
+        :class:`MemberList` now also SAYS when the walk ended early
+        (``incomplete``) instead of letting a truncated list look complete.
         """
-        # No `t=active`: that's the admin-only "active members" tab. Admins get
-        # a list, everyone else gets a flat 404 — which looks like the whole
-        # endpoint is gated when only that one filter is. Dropping it returns
-        # the members list to every member of the community.
-        out: list[dict] = []
+        # No `t=active`: it's redundant, not forbidden. Measured 2026-08-15:
+        # t=active answers 200 for admins AND regular members and returns the
+        # exact unfiltered list (it's the default view). The old "admin-only,
+        # non-admins get 404" theory was wrong — Skool 404s on *unknown*
+        # t-values (t=quatsch), which is what that diagnosis actually saw.
+        out = MemberList()
         seen: set[str] = set()
         page = 1
+        total_pages = 0
         while True:
             if page == 1:
                 q = (f"/{community_slug}/-/members.json"
@@ -70,6 +92,9 @@ class SkoolClient:
                      f"&annual=false&trials=false&group={community_slug}")
             data = self.http.get_next(q, community_slug)
             users = _dig(data, "pageProps", "users") or []
+            tp = _dig(data, "pageProps", "totalPages")
+            if tp:
+                total_pages = int(tp)
             fresh = []
             for user in users:
                 uid = user.get("id")
@@ -79,18 +104,25 @@ class SkoolClient:
                     seen.add(uid)
                 fresh.append(user)
             out.extend(fresh)
+            if limit is not None and len(out) >= limit:
+                del out[limit:]  # trim in place — slicing would drop the flags
+                break
             # Empty page = past the end; all-duplicates = Skool is repeating a
             # page it already served (also an end signal, and the guard that
-            # keeps a non-admin walk from collecting page 1 over and over).
+            # keeps a degraded walk from collecting page 1 over and over).
             if not all_pages or not users or not fresh:
                 break
-            total_pages = _dig(data, "pageProps", "totalPages")
-            if total_pages and page >= int(total_pages):
-                break
-            if not total_pages:  # no pagination info -> single page
-                break
+            if not total_pages or page >= total_pages:
+                break  # reached the last page (or no pagination info at all)
             page += 1
             time.sleep(_INTER_PAGE_DELAY_S)
+        out.pages_walked = page
+        out.total_pages = total_pages or page
+        # Honest truncation: we broke off before the last page without having
+        # satisfied the caller's limit. A silently short list looks complete
+        # and is worse than the duplicates ever were.
+        out.incomplete = bool(all_pages and page < out.total_pages
+                              and (limit is None or len(out) < limit))
         return out
 
     # -- posts -----------------------------------------------------------------
@@ -743,14 +775,27 @@ if __name__ == "__main__":  # python -m catknows.client
 
     _INTER_PAGE_DELAY_S = 0  # noqa: F811 — don't sleep through the self-check
     p1 = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
-    # Skool serving page 1 again (the non-admin case): stop, don't collect it twice.
+    # Skool serving page 1 again (the degraded-session case): stop, don't
+    # collect it twice — and SAY the list is truncated. A silently short list
+    # that looks complete is the bug Dan reported on 2026-08-14.
     repeat = _client([p1, p1, p1]).members("x")
     assert [u["id"] for u in repeat] == ["a", "b", "c"], repeat
+    assert repeat.incomplete is True, "a repeated-page walk must flag incomplete"
+    assert (repeat.pages_walked, repeat.total_pages) == (2, 3), \
+        (repeat.pages_walked, repeat.total_pages)
     # Real page 2 that overlaps page 1 (live sort shifts a member across pages).
     overlap = _client([p1, [{"id": "c"}, {"id": "d"}]]).members("x")
     assert [u["id"] for u in overlap] == ["a", "b", "c", "d"], overlap
+    assert overlap.incomplete is False, "a fully-walked list must not cry wolf"
     ids = [u["id"] for u in overlap]
     assert len(ids) == len(set(ids)), f"members() must not return duplicates: {ids}"
+    # `limit` stops the walk early (a 160k community must not be fully paged
+    # for limit=25) and satisfying the limit is NOT incomplete.
+    limited = _client([p1, [{"id": "d"}, {"id": "e"}], [{"id": "f"}]])
+    got = limited.members("x", limit=2)
+    assert [u["id"] for u in got] == ["a", "b"], got
+    assert limited.http.calls == 1, "limit satisfied on page 1 — stop paging"
+    assert got.incomplete is False, "hitting the limit is success, not truncation"
 
     # chat_messages: the first read is capped at 50, so anything longer has to
     # walk the msg= cursor. Windows overlap on the boundary message.
