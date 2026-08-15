@@ -14,6 +14,7 @@ handled for you and yield every page merged.
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import os
 import pathlib
@@ -282,6 +283,160 @@ class SkoolClient:
             f"/{community_slug}/classroom.json?group={community_slug}", community_slug
         )
 
+    # -- classroom write path (docs/API.md §7) ---------------------------------
+    # Course, folder and page are ONE object type ("unit") in a tree:
+    # unit_type "course" (root), "set" (folder), "module" (page). All verbs go
+    # through api2 /courses. Verified live 2026-08-15 on a private community.
+
+    def course_tree(self, course_id: str) -> dict:
+        """One course's full tree: ``{course, children:[{course, children}]}``.
+
+        This is the ONLY way to read modules/pages — the classroom page payload
+        carries just the course list, and ``GET /courses/{moduleId}`` answers
+        400 for non-root units. Child order in ``children[]`` is display order.
+        """
+        return self.http.get_api2(f"/courses/{course_id}?withChildren=true")
+
+    def classroom_courses(self, community_slug: str) -> dict:
+        """The api2 course list: ``{courses: [unit], num_all_courses}``.
+
+        Same courses as `classroom()` but snake_case and with the unit fields
+        (``id``, ``unit_type``, ``state``) the write path needs.
+        """
+        gid = self.group_id_for(community_slug)
+        return self.http.get_api2(f"/groups/{gid}/courses")
+
+    def create_course(
+        self,
+        community_slug: str,
+        title: str,
+        *,
+        desc: str = "",
+        privacy: int = 0,
+        min_access_level: int = 0,
+        min_tier: int = 0,
+        draft: bool = True,
+    ) -> dict:
+        """Create a classroom course (a top-level tile). Returns the created unit.
+
+        ``desc`` is PLAIN TEXT here (unlike page bodies). ``privacy``: 0 open,
+        1 level-locked (with ``min_access_level``), 2 private/tier
+        (``min_tier``). ``draft=True`` creates it invisible to non-admins
+        (state 1) — publish with `set_course_state`.
+        """
+        metadata: dict = {"title": title, "desc": desc, "privacy": privacy,
+                          "lock_free_trial": 0}
+        # Skool validates these when present: min_access_level must be >= 1
+        # ("invalid course min access level value: 0") — omit the unset ones.
+        if min_access_level > 0:
+            metadata["min_access_level"] = min_access_level
+        if min_tier > 0:
+            metadata["min_tier"] = min_tier
+        return self.http.post_api2("/courses", {
+            "group_id": self.group_id_for(community_slug),
+            "unit_type": "course",
+            "state": 1 if draft else 2,
+            "metadata": metadata,
+        })
+
+    def create_course_item(
+        self,
+        course_id: str,
+        title: str,
+        *,
+        parent_id: str = "",
+        folder: bool = False,
+        content: str = "",
+        video_link: str = "",
+        draft: bool = False,
+    ) -> dict:
+        """Create a folder (``folder=True``) or page inside a course.
+
+        ``parent_id`` defaults to the course itself; pass a folder's id to nest
+        the page there (pages inside pages render as invisible — don't).
+        ``content`` is the page body: plain text is wrapped into Skool's TipTap
+        format automatically, a string starting with ``[v2]`` is passed as-is.
+        ``video_link`` embeds an external video (YouTube/Loom/Vimeo URL).
+        """
+        tree = self.course_tree(course_id)  # validates the id, gives group/user
+        course = tree.get("course") or {}
+        metadata: dict = {"title": title}
+        if not folder:
+            metadata["resources"] = "[]"
+            metadata["desc"] = content if content.startswith("[v2]") else tiptap(content)
+            if video_link:
+                metadata["video_link"] = video_link
+        return self.http.post_api2("/courses", {
+            "group_id": course.get("groupId") or course.get("group_id"),
+            "unit_type": "set" if folder else "module",
+            "parent_id": parent_id or course_id,
+            "root_id": course_id,
+            "state": 1 if draft else 2,
+            "metadata": metadata,
+        })
+
+    def update_course_item(self, unit_id: str, fields: dict) -> dict:
+        """Update a unit via the flat PUT body the Skool UI sends.
+
+        ⚠ Skool merges SOME omitted fields and resets OTHERS (verified live:
+        a PUT with only ``title`` silently reset a course's ``privacy`` to 0).
+        For courses this method therefore reads the current metadata first and
+        sends the full settings set with your ``fields`` merged in. For
+        folders/pages (whose metadata can't be read standalone) the fields go
+        out verbatim — send the full set: pages want ``{title, desc,
+        transcript, video_id}``, what you omit may be dropped.
+
+        Page ``desc`` is TipTap ``[v2]`` JSON — plain text is wrapped for you.
+        """
+        fields = dict(fields)
+        if "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
+            fields["desc"] = tiptap(str(fields["desc"]))
+        try:
+            cur = (self.course_tree(unit_id).get("course") or {}).get("metadata") or {}
+        except SkoolHTTPError:
+            cur = None  # not a root unit -> flat update, caller sends full set
+        if cur is not None:
+            base = {k: cur[k] for k in ("title", "desc", "privacy", "min_access_level",
+                                        "min_tier", "lock_free_trial", "cover_image",
+                                        "cover_image_file", "is_afl_comp_eligible")
+                    if k in cur}
+            base.update(fields)
+            # Type asymmetry, verified live: the POST metadata takes these as
+            # ints, the PUT body rejects ints ("invalid request body") — bool them.
+            for flag in ("lock_free_trial", "is_afl_comp_eligible"):
+                if flag in base:
+                    base[flag] = bool(base[flag])
+            fields = base
+        return self.http.put_api2(f"/courses/{unit_id}", fields)
+
+    def set_course_state(self, course_id: str, published: bool) -> dict:
+        """Publish (visible to members) or unpublish (draft) a course."""
+        state = "published" if published else "draft"
+        return self.http.put_api2(f"/courses/{course_id}/state?state={state}", {})
+
+    def move_course_item(self, unit_id: str, position: int) -> dict:
+        """Reorder a unit among its siblings; ``position`` is the 0-based target.
+
+        Course tiles reorder within the classroom, pages within their parent.
+        This does NOT re-parent (Skool ignores a PUT ``parent_id`` too) — to
+        move a page into another folder, recreate it there and delete the old.
+        """
+        return self.http.post_api2(f"/courses/{unit_id}/move2?dst={position}", {})
+
+    def delete_course_item(self, unit_id: str, *, client_id: str = "") -> None:
+        """Delete a unit. ⚠ Deleting a FOLDER does not delete its pages — they
+        are lifted to the course root (verified live). Deleting a COURSE takes
+        everything inside it with it.
+
+        Folders and pages delete with no extra ceremony. Deleting a whole
+        COURSE requires ``client_id``: a 32-hex id that has passed Skool's
+        email-code verification (``/auth/email-verify-init`` → code →
+        ``/auth/email-verify``). The browser's own id stays verified across
+        sessions — capture it once from the web app and reuse it (§7.6).
+        """
+        q = f"?client_id={client_id}" if client_id else ""
+        self.http.delete_api2(f"/courses/{unit_id}{q}")
+
     # -- chat ------------------------------------------------------------------
 
     def chat_channels(self, *, offset: int = 0, limit: int = 30) -> dict:
@@ -416,6 +571,25 @@ class SkoolClient:
         )
         return file_obj
 
+    def create_poll(self, community: str, options: list[str]) -> dict:
+        """Create a poll object (§5.5). Returns ``{"poll_id": "..."}``.
+
+        A poll exists separately from the post; put the returned ``poll_id``
+        into ``poll`` on `create_post`. Skool requires 2–10 non-empty options.
+        ``community`` is a slug or the group UUID (same as `upload_file`).
+        """
+        opts = [o.strip() for o in options if o.strip()]
+        if not 2 <= len(opts) <= 10:
+            raise ValueError(f"A poll needs 2–10 options, got {len(opts)}.")
+        is_uuid = len(community) == 32 and all(c in "0123456789abcdef" for c in community)
+        return self.http.post_api2(
+            "/polls",
+            {
+                "group_id": community if is_uuid else self.group_id_for(community),
+                "options": opts,
+            },
+        )
+
     def create_post(
         self,
         community_slug: str,
@@ -425,14 +599,16 @@ class SkoolClient:
         labels: str = "",
         video_links: str = "",
         attachments: str = "",
+        poll: str = "",
         notify_members: bool = False,
     ) -> dict:
         """Create a normal feed post (§5.1). Returns the created post object.
 
         `labels` is a category id, `video_links` a YouTube/Loom/Vimeo URL —
         both optional. `attachments` is a comma-joined list of file ids from
-        `upload_file`. `notify_members=True` is Skool's email broadcast: it
-        emails every member and is subject to the group's cooldown.
+        `upload_file`, `poll` a poll id from `create_poll`. `notify_members=True`
+        is Skool's email broadcast: it emails every member and is subject to
+        the group's cooldown.
         """
         metadata: dict = {"title": title, "content": content, "action": 0}
         if labels:
@@ -441,6 +617,8 @@ class SkoolClient:
             metadata["video_links"] = video_links
         if attachments:
             metadata["attachments"] = attachments
+        if poll:
+            metadata["poll"] = poll
         query = "?notify=members&follow=true" if notify_members else "?follow=true"
         return self.http.post_api2(
             f"/posts{query}",
@@ -500,10 +678,16 @@ class SkoolClient:
     def group_id_for(self, community_slug: str) -> str:
         """Discover a community's group UUID without the user supplying it.
 
-        The api2 endpoints (comments, likes, discovery) need the group UUID,
-        but the user only knows the slug. It "falls out" of the first posts
+        Fast path: ``GET api2 /groups/{slug}`` resolves a slug directly
+        (verified 2026-08-15). Fallback: it also "falls out" of the first posts
         response as ``post.groupId`` — so one posts fetch bootstraps it.
         """
+        try:
+            gid = (self.http.get_api2(f"/groups/{community_slug}") or {}).get("id")
+            if gid:
+                return gid
+        except SkoolHTTPError:
+            pass  # e.g. WAF hiccup — the posts bootstrap still works
         trees = self.posts(community_slug, all_pages=False)
         for tree in trees:
             gid = _dig(tree, "post", "groupId")
@@ -513,6 +697,21 @@ class SkoolClient:
             f"Could not determine group UUID for '{community_slug}' "
             "(no posts with a groupId found)."
         )
+
+
+def tiptap(text: str) -> str:
+    """Plain text -> Skool's ``[v2]`` TipTap page body (one paragraph per line).
+
+    The minimum that round-trips: headings, marks, embeds etc. stay the
+    caller's job — pass a ready ``[v2]…`` string to skip this entirely.
+    """
+    nodes = []
+    for line in text.split("\n"):
+        node: dict = {"type": "paragraph"}
+        if line.strip():
+            node["content"] = [{"type": "text", "text": line}]
+        nodes.append(node)
+    return "[v2]" + json.dumps(nodes, separators=(",", ":"), ensure_ascii=False)
 
 
 def _dig(obj, *keys):
@@ -582,4 +781,37 @@ if __name__ == "__main__":  # python -m catknows.client
     short.http = _ChatHTTP([[_msg(20), _msg(21)]])
     assert len(short.chat_messages("c1", count=2)["messages"]) == 2
     assert len(short.http.queries) == 1, "one window was enough, don't page"
+    # tiptap: plain text must become valid [v2] JSON, blank lines empty paragraphs.
+    body = tiptap("Zeile 1\n\nZeile 2 mit ümlaut")
+    assert body.startswith("[v2]")
+    nodes = json.loads(body[4:])
+    assert [n.get("content", [{}])[0].get("text") for n in nodes] == \
+        ["Zeile 1", None, "Zeile 2 mit ümlaut"], nodes
+
+    # update_course_item: a COURSE update must read-merge the full settings set
+    # (Skool resets `privacy` to 0 on a partial PUT — verified live 2026-08-15);
+    # a non-root unit (tree read 400s) must send the fields verbatim.
+    class _ClassroomHTTP:
+        def __init__(self, tree_ok):
+            self.tree_ok, self.put_bodies = tree_ok, []
+
+        def get_api2(self, q):
+            if not self.tree_ok:
+                raise SkoolHTTPError("HTTP 400", 400)
+            return {"course": {"metadata": {"title": "alt", "desc": "d",
+                                            "privacy": 2, "min_tier": 1}}}
+
+        def put_api2(self, q, body):
+            self.put_bodies.append(body)
+            return body
+
+    cu = SkoolClient.__new__(SkoolClient)
+    cu.http = _ClassroomHTTP(tree_ok=True)
+    merged = cu.update_course_item("c1", {"title": "neu"})
+    assert merged == {"title": "neu", "desc": "d", "privacy": 2, "min_tier": 1}, merged
+    mod = SkoolClient.__new__(SkoolClient)
+    mod.http = _ClassroomHTTP(tree_ok=False)
+    flat = mod.update_course_item("m1", {"title": "t", "desc": "plain"})
+    assert flat["title"] == "t" and flat["desc"].startswith("[v2]"), flat
+
     print("client self-check OK")

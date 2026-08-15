@@ -84,6 +84,7 @@ the people who use it, not a pricing page.
 - 🤖 **21 ready-made agent jobs.** [`workspaces/`](workspaces/START-HERE.md) — every job is a folder your AI can run: member lists, digests, fan rankings, classroom research, backups, one big report. Acting jobs (posting, DMs, issues) never fire without your explicit approval.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
+- ☁️ **Or skip the setup entirely.** [catknows.app](https://catknows.app) is the same bridge, hosted — no Python, no terminal. Free while it's small; the code here stays free forever either way.
 - 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk.
 - 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
@@ -328,9 +329,9 @@ commenting, and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-sk
 The client implements the everyday ones: `create_post`, `create_comment` (one
 tool for both a comment and a reply) and `send_dm` — all three with optional
 file **attachments**: pass local paths and they are uploaded for you
-(`upload_file` does the register → S3 two-step). Category labels and video
-links are supported too; GIF, video and poll attachments stay documented for
-you to build on. **Write carefully** — these act as *you*, visible to real
+(`upload_file` does the register → S3 two-step). Category labels, video
+links and native **polls** (`create_poll` / the `poll_options` parameter) are
+supported too; GIF and video attachments stay documented for you to build on. **Write carefully** — these act as *you*, visible to real
 members; see the MCP section for the safety switch.
 
 ---
@@ -354,6 +355,20 @@ yours. catknows removes the fee and the middleman — it just gives you the acce
 If catknows saves you a subscription and you *want* to buy me a
 coffee (or a bagel 🥯), the door's open — but it is never required. Use it free,
 no strings.
+
+### What about the hosted service?
+
+[catknows.app](https://catknows.app) runs this same code on a server in Germany
+for people who don't want to install anything. **That one is a different deal:**
+a server costs money every month, so it will eventually charge for the
+convenience — $7/month once the [community](https://www.skool.com/catnose/about)
+reaches 100 members, and everyone already using it by then keeps it free.
+
+**What you're reading here never changes.** The code in this repo is MIT and
+free forever: the tool is free, running it on someone else's machine is what
+costs. Nothing is held back from the self-hosted version — the hosted service
+has *fewer* features, not more (no vault export: it isn't allowed to write to
+your disk).
 
 ---
 

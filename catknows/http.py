@@ -200,11 +200,23 @@ class SkoolHTTP:
         Same header set as `get_api2`, JSON body. Deliberately NO automatic
         retry: a retried write could double-post. Callers handle failures.
         """
+        return self._write_api2("post", path_and_query, body)
+
+    def put_api2(self, path_and_query: str, body: dict) -> dict:
+        """PUT to an api2.skool.com endpoint (updates — docs/API.md §7)."""
+        return self._write_api2("put", path_and_query, body)
+
+    def delete_api2(self, path_and_query: str) -> dict:
+        """DELETE an api2.skool.com resource. Success is usually an empty 200."""
+        return self._write_api2("delete", path_and_query, None)
+
+    def _write_api2(self, method: str, path_and_query: str, body: dict | None) -> dict:
         url = f"{SKOOL_API2}{path_and_query}"
+        kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
+        if body is not None:
+            kwargs["json"] = body
         try:
-            resp = self._http.post(
-                url, headers=self._api2_headers(), json=body, timeout=FETCH_TIMEOUT_S
-            )
+            resp = getattr(self._http, method)(url, **kwargs)
         except RequestException as e:
             raise SkoolHTTPError(f"Network error on {url}: {e}") from e
 

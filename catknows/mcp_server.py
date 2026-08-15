@@ -307,14 +307,49 @@ def get_classroom(community_slug: str, raw: bool = False) -> dict:
         desc = (md.get("desc") or "").strip()
         courses.append(
             {
+                "id": c.get("id"),  # what get_course_tree / the write tools need
                 "title": md.get("title", ""),
                 "description": desc[:300] + ("…" if len(desc) > 300 else ""),
                 "num_modules": md.get("numModules"),
                 "has_access": bool(md.get("hasAccess")),
-                "privacy": md.get("privacy"),  # 0=open, 1=locked/paid, 2=level-locked
+                "privacy": md.get("privacy"),  # 0=open, 1=level-locked, 2=private/tier
+                "is_draft": c.get("state") == 1,
             }
         )
     return {"num_courses": len(courses), "courses": courses}
+
+
+@mcp.tool()
+def get_course_tree(course_id: str, raw: bool = False) -> dict:
+    """Read one course's full structure: folders and pages with ids, titles, order and draft state.
+
+    course_id comes from get_classroom. This is the only way to read page
+    bodies — the classroom list carries just the course tiles. Child order in
+    the tree is the display order.
+    """
+    data = _get_client().course_tree(course_id)
+    if raw:
+        return _safe_raw(data)
+
+    def _compact(node):
+        unit = node.get("course") or {}
+        md = unit.get("metadata") or {}
+        out = {
+            "id": unit.get("id"),
+            "type": unit.get("unit_type"),  # course | set (folder) | module (page)
+            "title": md.get("title", ""),
+            "is_draft": unit.get("state") == 1,
+        }
+        if unit.get("unit_type") == "module":
+            out["content"] = md.get("desc", "")
+            if md.get("video_link"):
+                out["video_link"] = md.get("video_link")
+        children = [_compact(ch) for ch in node.get("children") or []]
+        if children:
+            out["children"] = children
+        return out
+
+    return _compact(data)
 
 
 @mcp.tool()
@@ -460,6 +495,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         labels: str = "",
         video_links: str = "",
         attachments: str = "",
+        poll_options: str = "",
         notify_members: bool = False,
         confirm: bool = False,
     ) -> dict:
@@ -468,6 +504,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         attachments is a comma-separated list of LOCAL FILE PATHS (images, PDFs,
         ...). They are uploaded to Skool only when confirm=true; the draft just
         lists their name, type and size.
+        poll_options turns the post into a native Skool poll: a comma-separated
+        list of 2–10 answer options (e.g. "Yes,No"). The poll is created on
+        Skool only when confirm=true.
 
         Draft-first: with confirm=false (the default) NOTHING is posted — you get
         the exact payload back to show the user for approval. Only call again with
@@ -475,6 +514,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         notify_members=true EMAILS EVERY MEMBER (Skool broadcast) — set it only if
         the user explicitly asked to email everyone.
         """
+        options = [o.strip() for o in poll_options.split(",") if o.strip()]
+        if options and not 2 <= len(options) <= 10:
+            raise ValueError(f"A poll needs 2–10 options, got {len(options)}.")
         draft = {
             "community": community_slug,
             "title": title,
@@ -482,6 +524,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "labels": labels,
             "video_links": video_links,
             "attachments": _attachment_preview(attachments),
+            "poll_options": options,
             "notify_members (emails everyone!)": notify_members,
         }
         if not confirm:
@@ -490,13 +533,16 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                 "would_post": draft,
                 "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
             }
-        created = _get_client().create_post(
+        client = _get_client()
+        poll_id = client.create_poll(community_slug, options)["poll_id"] if options else ""
+        created = client.create_post(
             community_slug,
             title,
             content,
             labels=labels,
             video_links=video_links,
             attachments=_upload_all(community_slug, attachments),
+            poll=poll_id,
             notify_members=notify_members,
         )
         return {"status": "posted", "post": _safe_raw(created)}
@@ -588,6 +634,207 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             ]
         sent = client.send_dm(channel_id, content, attachments=ids)
         return {"status": "sent", "message": _safe_raw(sent)}
+
+    # -- classroom writes (docs/API.md §7) ------------------------------------
+
+    @mcp.tool()
+    def create_course(
+        community_slug: str,
+        title: str,
+        description: str = "",
+        privacy: int = 0,
+        min_access_level: int = 0,
+        min_tier: int = 0,
+        draft: bool = True,
+        confirm: bool = False,
+    ) -> dict:
+        """Create a classroom course (a top-level tile) in the community.
+
+        description is plain text. privacy: 0 open to all members, 1 unlocks at
+        gamification level min_access_level, 2 private/tier-gated (min_tier).
+        draft=true (default) keeps it INVISIBLE to members until publish_course.
+
+        Draft-first: with confirm=false NOTHING is created — you get the payload
+        back to show the user. Call again with confirm=true once approved.
+        """
+        would = {"community": community_slug, "title": title,
+                 "description": description, "privacy": privacy,
+                 "min_access_level": min_access_level, "min_tier": min_tier,
+                 "created_as_invisible_draft": draft}
+        if not confirm:
+            return {"status": "DRAFT — nothing was created", "would_create": would,
+                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+        created = _get_client().create_course(
+            community_slug, title, desc=description, privacy=privacy,
+            min_access_level=min_access_level, min_tier=min_tier, draft=draft)
+        return {"status": "created", "course": _safe_raw(created)}
+
+    @mcp.tool()
+    def create_course_item(
+        course_id: str,
+        title: str,
+        parent_id: str = "",
+        folder: bool = False,
+        content: str = "",
+        video_link: str = "",
+        draft: bool = False,
+        confirm: bool = False,
+    ) -> dict:
+        """Add a folder (folder=true) or a page to a course (ids via get_course_tree).
+
+        parent_id: empty = directly in the course, or a folder's id. content is
+        the page body — plain text works (it is converted to Skool's rich-text
+        format), or pass a ready "[v2]…" TipTap string. video_link embeds a
+        YouTube/Loom/Vimeo video on the page.
+
+        Draft-first: confirm=false previews, confirm=true writes.
+        """
+        would = {"course_id": course_id, "title": title,
+                 "parent_folder": parent_id or "(course root)",
+                 "kind": "folder" if folder else "page",
+                 "content": content[:500], "video_link": video_link, "draft": draft}
+        if not confirm:
+            return {"status": "DRAFT — nothing was created", "would_create": would,
+                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+        created = _get_client().create_course_item(
+            course_id, title, parent_id=parent_id, folder=folder,
+            content=content, video_link=video_link, draft=draft)
+        return {"status": "created", "item": _safe_raw(created)}
+
+    @mcp.tool()
+    def update_course_item(
+        item_id: str,
+        title: str = "",
+        content: str = "",
+        privacy: int = -1,
+        min_access_level: int = -1,
+        min_tier: int = -1,
+        confirm: bool = False,
+    ) -> dict:
+        """Rename or rewrite a course, folder or page (ids via get_course_tree).
+
+        Only the parameters you set are changed; for courses the current
+        settings are read first so nothing resets (Skool wipes `privacy` on
+        partial updates — handled here). For PAGES, title AND content must BOTH
+        be passed: Skool drops omitted page fields (read the current values
+        from get_course_tree first). content: plain text or "[v2]…" TipTap.
+
+        Draft-first: confirm=false previews, confirm=true writes.
+        """
+        fields: dict = {}
+        if title:
+            fields["title"] = title
+        if content:
+            fields["desc"] = content
+        if privacy >= 0:
+            fields["privacy"] = privacy
+        if min_access_level >= 0:
+            fields["min_access_level"] = min_access_level
+        if min_tier >= 0:
+            fields["min_tier"] = min_tier
+        if not fields:
+            raise ValueError("Nothing to update — pass title, content or a setting.")
+        if not confirm:
+            return {"status": "DRAFT — nothing was changed",
+                    "would_update": {"item_id": item_id, **fields},
+                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+        updated = _get_client().update_course_item(item_id, fields)
+        return {"status": "updated", "item": _safe_raw(updated)}
+
+    @mcp.tool()
+    def publish_course(course_id: str, published: bool = True, confirm: bool = False) -> dict:
+        """Publish a course (visible to all members!) or pull it back to an invisible draft.
+
+        Draft-first: confirm=false previews, confirm=true switches the state.
+        """
+        if not confirm:
+            return {"status": "DRAFT — nothing was changed",
+                    "would_set": {"course_id": course_id,
+                                  "state": "published (VISIBLE to members)" if published else "draft (hidden)"},
+                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+        _get_client().set_course_state(course_id, published)
+        return {"status": "published" if published else "unpublished", "course_id": course_id}
+
+    @mcp.tool()
+    def move_course_item(item_id: str, position: int, confirm: bool = False) -> dict:
+        """Reorder a course/folder/page among its siblings (position = 0-based target index).
+
+        Moving between folders is NOT possible via the API — recreate the page
+        in the target folder instead. Draft-first: confirm=true executes.
+        """
+        if not confirm:
+            return {"status": "DRAFT — nothing was moved",
+                    "would_move": {"item_id": item_id, "to_position": position},
+                    "next_step": "Call again with confirm=true to move it."}
+        _get_client().move_course_item(item_id, position)
+        return {"status": "moved", "item_id": item_id, "position": position}
+
+    @mcp.tool()
+    def delete_course_item(item_id: str, client_id: str = "", confirm: bool = False) -> dict:
+        """DELETE a course, folder or page. Cannot be undone.
+
+        Deleting a COURSE deletes everything in it and additionally needs
+        client_id: a 32-hex id that passed Skool's email-code check
+        (docs/API.md §7.6) — without it Skool answers "invalid client ID".
+        Deleting a FOLDER does NOT delete its pages — they move to the course
+        root. Delete the pages first if they should go too.
+
+        Draft-first: confirm=false previews, confirm=true deletes.
+        """
+        if not confirm:
+            return {"status": "DRAFT — nothing was deleted",
+                    "would_delete": {"item_id": item_id},
+                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+        _get_client().delete_course_item(item_id, client_id=client_id)
+        return {"status": "deleted", "item_id": item_id}
+
+
+# -- tool annotations ----------------------------------------------------------
+# Clients (and the Anthropic connector directory) read these hints to decide
+# what needs a confirmation prompt. Everything here talks to Skool, so all tools
+# are open-world; the only question per tool is whether it changes anything.
+#
+# Set in one place rather than as 17 decorator arguments: the safe default is
+# "not read-only", so a tool added later is treated as a writer until someone
+# lists it here on purpose. Failing closed beats a forgotten annotation.
+
+_READ_ONLY = {
+    "list_members", "list_posts", "get_post_comments", "get_post_likes",
+    "get_member_profile", "get_community_about", "get_discovery",
+    "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
+    "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
+}
+# Acts as the user, visible to real members, can't be taken back.
+_DESTRUCTIVE = {
+    "create_post", "create_comment", "send_dm",
+    "create_course", "create_course_item", "update_course_item",
+    "publish_course", "move_course_item", "delete_course_item",
+}
+
+
+def _annotate_tools() -> None:
+    # mcp._tool_manager is private SDK API — the decorator takes annotations
+    # per tool, but that means repeating the same block 17 times. The
+    # self-check asserts the annotations actually land, so an SDK rename
+    # fails loudly instead of silently shipping unannotated tools.
+    from mcp.types import ToolAnnotations
+
+    for tool in mcp._tool_manager.list_tools():
+        read_only = tool.name in _READ_ONLY
+        tool.annotations = ToolAnnotations(
+            read_only_hint=read_only,
+            # Only meaningful when read_only is false; writers that merely add
+            # (a post, a DM) are not destructive in the "deletes data" sense,
+            # but they are irreversible and public — flag them.
+            destructive_hint=tool.name in _DESTRUCTIVE,
+            # Reads hit a live community, so repeating one can return something
+            # different; it just doesn't *change* anything.
+            idempotent_hint=False,
+            open_world_hint=True,
+        )
+
+
+_annotate_tools()
 
 
 def main() -> None:
