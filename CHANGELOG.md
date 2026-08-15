@@ -4,6 +4,11 @@ All notable user-facing changes. To update your install: `/catknows-update`
 (Claude Code) or `git pull && pip install -e ".[mcp]"`, then restart your
 MCP client — a long-running MCP server keeps old code until reconnected.
 
+> **Posting an entry to the community?** This file may name functions and
+> parameters; the changelog comment in catnose may not. It is written for
+> people who never open this repo — see `BRAND.md` §"The changelog comment is
+> written for users, not for developers".
+
 ## 2026-08-15
 
 ### Added

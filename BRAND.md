@@ -60,6 +60,33 @@ overwrite. The short form "You have been served. 🐈" is retired with it.
   "hoomans", "pawsome", 😼/🐾 welcome.
 - **Reference** (API.md, AGENTS.md, code): sober and precise. No cat voice.
 
+### The changelog comment is written for users, not for developers
+
+`CHANGELOG.md` in the repo and the changelog comment in catnose are **two
+different texts for two different readers.** The file may name functions,
+parameters and commits. The comment may not — it is read by people who never
+open the repo, and it has to make sense to someone who does not know what an
+endpoint is.
+
+Rules for the Skool comment:
+
+- **Lead with what the reader can now do**, not with what was built. "The cat
+  can build your classroom now" — not "added `create_course_item`".
+- **A fix describes the symptom the user had.** "Sending a DM with a file
+  attached failed before anything left the building" — not "the internal
+  channel lookup used an invalid limit".
+- **Short sentences. Small headings with an emoji.** People skim this.
+- **Name a tool only when the reader has to type it.** Otherwise say what it
+  does.
+- **Say if something needs doing.** The update line belongs in every entry:
+  self-hosted users update and reconnect, hosted users do nothing.
+- **Credit the person who found it**, via a real API mention.
+- **Leave out what does not reach the reader.** A refactor, a test, a
+  parameter rename — those live in the file, not in the comment. Anything not
+  shipped yet stays out entirely.
+- Register is community interior, so the cat voice is welcome — but the
+  clarity bar is first-contact.
+
 ## Speaker
 
 - "I" = Niklas. catknows is a solo-owned project.
