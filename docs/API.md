@@ -97,11 +97,12 @@ GET /_next/data/{buildId}/{slug}/-/members.json
       &annual=false&trials=false&group={slug}                     # page N
 ```
 
-**`t=active` is redundant, not forbidden** (re-measured 2026-08-15,
-correcting the earlier "admin-only → 404" note): it answers 200 for admins
-and regular members alike and returns exactly the unfiltered list — it's the
-default view, so catknows simply doesn't send it. An *unknown* `t=` value is
-what 404s (`{"notFound":true}`). The real filter grammar works for regular
+**`t=active` is redundant — and Skool flipped it server-side.** Measured
+2026-08-12: 404 for everyone, owners included (four communities). Re-measured
+2026-08-15: 200 for everyone, returning exactly the unfiltered list — it's
+the default view, so catknows simply doesn't send it (it buys nothing and
+has already changed behaviour once). An *unknown* `t=` value still 404s
+(`{"notFound":true}`). The real filter grammar works for regular
 members too: `t=cancelling|churned|banned` (lifecycle), `admin=true`,
 `online=true` (status), `sortType=-memberapprovedat|-memberlastoffline|`
 `-memberpoints`, plus billing flags (`monthly|annual|oneTime|trials|free`,

@@ -92,14 +92,15 @@ over `SkoolClient`; don't duplicate client logic in it.
 - **Gated 404:** member/post data is members-only. If the logged-in account isn't
   in the community, Skool returns `{"notFound":true}` → we raise a clear "not a
   member" error. `about`/`discovery` are public and work without membership.
-  **`t=active` on `members.json` is redundant, not forbidden** (re-measured
-  2026-08-15, correcting the 2026-08-11 "admin-only → 404" diagnosis): it
-  answers 200 for admins AND regular members and returns exactly the
-  unfiltered list — it's the default view. What DOES 404 is an *unknown*
-  `t=` value; the known lifecycle values (`t=cancelling`/`churned`/`banned`)
-  work for regular members too, as do `admin=true`, `online=true` and the
-  `sortType` variants. A 404 that appears only on *some* queries is a
-  parameter problem, not a permission one.
+  **`t=active` on `members.json` is redundant — and Skool flipped it
+  server-side.** Measured 2026-08-12: 404 for everyone, owners included.
+  Re-measured 2026-08-15: 200 for everyone, returning exactly the unfiltered
+  list (it's the default view). Both measurements were real; Skool changed.
+  Don't re-add the parameter — it buys nothing and has already flipped once.
+  What still 404s is an *unknown* `t=` value; the known lifecycle values
+  (`t=cancelling`/`churned`/`banned`) work for regular members too, as do
+  `admin=true`, `online=true` and the `sortType` variants. A 404 that appears
+  only on *some* queries is a parameter problem, not a permission one.
   **Members pagination can silently degrade:** per community/role/session
   Skool re-serves page 1 for every later page (seen on a 5.5k community as a
   regular member with a fresh session; a 592-member community walked fine).
