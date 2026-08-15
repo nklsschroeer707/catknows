@@ -4,6 +4,76 @@ All notable user-facing changes. To update your install: `/catknows-update`
 (Claude Code) or `git pull && pip install -e ".[mcp]"`, then restart your
 MCP client — a long-running MCP server keeps old code until reconnected.
 
+## 2026-08-15
+
+### Added
+- **Native polls** — `create_post` takes `poll_options` (2–10 comma-separated
+  answers) and creates a real Skool poll widget on the post, no more "vote via
+  comment" workarounds. Draft-first like every write: the poll is only created
+  on Skool with `confirm=true`. Poll posts read back with their results too:
+  normalized posts now carry `poll: [{option, votes}]`. Endpoint reference in
+  [docs/API.md §5.5](docs/API.md); runnable proof: `test_poll_live.py`
+  (verified live 2026-08-15).
+- **Classroom management** — catknows can now build and maintain courses, not
+  just read the tile list. New MCP tools: `get_course_tree` (the first way to
+  read pages/modules at all — Skool's classroom payload only carries the
+  tiles), and behind `CATKNOWS_ALLOW_WRITE=1`: `create_course`,
+  `create_course_item` (folders and pages, plain text becomes Skool rich text
+  automatically), `update_course_item`, `publish_course`, `move_course_item`
+  and `delete_course_item`. All writes are draft-first (`confirm=true` to
+  execute); new courses start as invisible drafts by default.
+  The full endpoint reference — including the traps: Skool silently resets a
+  course's `privacy` on partial updates (guarded here), deleting a folder
+  *lifts* its pages instead of deleting them, and deleting a whole course
+  needs an email-verified `client_id` — is documented in
+  [docs/API.md §7](docs/API.md); the runnable proof is
+  `test_classroom_live.py`.
+- `get_classroom` now includes each course's `id` (needed by the tools above)
+  and `is_draft` flag.
+
+### Fixed
+- `send_dm` with attachments died with `HTTP 400: invalid limit: 100` before
+  sending anything: the internal channel lookup listed `/self/chat-channels`
+  with `limit=100`, but Skool refuses anything above 30 (measured live: 30 ok,
+  31 already fails) — and a one-shot listing could never find channels beyond
+  its window anyway (accounts can hold hundreds). The group_id now comes off
+  the channel itself via the messages endpoint: one call, works for any number
+  of channels. Regression test: `test_send_dm_attachment_lookup.py`.
+  (Reported by Dan Schaad)
+
+## 2026-08-14
+
+### Added
+- **catknows as a hosted service**: [catknows.app](https://catknows.app) — sign
+  up, confirm your address, connect Skool in a browser that runs on the server,
+  and add `https://mcp.catknows.app/mcp` to your AI client. No install, no
+  Python, no terminal. Sign-up is self-service; the local GitHub version stays
+  free and needs no account at all.
+- `read_dms`: read a whole DM conversation, not just the last line per channel.
+  Skool's endpoint caps a single request at 50 messages and only goes further
+  via a per-message cursor — catknows walks it for you. Verified on a real
+  channel spanning ~21 months: 51 messages before, 248 after.
+- **Attachments on writes**: `create_post`, `create_comment` and `send_dm` take
+  an `attachments` list of local file paths. With `confirm=false` nothing is
+  uploaded — the preview only states name, type and size, so a wrong path fails
+  there instead of halfway through a confirmed post.
+
+### Fixed
+- `list_my_communities` reported `member` for every community, including the
+  ones you run. Skool's payload has no `role` field at that level at all; the
+  real membership row sits in `metadata.member` as a JSON string. Admin,
+  moderator and owner now come through correctly.
+- `list_my_communities` showed the community's **founding** date as your
+  `joined_at`. Now it's your actual join date — a community founded in 2021 that
+  you joined in 2024 says 2024.
+- `list_members` returned duplicates instead of paginating: past member 30,
+  Skool re-serves page 1 to non-admins, so a walk of 65 came back as 65 rows of
+  which only ~30 were distinct. Members are now deduped by id, like posts.
+  Fewer rows, all of them real.
+- Role names differed per tool — `list_my_communities` said `admin` while
+  `list_members` and `get_member_profile` said `group-admin`. All paths share
+  one mapping now, so filtering for admins gives the same answer everywhere.
+
 ## 2026-08-10
 
 ### Added

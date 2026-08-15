@@ -255,8 +255,8 @@ plain client just returns the current set).
 |---|---|---|
 | Community About | `GET /_next/data/{buildId}/{slug}/about.json?group={slug}` | Next.js |
 | Calendar/events | `GET /_next/data/{buildId}/{slug}/calendar.json?group={slug}` (`&calDate={unixTs}` for other months) | Next.js |
-| Classroom/courses | `GET /_next/data/{buildId}/{slug}/classroom.json?group={slug}` | Next.js |
-| Single course/module | `GET /_next/data/{buildId}/{slug}/classroom/{courseId}.json?group={slug}&course={courseId}` (`&md={moduleId}` for a specific lesson) | Next.js |
+| Classroom/courses (tiles only — modules need §7.1) | `GET /_next/data/{buildId}/{slug}/classroom.json?group={slug}` | Next.js |
+| Single course/module | `GET /_next/data/{buildId}/{slug}/classroom/{courseId}.json?group={slug}&course={courseId}` (`&md={moduleId}` for a specific lesson) — or the api2 tree, §7.1 | Next.js |
 | Pending join requests (admin) | `GET /_next/data/{buildId}/{slug}/-/pending.json?group={slug}` (send `X-KL-Ajax-Request: Ajax_Request`; see §6.5) | Next.js |
 | Member segments | `GET /_next/data/{buildId}/{slug}/-/members.json?t={active\|cancelling\|churned}&group={slug}&p={page}` | Next.js |
 | Your own settings | `GET /_next/data/{buildId}/settings.json?t=profile` | Next.js |
@@ -582,8 +582,33 @@ POST https://api2.skool.com/polls
 }
 ```
 
-Response contains the poll `id`. Put it in the post's `metadata.poll`. (Skool's
-UI caps polls at 10 options and requires at least 2.)
+Response is flat and names the id `poll_id` — **not** `id`, and not nested
+like `/files`:
+
+```jsonc
+{ "poll_id": "dda6e84fc46b4212889a6f278fde239f" }
+```
+
+Put that value in the post's `metadata.poll`. (Skool's UI caps polls at 10
+options and requires at least 2; the client enforces the same bounds.)
+
+**Reading polls back:** a poll post carries the results inline in its
+metadata as a JSON *string* — `pollData` on the Next.js feed, `poll_data` on
+api2 responses:
+
+```jsonc
+"poll": "dda6e84f...",                      // the poll id
+"pollData": "{\"entries\":[{\"text\":\"Ja\",\"count\":3},{\"text\":\"Nein\",\"count\":1}],\"user_id\":\"...\",\"option_index\":-1}"
+```
+
+`entries` holds one `{text, count}` per option (in creation order);
+`option_index` is which option *you* voted for, `-1` if you haven't.
+`normalize.post` parses this into a flat `poll: [{option, votes}]` list.
+
+Implemented as `SkoolClient.create_poll()`, wired into the `poll` parameter
+of `create_post` and the MCP tool's `poll_options`. Verified live 2026-08-15:
+poll created, attached to a post, results visible in the feed with counts,
+post deleted again (`test_poll_live.py`).
 
 ### 5.6 The full "rich post" order of operations
 
@@ -835,3 +860,197 @@ ship**:
 These arrive automatically inside otherwise-innocuous page payloads (about,
 members, pending, settings). If you persist raw Skool JSON, **strip
 `self`/`allGroups` first** — treat those payloads as containing credentials.
+
+---
+
+## 7. Classroom: courses, folders, pages — read AND write
+
+Everything in Skool's classroom is **one object type** ("unit") arranged as a
+tree, and every verb goes through `api2 /courses`. Live-verified 2026-08-15
+(created, updated, reordered, published and deleted on a private community —
+see `test_classroom_live.py` for the runnable proof).
+
+| UI name | `unit_type` | Position in the tree |
+|---|---|---|
+| Course (tile) | `course` | root — `root_id` points at itself, no `parent_id` |
+| Folder / module group | `set` | child of a course |
+| Page / lesson | `module` | child of a course or a set |
+
+A unit (snake_case, api2 shape):
+
+```jsonc
+{
+  "id": "…32-hex…",          // server-assigned — the client sends NO id
+  "name": "aca1d941",         // short URL slug, server-assigned
+  "unit_type": "course",      // course | set | module
+  "state": 1,                 // 1 = draft (invisible to non-admins), 2 = published
+  "parent_id": "…",           // absent on courses
+  "root_id": "…",             // always the course
+  "group_id": "…", "user_id": "…",
+  "created_at": "…", "updated_at": "…",
+  "metadata": { /* per-type fields, see 7.7 */ }
+}
+```
+
+### 7.1 Reading
+
+| Purpose | Call |
+|---|---|
+| Slug → group UUID (no posts fetch needed) | `GET api2 /groups/{slug}` → `{id, name, metadata}` |
+| Course list of a community | `GET api2 /groups/{gid}/courses` → `{courses: [unit], num_all_courses}` |
+| **One course's full tree — the ONLY module read** | `GET api2 /courses/{courseId}?withChildren=true` → `{course, children: [{course, children: […]}]}` |
+
+The Next.js classroom page (`{slug}/classroom.json`, §1.6) carries **only the
+course tiles** (`pageProps.allCourses[]`, camelCase) — no modules, just
+`numModules`. And `GET /courses/{moduleId}` (any query) answers **400 with an
+empty body** for non-root units: pages are readable *only* through their
+course's tree. Child order in `children[]` is the display order; there is no
+position field on the unit.
+
+### 7.2 Creating — `POST /courses`
+
+One endpoint for all three types; the server assigns `id` and `name`:
+
+```jsonc
+// course
+{ "group_id": "{gid}", "unit_type": "course", "state": 1,   // 1=draft, 2=live
+  "metadata": { "title": "…", "desc": "plain text!", "privacy": 0,
+                "lock_free_trial": 0 } }
+// folder
+{ "group_id": "{gid}", "unit_type": "set", "parent_id": "{courseId}",
+  "root_id": "{courseId}", "state": 2, "metadata": { "title": "…" } }
+// page — parent_id = the course OR a set; root_id ALWAYS the course
+{ "group_id": "{gid}", "unit_type": "module", "parent_id": "{setId}",
+  "root_id": "{courseId}", "state": 2,
+  "metadata": { "title": "…", "desc": "[v2][…]", "resources": "[]" } }
+```
+
+Validation quirk: `metadata.min_access_level` must be **≥ 1 when present**
+(`400 invalid course min access level value: 0`) — omit unset gate fields
+instead of sending 0. New units append at the end of their parent.
+Also observed from the UI: `POST /courses/{unitId}/duplicate` (no body)
+copies a unit; the copy starts as a draft.
+
+### 7.3 Page content: the `[v2]` TipTap format
+
+A **course** `desc` is plain text. A **page** `desc` is Skool's rich-text
+document: the literal prefix `[v2]` followed by a compact JSON **array** of
+TipTap nodes:
+
+```
+[v2][{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}]
+```
+
+Node types captured from the live editor: `paragraph`, `heading`
+(`attrs.level` 1–4), `hardBreak`, `horizontalRule`, `codeBlock`,
+`blockquote`, `bulletList`/`orderedList` + `listItem`, and text marks `bold`,
+`italic`, `code`, `link` (`attrs.href`, plus `class/rel/target` when the UI
+writes one). An empty body is `[v2][]` or `[v2][{"type":"paragraph"}]`.
+
+Beyond text, a page's metadata can carry:
+
+- `video_link` — external embed URL (YouTube/Loom/Vimeo…); Skool fills
+  `video_len_ms` and `video_thumbnail` itself.
+- `video_id` — an **uploaded** video: `POST /videos` with
+  `{"group_id", "file_name", "content_type", "content_length",
+  "reference_type": "course"}` returns `{video_id, upload_url}`; the upload
+  URL is **Mux** (posts used GCS, §5.4 — same call, different backend), PUT
+  the bytes there, then set `video_id` on the page. `transcript` (string)
+  rides along with it.
+- `resources` — a JSON **string** holding the page's file/link attachments.
+  Files come from `POST /files` (§5.3, same S3 flow — `owner_id` = the gid).
+- Cover image (courses): upload via `POST /files` (register + S3 PUT), then
+  set `cover_image` = the file's `read_url` **with the file extension
+  appended** and `cover_image_file` = the file id — always as a pair.
+
+### 7.4 Updating — `PUT /courses/{id}` (flat body!)
+
+The update body is **flat** — the fields of `metadata` at the top level, NOT
+wrapped in `{"metadata": …}` (a wrapped body answers 200 and changes
+*nothing*, the classic silent no-op):
+
+```jsonc
+// page (send ALL of these — omitted page fields can be dropped)
+{ "title": "…", "desc": "[v2][…]", "transcript": null, "video_id": "" }
+// course (the full settings set the UI always sends)
+{ "title": "…", "desc": "…", "cover_image": "…", "cover_image_file": "…",
+  "privacy": 2, "min_access_level": 3, "min_tier": 2,
+  "lock_free_trial": true, "is_afl_comp_eligible": false }
+```
+
+Two verified traps:
+
+1. **The privacy reset.** A partial course PUT (e.g. only `title`) silently
+   resets `privacy` to 0 — open to everyone — while other fields survive.
+   Always read the course first and send the complete settings set
+   (`SkoolClient.update_course_item` does this for you).
+2. **Type asymmetry.** `lock_free_trial`/`is_afl_comp_eligible` are ints in
+   the POST metadata but must be **booleans** in the PUT body — an int
+   answers `400 invalid request body`.
+
+**Publish / unpublish** is its own sub-resource, not a body field (a flat
+`{"state": 2}` PUT is ignored):
+
+```
+PUT /courses/{courseId}/state?state=published    // state -> 2
+PUT /courses/{courseId}/state?state=draft        // state -> 1
+```
+
+### 7.5 Reordering — `POST /courses/{id}/move2?dst={n}`
+
+`dst` is the 0-based target index among the unit's **siblings** (course tiles
+within the classroom, pages within their parent). No body. Re-parenting is
+**not** possible here: `move2` keeps the parent, and a PUT `parent_id` is
+ignored — to move a page into another folder, recreate it there and delete
+the original.
+
+### 7.6 Deleting — `DELETE /courses/{id}`
+
+- **Pages and folders**: plain DELETE, empty 200. ⚠ Deleting a folder does
+  **not** delete its pages — they are lifted to the course root.
+- **A whole course** (children are deleted with it) needs
+  `?client_id={32-hex}` — without it: `400 invalid client ID`. The id is the
+  web app's persistent client id, and it must have passed Skool's email-code
+  check once: `POST /auth/email-verify-init {"client_id"}` (mails a 4-digit
+  code) → `POST /auth/email-verify {"client_id", "code"}`. The verification
+  **sticks to the client_id across sessions** — grab the id from your own
+  browser after deleting any course in the UI once, then reuse it forever.
+  (A fresh random hex id would need that email dance first.)
+
+### 7.7 The option matrix (what a unit can carry)
+
+Course `metadata` — all verified live except where noted:
+
+| Field | Meaning |
+|---|---|
+| `title` | tile title (UI caps ~50 chars — reported, not probed) |
+| `desc` | plain-text description under the tile |
+| `privacy` | **0** open to members · **1** level-locked (needs `min_access_level` ≥ 1) · **2** private/tier (pairs with `min_tier`) |
+| `min_access_level` | gamification level 1–9 that unlocks the course |
+| `min_tier` | paid tier gate (0 = none) |
+| `lock_free_trial` | keep free-trial members out (int on POST, bool on PUT) |
+| `is_afl_comp_eligible` | counts toward affiliate commissions (bool, PUT) |
+| `cover_image` + `cover_image_file` | cover pair (§7.3) — always both |
+| `num_modules`, `has_access` | server-computed; `num_modules` lags/counts only published content — don't write them |
+
+Page (`module`) `metadata`: `title`, `desc` (`[v2]`), `video_link` *or*
+`video_id` (+ server-filled `video_len_ms`, `video_thumbnail`), `transcript`,
+`resources` (JSON string), `lock_free_trial`. Folders (`set`): `title` only.
+
+**Not yet mapped:** drip / time-based unlock (Skool's UI offers it per
+course; no drip field appeared in any captured payload — the communities
+tested never had it configured. Configure it once in the UI with DevTools
+open and the field will show up in the same flat course PUT), and cross-folder
+moves (see §7.5). Third-party docs claim `privacy: 3` (purchase) and
+`privacy: 4` (drip) exist — unverified here.
+
+### 7.8 In this repo
+
+`SkoolClient`: `classroom_courses`, `course_tree`, `create_course`,
+`create_course_item`, `update_course_item` (read-merge guard against the
+privacy reset), `set_course_state`, `move_course_item`, `delete_course_item`,
+plus the `tiptap()` helper (plain text → `[v2]` paragraphs). MCP tools (reads
+always on, writes behind `CATKNOWS_ALLOW_WRITE=1`, draft-first):
+`get_course_tree`, `create_course`, `create_course_item`,
+`update_course_item`, `publish_course`, `move_course_item`,
+`delete_course_item`.

@@ -142,6 +142,16 @@ def post(tree: dict) -> dict:
     meta = p.get("metadata") or {}
     skool_id = p.get("id", "")
     root_id = p.get("rootId", "")
+    # Native poll: metadata.pollData (camelCase feed) / poll_data (api2) is a
+    # JSON string with per-option vote counts. Absent on non-poll posts.
+    poll = None
+    poll_raw = meta.get("pollData") or meta.get("poll_data") or ""
+    if poll_raw:
+        try:
+            poll = [{"option": e.get("text", ""), "votes": int(e.get("count", 0) or 0)}
+                    for e in json.loads(poll_raw).get("entries", [])]
+        except (ValueError, AttributeError):
+            poll = None
     return {
         "skool_id": skool_id,
         "name": p.get("name", ""),  # URL slug, NOT the display title
@@ -157,6 +167,7 @@ def post(tree: dict) -> dict:
         "is_toplevel": root_id == "" or root_id == skool_id,
         "comments": int(meta.get("comments", 0) or 0),
         "upvotes": int(meta.get("upvotes", 0) or 0),
+        "poll": poll,
         "created_at": _ns_or_iso_to_dt(p.get("createdAt")),
     }
 
@@ -444,6 +455,15 @@ if __name__ == "__main__":
     assert dm["created_at"].year == 2026, dm
     bare = chat_message({"id": "m2"})
     assert bare["content"] == "" and bare["files"] == [], bare
+
+    # Poll post: vote counts ride in metadata.pollData as a JSON string.
+    pp = post({"post": {"id": "p9", "metadata": {
+        "title": "t", "poll": "poll1",
+        "pollData": '{"entries":[{"text":"Ja","count":3},{"text":"Nein","count":1}],'
+                    '"option_index":-1}'}}})
+    assert pp["poll"] == [{"option": "Ja", "votes": 3},
+                          {"option": "Nein", "votes": 1}], pp
+    assert post({"post": {"id": "p0", "metadata": {}}})["poll"] is None
 
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"
