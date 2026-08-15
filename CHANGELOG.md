@@ -38,6 +38,14 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   message said "delete the profile dir", which hosted users can't do. It now
   points hosted users at reconnecting their Skool login and explains that the
   WAF token can go stale while the login itself is still valid.
+- **Hosted sessions now refresh their WAF token by themselves.** The token
+  inside a stored session expires within hours while the Skool login stays
+  valid for a year — and a stale token is what turns member-list requests
+  into 403s and silent failures. Sessions older than four hours now get a
+  silent server-side browser revisit (the same browser profile the streamed
+  login left behind) before they're used, so hosted sessions stop aging into
+  that state. Users who stored a cookie manually are unaffected — there is
+  no browser profile to refresh from, and everything keeps working as before.
 
 ### Added
 - **`list_members` can filter and sort now** — the full Skool members query

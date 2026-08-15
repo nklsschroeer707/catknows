@@ -79,6 +79,21 @@ def load(subject: str) -> str | None:
         return None
 
 
+def age(subject: str) -> float | None:
+    """Seconds since this subject's session was stored, or None if there is none.
+
+    Drives the WAF-token refresh: the stored cookie's aws-waf-token ages while
+    the login itself stays valid, so "how old is the file" is the cheap and
+    honest staleness signal.
+    """
+    import time
+
+    try:
+        return max(0.0, time.time() - _path(subject).stat().st_mtime)
+    except OSError:
+        return None
+
+
 def delete(subject: str) -> bool:
     """Remove this user's session. True if there was one."""
     p = _path(subject)
@@ -197,6 +212,11 @@ def _self_check() -> None:
         save("bob", "auth_token=bbb")
         assert load("alice") == "auth_token=aaa; aws-waf-token=x"
         assert load("bob") == "auth_token=bbb", "bob must not see alice's session"
+
+        # age() is the WAF-refresh staleness signal: fresh ~0, unknown None.
+        assert age("nobody") is None, "no session -> no age"
+        a = age("alice")
+        assert a is not None and a < 60, f"a just-saved session must be young: {a}"
 
         raw = _path("alice").read_bytes()
         assert b"aaa" not in raw, "the cookie must not sit on disk in the clear"

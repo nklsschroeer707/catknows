@@ -320,6 +320,47 @@ async def _suppress(awaitable: Any) -> None:
 manager = LoginManager()
 
 
+async def refresh_cookie(subject: str) -> str | None:
+    """Headless re-visit of this user's persisted Chromium profile, so Skool's
+    WAF JS writes a fresh ``aws-waf-token`` into the jar.
+
+    The stored session's WAF token ages while the year-long login stays valid,
+    and a stale token degrades exactly the paginated/filtered endpoints first
+    (measured 2026-08-15: members.json turns into 202-challenges/403s). The
+    profile that the streamed login left behind is still logged in, so a
+    silent revisit is all it takes — no streaming, no user input.
+
+    Returns the fresh cookie header, or None when this user has no usable
+    profile: sessions stored via ``catknows-session store`` never had a
+    browser here, and a profile whose Skool login expired can't heal itself.
+    """
+    profile = manager.profile_dir(subject)
+    if not profile.is_dir() or not any(profile.iterdir()):
+        return None  # no browser profile on this box — nothing to refresh from
+
+    from playwright.async_api import async_playwright
+
+    pw = await async_playwright().start()
+    try:
+        ctx = await pw.chromium.launch_persistent_context(
+            user_data_dir=str(profile),
+            headless=True,
+            viewport=VIEWPORT,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        try:
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+            await page.goto(SKOOL_HOME_URL, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2500)  # let the WAF JS run
+            session = _cookies_to_session(await ctx.cookies())
+            return session.cookie_header if session.is_valid else None
+        finally:
+            await ctx.close()
+    finally:
+        with contextlib.suppress(Exception):
+            await pw.stop()
+
+
 def _self_check() -> None:
     """python -m catknows.remote_login — the parts that don't need a browser."""
     import hashlib
@@ -345,6 +386,10 @@ def _self_check() -> None:
         # Input and completion checks on an unknown subject don't explode.
         assert m.get("nobody") is None
         assert await m.check_login("nobody") is None
+
+        # A refresh without a browser profile answers None fast — before any
+        # Playwright import. Manual-cookie users must not cost a Chromium.
+        assert await refresh_cookie("nobody-has-this-profile") is None
         try:
             await m.input("nobody", {"type": "mousePressed"})
             raise AssertionError("input without a session must be refused")

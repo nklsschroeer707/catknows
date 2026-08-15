@@ -69,6 +69,44 @@ mcp = MCPServer("catknows", **_auth_kwargs())
 
 _client = None  # lazy: log in only when the first tool actually needs Skool
 _clients: dict[str, Any] = {}  # per-user clients, keyed by OAuth subject
+_client_built: dict[str, float] = {}  # subject -> monotonic build time
+
+# WAF-token refresh (hosted): a stored session's aws-waf-token ages while the
+# year-long login stays valid, and a stale token degrades members.json into
+# 202-challenges/403s (measured 2026-08-15 — the likely cause of Dan's
+# skoolers 403). Sessions older than this get a silent headless re-visit of
+# the user's persisted Chromium profile before a client is built from them.
+_REFRESH_AGE_S = float(os.environ.get("CATKNOWS_SESSION_REFRESH_AGE", str(4 * 3600)))
+_REFRESH_RETRY_S = 900  # a failed refresh isn't retried for 15 min
+_refresh_lock = None  # created lazily — one Chromium at a time on a 4 GB box
+_refresh_last_try: dict[str, float] = {}
+
+
+def _refresh_session_cookie(subject: str) -> str | None:
+    """Best-effort fresh cookie header for this subject, or None to keep the
+    stored one. Never raises: the stored cookie may still work fine."""
+    import threading
+    import time as _time
+
+    age = sessions.age(subject)
+    if age is None or age < _REFRESH_AGE_S:
+        return None
+    global _refresh_lock
+    if _refresh_lock is None:
+        _refresh_lock = threading.Lock()
+    with _refresh_lock:
+        last = _refresh_last_try.get(subject, float("-inf"))
+        if _time.monotonic() - last < _REFRESH_RETRY_S:
+            return None
+        _refresh_last_try[subject] = _time.monotonic()
+        try:
+            import asyncio
+
+            from .remote_login import refresh_cookie
+
+            return asyncio.run(asyncio.wait_for(refresh_cookie(subject), 90))
+        except Exception:
+            return None
 
 
 def _http_mode() -> bool:
@@ -124,7 +162,12 @@ def _get_client():
                 "No verified user on this request, so there is no session to use. "
                 "The hosted server requires OAuth."
             )
-        if subject not in _clients:
+        import time as _time
+
+        # Rebuild after _REFRESH_AGE_S so a long-lived process picks up
+        # refreshed cookies instead of serving a client built days ago.
+        stale = _time.monotonic() - _client_built.get(subject, 0) > _REFRESH_AGE_S
+        if subject not in _clients or stale:
             # ponytail: evict-oldest at 50; an LRU matters once concurrent users
             # outnumber that, and each entry holds an open HTTP session.
             if len(_clients) >= 50:
@@ -143,7 +186,12 @@ def _get_client():
                     "password goes to Skool and the session cookie never passes "
                     "through this chat."
                 )
+            fresh = _refresh_session_cookie(subject)
+            if fresh:
+                sessions.save(subject, fresh)
+                cookie = fresh
             _clients[subject] = _client_from_cookie(cookie)
+            _client_built[subject] = _time.monotonic()
         return _clients[subject]
 
     if _client is None:
@@ -237,6 +285,7 @@ if sessions.enabled():
         if not subject:
             raise RuntimeError("No verified user on this request.")
         _clients.pop(subject, None)
+        _client_built.pop(subject, None)
         existed = sessions.delete(subject)
         return {"status": "deleted" if existed else "nothing stored"}
 
