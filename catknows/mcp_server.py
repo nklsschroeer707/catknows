@@ -120,20 +120,51 @@ def login_to_skool() -> str:
     return "Logged in. Session persisted — future calls run without the browser."
 
 
+# AI-facing flag names -> members() keyword arguments. Flat strings, because
+# MCP arguments are flat text (see _csv_arg) — no nested filter objects.
+_MEMBER_FILTER_KWARGS = {
+    "admins": "admins", "online": "online", "trials": "trials",
+    "monthly": "monthly", "annual": "annual", "one_time": "one_time",
+    "free": "free",
+}
+
+
 @mcp.tool()
-def list_members(community_slug: str, limit: int = 25, raw: bool = False) -> list[dict]:
+def list_members(community_slug: str, limit: int = 25, raw: bool = False,
+                 lifecycle: str = "", sort: str = "last_active",
+                 filters: str = "", tiers: str = "",
+                 course_ids: str = "") -> list[dict]:
     """List members of a Skool community: name, role, points, level, last-active, and more.
 
-    Sorted by Skool DESC on last-active, so the default (limit=25) is the most
+    Sorted by Skool DESC on last-active by default, so limit=25 is the most
     recently active members. community_slug is the part after skool.com/ in the
     URL. raw=True returns Skool's unmodified JSON (large — keep limit small, it's
     hard-capped to avoid exceeding the tool-result size limit).
+
+    Filtering (works for regular members too, not just admins):
+    - lifecycle: active | cancelling | churned | banned (empty = default view)
+    - sort: newest | last_active | most_points
+    - filters: comma-separated flags out of admins, online, trials, monthly,
+      annual, one_time, free. Multiple flags combine as AND (Skool-native) —
+      "annual OR free" needs two calls, merged by you.
+    - tiers: comma-separated tier names (e.g. standard,premium,vip) — OR.
+    - course_ids: comma-separated course ids (from get_classroom) — AND.
 
     If Skool stops serving fresh pages mid-walk (degraded/stale session), the
     last list entry is {"incomplete": true, ...} — treat the list as truncated,
     NOT as the whole community.
     """
-    users = _get_client().members(community_slug, limit=_cap(limit, raw))
+    kwargs: dict = {}
+    for name in _csv_arg(filters):
+        key = _MEMBER_FILTER_KWARGS.get(name.lower())
+        if key is None:
+            raise ValueError(
+                f"Unknown filter {name!r}. "
+                f"One of: {', '.join(_MEMBER_FILTER_KWARGS)}.")
+        kwargs[key] = True
+    users = _get_client().members(
+        community_slug, limit=_cap(limit, raw), lifecycle=lifecycle, sort=sort,
+        tiers=_csv_arg(tiers), course_ids=_csv_arg(course_ids), **kwargs)
     out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
     if users.incomplete:
         out.append({
