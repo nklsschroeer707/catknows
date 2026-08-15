@@ -40,6 +40,16 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   WAF token can go stale while the login itself is still valid.
 
 ### Added
+- **`list_members` can filter and sort now** — the full Skool members query
+  model, mapped and verified by Dan Schaad's report (2026-08-14) and measured
+  live: `lifecycle` (active/cancelling/churned/banned), `sort`
+  (newest/last_active/most_points), `filters` (comma-separated flags:
+  admins, online, trials, monthly, annual, one_time, free — AND-combined),
+  `tiers` (comma-separated, OR-combined) and `course_ids` (comma-separated,
+  AND-combined; ids from `get_classroom`). Works for regular members, not
+  just admins. Unknown values fail with a clear error instead of Skool's
+  misleading 404. Note the Skool-native asymmetry: "annual OR free" needs
+  two calls, merged by the caller. (Spec: Dan Schaad's PDF — thanks!)
 - **Native polls** — `create_post` takes `poll_options` (2–10 comma-separated
   answers) and creates a real Skool poll widget on the post, no more "vote via
   comment" workarounds. Draft-first like every write: the poll is only created

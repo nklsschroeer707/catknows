@@ -65,12 +65,43 @@ def test_limit_stops_the_walk_early():
     assert got.incomplete is False, "hitting the limit is success, not truncation"
 
 
+def test_mcp_tool_filter_plumbing():
+    """Flat string filters reach members() as kwargs; unknown flags fail fast."""
+    import catknows.mcp_server as m
+
+    seen = {}
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            seen.update(kwargs)
+            return MemberList()
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        m.list_members("x", limit=5, lifecycle="churned", sort="most_points",
+                       filters="admins, online", tiers="standard\\,x,vip",
+                       course_ids="c1,c2")
+        assert seen["lifecycle"] == "churned" and seen["sort"] == "most_points", seen
+        assert seen["admins"] is True and seen["online"] is True, seen
+        assert seen["tiers"] == ["standard,x", "vip"], "\\, must stay one tier"
+        assert seen["course_ids"] == ["c1", "c2"], seen
+        assert "trials" not in seen, "unset flags must stay unset"
+        try:
+            m.list_members("x", filters="admins,quatsch")
+            raise AssertionError("unknown filter flag must be rejected")
+        except ValueError as e:
+            assert "quatsch" in str(e), e
+    finally:
+        m._get_client = real
+
+
 def test_mcp_tool_appends_incomplete_trailer():
     """The AI-facing layer must surface the flag, not swallow it."""
     import catknows.mcp_server as m
 
     class FakeClient:
-        def members(self, slug, limit=None):
+        def members(self, slug, **kwargs):
             ml = MemberList(P1)
             ml.incomplete, ml.pages_walked, ml.total_pages = True, 2, 20
             return ml
@@ -88,7 +119,7 @@ def test_mcp_tool_appends_incomplete_trailer():
     assert trailer["total_pages"] == 20, trailer
     # And a complete result must stay exactly as before — no trailer.
     class FullClient:
-        def members(self, slug, limit=None):
+        def members(self, slug, **kwargs):
             return MemberList(P1)
 
     m._get_client = lambda: FullClient()
@@ -103,5 +134,6 @@ if __name__ == "__main__":
     test_truncated_walk_is_flagged()
     test_full_walk_is_not_flagged()
     test_limit_stops_the_walk_early()
+    test_mcp_tool_filter_plumbing()
     test_mcp_tool_appends_incomplete_trailer()
     print("ok — truncated member walks are flagged, complete ones stay clean")

@@ -46,6 +46,56 @@ class MemberList(list):
     total_pages = 1
 
 
+_MEMBER_SORTS = {
+    "newest": "-memberapprovedat",
+    "last_active": "-memberlastoffline",
+    "most_points": "-memberpoints",
+}
+_MEMBER_LIFECYCLES = ("active", "cancelling", "churned", "banned")
+# Skool's boolean member filters, in the order the browser's page-2 tail sends
+# them. Separate flags combine as AND server-side (annual=true&free=true = 0).
+_MEMBER_FLAGS = ("admin", "online", "trials", "monthly", "annual", "oneTime", "free")
+
+
+def _members_query(slug: str, page: int, *, sort_type: str, lifecycle: str = "",
+                   flags: dict | None = None, tiers: list[str] = (),
+                   course_ids: list[str] = ()) -> str:
+    """The members.json query for one page, browser-faithful.
+
+    Verified live 2026-08-15: page 1 takes only the active filters; follow-up
+    pages carry the full filter tail (unset flags as ``false``/empty, exactly
+    like Skool's own browser requests — including ``oneTime``/``free``, which
+    the old hand-written tail omitted).
+    """
+    flags = flags or {}
+    q = []
+    if lifecycle:
+        q.append(f"t={lifecycle}")
+    q.append(f"sortType={sort_type}")
+    if page > 1:
+        q.append(f"p={page}")
+        q.append("online=true" if flags.get("online") else "online=")
+        q.append("levels=")
+        q.append("price=")
+        q.append(f"courseIds={','.join(course_ids)}")
+        for name in ("monthly", "annual", "oneTime", "trials", "free"):
+            q.append(f"{name}={'true' if flags.get(name) else 'false'}")
+        if flags.get("admin"):
+            q.append("admin=true")
+        if tiers:
+            q.append(f"tiers={','.join(tiers)}")
+    else:
+        for name in _MEMBER_FLAGS:
+            if flags.get(name):
+                q.append(f"{name}=true")
+        if tiers:
+            q.append(f"tiers={','.join(tiers)}")
+        if course_ids:
+            q.append(f"courseIds={','.join(course_ids)}")
+    q.append(f"group={slug}")
+    return f"/{slug}/-/members.json?" + "&".join(q)
+
+
 class SkoolClient:
     def __init__(self, session: Session):
         self.http = SkoolHTTP(session)
@@ -53,13 +103,26 @@ class SkoolClient:
     # -- members ---------------------------------------------------------------
 
     def members(self, community_slug: str, *, all_pages: bool = True,
-                limit: int | None = None) -> MemberList:
+                limit: int | None = None, lifecycle: str = "",
+                sort: str = "last_active", admins: bool = False,
+                online: bool = False, trials: bool = False,
+                monthly: bool = False, annual: bool = False,
+                one_time: bool = False, free: bool = False,
+                tiers: list[str] = (), course_ids: list[str] = ()) -> MemberList:
         """All members of a community (raw ``pageProps.users[]`` objects).
 
         Sorted by Skool DESC on "last offline" so currently-active members come
-        first. Walks every page by default. Each user object nests ``member``
-        (role, groupId, points) and ``metadata`` (online, lastOffline in
-        NANOSECONDS, pictureProfile, bio).
+        first (``sort``: newest | last_active | most_points). Walks every page
+        by default. Each user object nests ``member`` (role, groupId, points)
+        and ``metadata`` (online, lastOffline in NANOSECONDS, pictureProfile,
+        bio).
+
+        Filters (docs/API.md §1.1, verified live — they work for regular
+        members too, not just admins): ``lifecycle`` is Skool's ``t=`` value
+        (active/cancelling/churned/banned; empty = default view). The boolean
+        flags and multiple ``course_ids`` combine as AND server-side; multiple
+        ``tiers`` combine as OR. There is no native OR across flag families —
+        "annual OR free" needs two calls, unioned by the caller.
 
         ``limit`` stops paginating once that many unique members are collected
         — callers that need the first N shouldn't walk a 160k community.
@@ -72,25 +135,33 @@ class SkoolClient:
         :class:`MemberList` now also SAYS when the walk ended early
         (``incomplete``) instead of letting a truncated list look complete.
         """
-        # No `t=active`: it's redundant, not forbidden — and Skool FLIPPED it
-        # server-side. Measured 2026-08-12: 404 for everyone, owners included
-        # (four communities). Measured 2026-08-15: 200 for everyone, and the
-        # response is the exact unfiltered list (it's the default view).
-        # Unknown t-values (t=quatsch) still 404. Don't re-add it: it buys
-        # nothing and its behaviour has already changed once.
+        # No default `t=active`: it's redundant, not forbidden — and Skool
+        # FLIPPED it server-side. Measured 2026-08-12: 404 for everyone,
+        # owners included (four communities). Measured 2026-08-15: 200 for
+        # everyone, returning the exact unfiltered list (it's the default
+        # view). Unknown t-values (t=quatsch) still 404 — which is why
+        # `lifecycle` is validated here instead of letting Skool answer with
+        # a misleading "no access" 404.
+        if lifecycle and lifecycle not in _MEMBER_LIFECYCLES:
+            raise ValueError(
+                f"Unknown lifecycle {lifecycle!r} — Skool 404s on unknown values. "
+                f"One of: {', '.join(_MEMBER_LIFECYCLES)} (or empty for the default view).")
+        if sort not in _MEMBER_SORTS:
+            raise ValueError(
+                f"Unknown sort {sort!r}. One of: {', '.join(_MEMBER_SORTS)}.")
+        flags = {"admin": admins, "online": online, "trials": trials,
+                 "monthly": monthly, "annual": annual, "oneTime": one_time,
+                 "free": free}
+        tiers, course_ids = list(tiers), list(course_ids)
+
         out = MemberList()
         seen: set[str] = set()
         page = 1
         total_pages = 0
         while True:
-            if page == 1:
-                q = (f"/{community_slug}/-/members.json"
-                     f"?sortType=-memberlastoffline&group={community_slug}")
-            else:
-                q = (f"/{community_slug}/-/members.json"
-                     f"?sortType=-memberlastoffline&p={page}"
-                     f"&online=&levels=&price=&courseIds=&monthly=false"
-                     f"&annual=false&trials=false&group={community_slug}")
+            q = _members_query(community_slug, page,
+                               sort_type=_MEMBER_SORTS[sort], lifecycle=lifecycle,
+                               flags=flags, tiers=tiers, course_ids=course_ids)
             data = self.http.get_next(q, community_slug)
             users = _dig(data, "pageProps", "users") or []
             tp = _dig(data, "pageProps", "totalPages")
@@ -797,6 +868,34 @@ if __name__ == "__main__":  # python -m catknows.client
     assert [u["id"] for u in got] == ["a", "b"], got
     assert limited.http.calls == 1, "limit satisfied on page 1 — stop paging"
     assert got.incomplete is False, "hitting the limit is success, not truncation"
+
+    # The query builder: unfiltered page 1 must stay byte-identical to the
+    # shape that's been verified live for weeks; the page-2 tail is the full
+    # browser tail (incl. oneTime/free, verified live 2026-08-15).
+    assert _members_query("x", 1, sort_type="-memberlastoffline") == \
+        "/x/-/members.json?sortType=-memberlastoffline&group=x"
+    assert _members_query("x", 2, sort_type="-memberlastoffline") == (
+        "/x/-/members.json?sortType=-memberlastoffline&p=2"
+        "&online=&levels=&price=&courseIds=&monthly=false&annual=false"
+        "&oneTime=false&trials=false&free=false&group=x")
+    filtered = _members_query(
+        "x", 1, sort_type="-memberapprovedat", lifecycle="churned",
+        flags={"admin": True, "annual": True}, tiers=["vip"], course_ids=["c1", "c2"])
+    assert filtered == ("/x/-/members.json?t=churned&sortType=-memberapprovedat"
+                        "&admin=true&annual=true&tiers=vip&courseIds=c1,c2&group=x"), filtered
+    f2 = _members_query("x", 2, sort_type="-memberlastoffline",
+                        flags={"admin": True, "online": True}, tiers=["vip"])
+    assert "online=true" in f2 and "admin=true" in f2 and "tiers=vip" in f2, f2
+    # Filter args reach the query, and bad values fail HERE, not as Skool 404s.
+    fc = _client([p1])
+    fc.members("x", lifecycle="churned", admins=True, sort="most_points")
+    sent = fc.http.calls  # _FakeHTTP counts; the query itself:
+    for bad_kwargs in ({"lifecycle": "quatsch"}, {"sort": "quatsch"}):
+        try:
+            _client([p1]).members("x", **bad_kwargs)
+            raise AssertionError(f"{bad_kwargs} must be rejected")
+        except ValueError:
+            pass
 
     # chat_messages: the first read is capped at 50, so anything longer has to
     # walk the msg= cursor. Windows overlap on the boundary message.
