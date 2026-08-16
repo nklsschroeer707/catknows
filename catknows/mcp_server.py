@@ -419,7 +419,7 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         "total_admins": md.get("totalAdmins"),
         "total_posts": md.get("totalPosts"),
         "num_courses": md.get("numCourses"),
-        "privacy": md.get("privacy"),  # 1=private, 2=public
+        "privacy": md.get("privacy"),  # unreliable: about.json returns 1 for public and private groups alike (verified 2026-08-16)
         "owner": owner.get("name") if isinstance(owner, dict) else owner,
         "created_by": md.get("createdBy"),
     }
@@ -763,8 +763,11 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """Create a REAL post in the community, as the logged-in user, visible to all members.
 
         attachments is a comma-separated list of LOCAL FILE PATHS (images, PDFs,
-        ...). They are uploaded to Skool only when confirm=true; the draft just
-        lists their name, type and size.
+        GIFs — a .gif uploads and animates fine). They are uploaded to Skool only
+        when confirm=true; the draft just lists their name, type and size.
+        The paths are read by THIS server, so on the hosted deployment they must
+        exist on the server's disk — an AI client cannot attach a file from its
+        own machine. Hosted users attach media in Skool's editor instead.
         poll_options turns the post into a native Skool poll: a comma-separated
         list of 2–10 answer options (e.g. "Yes,No"). The poll is created on
         Skool only when confirm=true. An option that contains a comma must

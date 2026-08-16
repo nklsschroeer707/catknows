@@ -689,14 +689,24 @@ Implemented as `SkoolClient.create_comment()` / the `create_comment` MCP tool
 this easy to get wrong: `root_id` is **always** the post, while `parent_id` is
 the *comment* for a reply and the *post* for a top-level comment.
 
-### 5.9 What's *not* here
+### 5.9 Deleting a post — `DELETE /posts/{id}`
+
+```
+DELETE https://api2.skool.com/posts/{post_id}
+```
+
+Empty 200 on success, same api2 header set as every other write. Verified live
+2026-08-16 (own post in a private group; the post and its attachment vanish from
+the feed immediately). Deleting someone else's post is untested — expect the
+usual moderator-permission rules.
+
+### 5.10 What's *not* here
 
 These were never observed in the reverse-engineered traffic, so they're left
-undocumented rather than guessed: casting a **like/vote** and
-**editing/deleting** a post. The read side (§1.4, §1.5) exists; the
-corresponding write verbs likely follow the same `api2` conventions
-(`POST`/`PUT`/`DELETE` on `/posts/{id}/...`) but confirm them from your own
-browser's Network tab before relying on them.
+undocumented rather than guessed: casting a **like/vote** and **editing** a
+post. The read side (§1.4, §1.5) exists; the corresponding write verbs likely
+follow the same `api2` conventions (`POST`/`PUT` on `/posts/{id}/...`) but
+confirm them from your own browser's Network tab before relying on them.
 
 ---
 
@@ -783,7 +793,7 @@ GET /_next/data/{buildId}/{slug}/about.json?group={slug}
 | `numCourses`, `numModules`, `totalRules` | classroom & rules footprint |
 | `owner` | `{id, name, metadata.bio}` of the owner — arrives as a JSON **string** (parse it, like `displayPrice`); `createdBy` = creator UUID |
 | `aflPercent` | affiliate commission % |
-| `privacy` | 1 = private, 2 = public |
+| `privacy` | unreliable on `about.json` — observed `1` for public *and* private groups alike (catnose public, retaunfiltered private, both `1`; live-checked 2026-08-16). Do not use to determine group privacy |
 | `tabs` | which features are enabled (`classroom`, `calendar`, `audio-chat`, …) |
 | `plugin*Enabled` | active integrations: `pluginHyrosEnabled`, `pluginZapierEnabled`, `pluginGoogleAdsEnabled`, `pluginMetaConversionsEnabled`, `pluginAutoDmEnabled` |
 | `hyrosScriptUrl`, `googleTagId` | the actual tracking IDs the owner wired up |

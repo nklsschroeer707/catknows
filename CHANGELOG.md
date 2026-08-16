@@ -9,6 +9,25 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-08-16
+
+### Documentation
+- **Attaching a file works differently on the hosted service, and now says so.**
+  `create_post` reads attachment paths on the *server*, so a path on your own
+  machine is invisible to the hosted deployment — the attachment silently never
+  appears. Hosted users attach media in Skool's own editor instead; self-hosted
+  users pass local paths as before. A `.gif` uploads and animates fine either
+  way (verified live).
+- **`DELETE /posts/{id}` is verified, not guessed.** docs/API.md §5.9 listed
+  deleting a post under "not documented, confirm it yourself". It is measured
+  now: empty 200, same header set as every other write, post and attachment
+  gone from the feed immediately. Editing a post and casting a like remain
+  unverified.
+- **The `privacy` field on `about.json` does not tell you if a group is
+  private.** It was documented as `1 = private, 2 = public`; measured live, a
+  public community and a paid private one both return `1`. `get_community_about`
+  still passes the field through, but nothing should read it as a privacy flag.
+
 ## 2026-08-15
 
 ### Fixed
