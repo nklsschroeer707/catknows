@@ -24,8 +24,9 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   gone from the feed immediately. Editing a post and casting a like remain
   unverified.
 - **The `privacy` field on `about.json` does not tell you if a group is
-  private.** It was documented as `1 = private, 2 = public`; measured live, a
-  public community and a paid private one both return `1`. `get_community_about`
+  private.** It was documented as `1 = private, 2 = public`. Measured live, a
+  public community and a paid private one both return `1` — and the same public
+  community returned `1` and then `0` a few hours later. `get_community_about`
   still passes the field through, but nothing should read it as a privacy flag.
 
 ## 2026-08-15

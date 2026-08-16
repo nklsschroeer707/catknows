@@ -793,7 +793,7 @@ GET /_next/data/{buildId}/{slug}/about.json?group={slug}
 | `numCourses`, `numModules`, `totalRules` | classroom & rules footprint |
 | `owner` | `{id, name, metadata.bio}` of the owner — arrives as a JSON **string** (parse it, like `displayPrice`); `createdBy` = creator UUID |
 | `aflPercent` | affiliate commission % |
-| `privacy` | unreliable on `about.json` — observed `1` for public *and* private groups alike (catnose public, retaunfiltered private, both `1`; live-checked 2026-08-16). Do not use to determine group privacy |
+| `privacy` | not a privacy flag on `about.json`. A public and a paid-private community both returned `1`, and the *same* public community returned `1` and then `0` hours later (live-checked 2026-08-16). Whatever it tracks, it isn't visibility — don't read it as one |
 | `tabs` | which features are enabled (`classroom`, `calendar`, `audio-chat`, …) |
 | `plugin*Enabled` | active integrations: `pluginHyrosEnabled`, `pluginZapierEnabled`, `pluginGoogleAdsEnabled`, `pluginMetaConversionsEnabled`, `pluginAutoDmEnabled` |
 | `hyrosScriptUrl`, `googleTagId` | the actual tracking IDs the owner wired up |

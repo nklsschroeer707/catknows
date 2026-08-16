@@ -419,7 +419,7 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         "total_admins": md.get("totalAdmins"),
         "total_posts": md.get("totalPosts"),
         "num_courses": md.get("numCourses"),
-        "privacy": md.get("privacy"),  # unreliable: about.json returns 1 for public and private groups alike (verified 2026-08-16)
+        "privacy": md.get("privacy"),  # NOT a visibility flag — public and private groups both return 1, and one group flipped 1->0 within hours (2026-08-16)
         "owner": owner.get("name") if isinstance(owner, dict) else owner,
         "created_by": md.get("createdBy"),
     }
