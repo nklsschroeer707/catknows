@@ -341,10 +341,13 @@ def my_community(group: dict, my_user_id: str = "") -> dict:
     is_owner = bool(my_user_id and owner and owner == my_user_id)
     if is_owner:
         role = "owner"
-    joined = _either(member, "createdAt", "created_at") or _either(
-        group, "createdAt", "created_at"
-    )
-    return {
+    # No membership row means we do NOT know when you joined. The outer
+    # created_at is the community's founding date, and returning it here is
+    # what made every community look like a day-one join for two weeks. A
+    # wrong date that looks real is worse than a gap: say None and flag it,
+    # so a caller can tell "joined at founding" from "never read the row".
+    joined = _either(member, "createdAt", "created_at")
+    out = {
         "slug": group.get("name", ""),  # `name` is the slug, display_name is the label
         "display_name": _either(meta, "displayName", "display_name", ""),
         "role": role or "member",
@@ -354,6 +357,14 @@ def my_community(group: dict, my_user_id: str = "") -> dict:
         "color": meta.get("color", ""),
         "logo_url": _either(meta, "logoUrl", "logo_url", ""),
     }
+    if not member:
+        # Same silence covers `role`: without the row it defaults to "member",
+        # which reads as a fact but is only a guess. Owner is derived
+        # separately from metadata.owner, so it stays trustworthy.
+        out["incomplete"] = "metadata.member missing: joined_at unknown" + (
+            "" if is_owner else ", role is a default and not measured"
+        )
+    return out
 
 
 # -- secret scrubbing (docs/API.md §6.6) --------------------------------------
@@ -516,10 +527,15 @@ if __name__ == "__main__":
     # camelCase, so the tests passed while production shipped blank names and
     # 0 members. `name` is the slug, the label lives in metadata.display_name,
     # and an owned group carries NO role at all (the owner id has to resolve it).
+    # Even an owned group ships metadata.member (live: catnose lists the owner
+    # as group-admin, joined on the founding day). Leaving it out of the fixture
+    # is what let the founding-date fallback pass for correct.
     owned = my_community(
         {"name": "catnose", "created_at": "2025-01-02T03:04:05.000000Z",
          "metadata": {"display_name": "catknows.", "owner": "me-uuid",
-                      "total_members": 29, "logo_url": "https://x/y.png"}},
+                      "total_members": 29, "logo_url": "https://x/y.png",
+                      "member": '{"role": "group-admin",'
+                                ' "created_at": "2025-01-02T03:04:05.000000Z"}'}},
         my_user_id="me-uuid",
     )
     assert owned["slug"] == "catnose", owned
@@ -532,7 +548,9 @@ if __name__ == "__main__":
     camel = my_community(
         {"name": "catnose", "createdAt": "2025-01-02T03:04:05.000000Z",
          "metadata": {"displayName": "catknows.", "owner": "me-uuid",
-                      "totalMembers": 29, "logoUrl": "https://x/y.png"}},
+                      "totalMembers": 29, "logoUrl": "https://x/y.png",
+                      "member": '{"role": "group-admin",'
+                                ' "createdAt": "2025-01-02T03:04:05.000000Z"}'}},
         my_user_id="me-uuid",
     )
     assert camel == owned, f"camelCase and snake_case must normalize alike: {camel}"
@@ -576,9 +594,30 @@ if __name__ == "__main__":
     # Unknown role values pass through instead of being swallowed into member.
     odd = my_community({"name": "g", "metadata": {"member": '{"role": "wat"}'}})
     assert odd["role"] == "wat", odd
-    # Missing/unparseable metadata.member falls back, never crashes.
+    # Missing/unparseable metadata.member must NOT quietly become the founding
+    # date. Dan Schaad measured `skoolers` as 2019 (its founding) while having
+    # joined in 2024 — that is this branch, and it used to assert 2019 as if it
+    # were right. joined_at stays None and the record says why.
     for broken in ({}, {"member": "not json"}, {"member": None}):
         fb = my_community({"name": "g", "created_at": "2019-12-04T00:00:00.000000Z",
                            "metadata": broken})
-        assert fb["role"] == "member" and fb["joined_at"].year == 2019, fb
+        assert fb["joined_at"] is None, f"founding date must never pose as a join: {fb}"
+        assert "incomplete" in fb, f"a missing membership row must be stated: {fb}"
+        assert "role is a default" in fb["incomplete"], fb
+        assert fb["role"] == "member", fb  # still a usable default, just flagged
+    # Owners keep a trustworthy role even without the row (metadata.owner wins),
+    # so the flag must not claim their role is guessed.
+    own_norow = my_community({"name": "g", "metadata": {"owner": "me-uuid"}},
+                             my_user_id="me-uuid")
+    assert own_norow["role"] == "owner" and own_norow["joined_at"] is None, own_norow
+    assert "role is a default" not in own_norow["incomplete"], own_norow
+    # A real row never sets the flag, even when join == founding date (day-one
+    # members exist: `hoomans` founded 19:57, joined 20:41 the same day).
+    dayone = my_community(
+        {"name": "hoomans", "created_at": "2024-11-25T19:57:07.561720Z",
+         "metadata": {"member": '{"role": "member",'
+                                ' "created_at": "2024-11-25T20:41:16.864147Z"}'}}
+    )
+    assert "incomplete" not in dayone, f"a present row is complete: {dayone}"
+    assert dayone["joined_at"].day == 25 and dayone["joined_at"].hour == 20, dayone
     print("normalize self-check OK")
