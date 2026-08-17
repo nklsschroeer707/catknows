@@ -590,8 +590,14 @@ button.ghost{{background:none;border:1px solid var(--line);color:var(--dim)}}
 button.ghost:hover{{background:none;border-color:var(--brand);color:var(--ink)}}
 button:disabled{{opacity:.5;cursor:default}}
 #stage{{margin-top:16px;border:1px solid var(--line);border-radius:10px;
-overflow:hidden;background:#0B0A09;display:none}}
+overflow:hidden;background:#0B0A09;display:none;position:relative}}
 #stage img{{display:block;width:100%;touch-action:none;cursor:default}}
+/* Invisible, but NOT display:none or visibility:hidden — a hidden field cannot
+   take focus, and focus is the whole point: it is what opens the on-screen
+   keyboard. 1px inside the stage, so focusing it never scrolls the page. */
+#kbd{{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;border:0;
+background:transparent;color:transparent;caret-color:transparent;outline:none;
+font-size:16px;opacity:0}}
 #msg{{font-size:0.9rem;color:var(--dim);margin-top:12px;min-height:1.4em;
 font-family:var(--mono)}}
 .ok{{color:#5DBE72}}.bad{{color:#E36A6A}}
@@ -694,7 +700,12 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
     <button id="go">Open Skool login</button>
     {'<button class="ghost" id="del">Delete stored session</button>' if stored else ''}
   </p>
-  <div id="stage"><img id="screen" alt="Skool login, streamed from the server"></div>
+  <div id="stage"><img id="screen" alt="Skool login, streamed from the server">
+    <!-- Mobile browsers raise the on-screen keyboard only for an editable
+         element, so a focused <img> gets no keyboard at all. This one is the
+         real focus target on touch; it stays off-screen and never shows text. -->
+    <input id="kbd" autocomplete="off" autocapitalize="off" autocorrect="off"
+           spellcheck="false" aria-hidden="true" tabindex="-1"></div>
   <div id="msg"></div>
 </div>"""
 
@@ -705,6 +716,10 @@ var go=document.getElementById('go'), del=document.getElementById('del'),
     msg=document.getElementById('msg'), ws=null, size=null;
 
 function say(t,cls){ msg.textContent=t; msg.className=cls||''; }
+
+// Coarse pointer means an on-screen keyboard, which behaves differently enough
+// from a physical one to be worth branching on.
+var touch=window.matchMedia&&window.matchMedia('(pointer:coarse)').matches;
 
 // The stream is scaled to fit; clicks must be mapped back to browser pixels.
 function at(e){
@@ -722,7 +737,12 @@ go.onclick=function(){
   ws.onmessage=function(ev){
     var m=JSON.parse(ev.data);
     if(m.type==='ready'){ size={width:m.width,height:m.height}; stage.style.display='block';
-      say('Log in to Skool in the window above.'); img.focus(); }
+      // Focus the keyboard target, not the image. On a touch device that would
+      // pop the on-screen keyboard over the stream before there is a field to
+      // type into, so there the first tap does it instead.
+      say(touch?'Log in to Skool above. Tap a field to type.'
+               :'Log in to Skool in the window above.');
+      if(!touch) focusKbd(); }
     else if(m.type==='frame'){ img.src='data:image/jpeg;base64,'+m.data; }
     else if(m.type==='done'){
       var who=m.skool?' as '+m.skool:'';
@@ -745,7 +765,9 @@ go.onclick=function(){
 };
 
 // Pointer and touch both map to the same mouse events server-side.
-img.addEventListener('pointerdown',function(e){ e.preventDefault(); img.focus();
+// Focus goes to the hidden input, never to the image: on a phone that is what
+// raises the keyboard, and on a desktop it receives keydown just the same.
+img.addEventListener('pointerdown',function(e){ e.preventDefault(); focusKbd();
   var p=at(e); send({type:'mousePressed',x:p.x,y:p.y}); });
 img.addEventListener('pointerup',function(e){ e.preventDefault();
   var p=at(e); send({type:'mouseReleased',x:p.x,y:p.y}); });
@@ -754,16 +776,39 @@ img.addEventListener('pointermove',function(e){ if(e.buttons){ var p=at(e);
 img.addEventListener('wheel',function(e){ e.preventDefault(); var p=at(e);
   send({type:'scroll',x:p.x,y:p.y,deltaX:e.deltaX,deltaY:e.deltaY}); },{passive:false});
 
-// An <img> can't take keyboard focus without this, and without focus there is
-// nothing to type into.
-img.tabIndex=0;
-img.addEventListener('keydown',function(e){
+// Typing goes through the hidden <input>, for one reason: a mobile browser
+// opens its on-screen keyboard only for an editable element. A focused <img>
+// with a tabIndex gets no keyboard at all, so touch users could not type here.
+var kbd=document.getElementById('kbd');
+function focusKbd(){ try{ kbd.focus({preventScroll:true}); }catch(_){ kbd.focus(); } }
+
+// Desktop path, unchanged: real keys carry codes, and Enter/Tab/Backspace are
+// only expressible as key events. Printable characters are left to `input`
+// below, so they are not sent twice.
+kbd.addEventListener('keydown',function(e){
+  if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey) return;
   e.preventDefault();
   send({type:'keyDown',key:e.key,code:e.code,keyCode:e.keyCode,
         text:e.key.length===1?e.key:''});
 });
-img.addEventListener('keyup',function(e){ e.preventDefault();
-  send({type:'keyUp',key:e.key,code:e.code,keyCode:e.keyCode}); });
+kbd.addEventListener('keyup',function(e){
+  if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey) return;
+  e.preventDefault();
+  send({type:'keyUp',key:e.key,code:e.code,keyCode:e.keyCode});
+});
+
+// Touch path: on-screen keyboards, autocorrect and IMEs report finished text
+// here and often skip key events entirely. Backspace on a soft keyboard arrives
+// as deleteContentBackward, which has no printable text — send it as a key.
+kbd.addEventListener('input',function(e){
+  var t=kbd.value; kbd.value='';           // keep the field empty, always
+  if(e.inputType==='deleteContentBackward'){
+    send({type:'keyDown',key:'Backspace',code:'Backspace',keyCode:8,text:''});
+    send({type:'keyUp',key:'Backspace',code:'Backspace',keyCode:8});
+    return;
+  }
+  if(t) send({type:'insertText',text:t});
+});
 
 if(del) del.onclick=function(){
   if(!confirm('Delete the stored Skool session? The tools stop working until you connect again.')) return;

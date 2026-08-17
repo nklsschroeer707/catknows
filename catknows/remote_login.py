@@ -215,6 +215,12 @@ class LoginManager:
                 "button": msg.get("button", "left"),
                 "clickCount": 1 if kind == "mousePressed" else 0,
             })
+        elif kind == "insertText":
+            # What a touchscreen keyboard produces. It reports finished text via
+            # `input` events, not per-key codes, so there is no keyCode to
+            # forward — and autocorrect or an IME can deliver several characters
+            # at once. insertText takes them verbatim.
+            await s.cdp.send("Input.insertText", {"text": str(msg.get("text", ""))})
         elif kind in ("keyDown", "keyUp", "char"):
             # `text` is what actually types a character; `key`/`code` drive
             # Enter, Tab and friends. Passing both covers either case.
