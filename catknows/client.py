@@ -40,11 +40,36 @@ class MemberList(list):
     per community/role/session — a fresh session walked 592-member hoomans
     fully as a regular member, while 5.5k-member theskoolhub repeated page 1
     from page 2 on with the very same session. A stale WAF token additionally
-    degrades members.json into 202-challenges/403s."""
+    degrades members.json into 202-challenges/403s.
+
+    ``total_members`` is Skool's own count for the same query
+    (``pageProps.total``), carried so callers can check the walk against it
+    without a second request. When it exceeds ``len(...)`` the walk is short —
+    ``short_by`` says by how much.
+
+    Measured 2026-08-17 on 36-member catnose, as OWNER: every page (1..4)
+    returned byte-identical rows, so the walk collected 30 and reported
+    ``incomplete=False`` because it had walked ``totalPages`` (2) of 2. Skool
+    served three different numbers in one response: 30 rows, ``total`` 35, and
+    ``currentGroup.metadata.totalMembers`` 36. No parameter got page 2 out
+    (bare ``p=2``, the full filter tail, other sorts, itemsPerPage/limit/
+    pageSize — all identical to page 1), while hoomans paginated correctly
+    across 20 pages with the same code and session. Page count alone therefore
+    cannot decide completeness, which is why the row count is compared against
+    ``total`` as well: a revoke pass that trusts a short list cancels paying
+    members."""
 
     incomplete = False
     pages_walked = 1
     total_pages = 1
+    total_members = None  # Skool's own count for this query, None if unreported
+
+    @property
+    def short_by(self) -> int:
+        """How many members Skool counts but did not hand over (0 if none)."""
+        if self.total_members is None:
+            return 0
+        return max(0, self.total_members - len(self))
 
 
 _MEMBER_SORTS = {
@@ -168,6 +193,12 @@ class SkoolClient:
             tp = _dig(data, "pageProps", "totalPages")
             if tp:
                 total_pages = int(tp)
+            # Skool's own count for this exact query — the only cross-check we
+            # get without a second request, and the one that catches a walk
+            # that ran every page it was told about and still came up short.
+            reported = _dig(data, "pageProps", "total")
+            if isinstance(reported, int):
+                out.total_members = reported
             fresh = []
             for user in users:
                 uid = user.get("id")
@@ -194,8 +225,15 @@ class SkoolClient:
         # Honest truncation: we broke off before the last page without having
         # satisfied the caller's limit. A silently short list looks complete
         # and is worse than the duplicates ever were.
-        out.incomplete = bool(all_pages and page < out.total_pages
-                              and (limit is None or len(out) < limit))
+        satisfied = limit is not None and len(out) >= limit
+        out.incomplete = bool(all_pages and page < out.total_pages and not satisfied)
+        # Pages alone are not proof. catnose walked 2 of 2 pages and still
+        # returned 30 of 35 because Skool re-served page 1 as page 2 — page
+        # count said complete, the row count said otherwise. Only trust this
+        # when the caller wanted everything; a limit=25 walk is short on
+        # purpose.
+        if all_pages and not satisfied and out.short_by:
+            out.incomplete = True
         return out
 
     # -- posts -----------------------------------------------------------------
