@@ -60,6 +60,10 @@ def _pull(args) -> int:
     for u in members:
         vault.write_member(vault_dir, community, normalize.member(u))
     print(f"  {len(members)} members written.")
+    if members.capped_by_role:
+        # A count on its own reads as "that was everyone".
+        print(f"  NOTE: you are a regular member here, so this is the first page "
+              f"only, not the full roster (Skool counts {members.total_members}).")
 
     print(f"→ Fetching posts of '{community}' ...")
     trees = client.posts(community)
