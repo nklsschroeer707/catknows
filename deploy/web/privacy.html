@@ -97,7 +97,7 @@ th { background: #221F1C; color: var(--ink); font-weight: 600; }
   <div class="card">
 <p><strong>Applies to:</strong> <code>https://mcp.catknows.app</code> and <code>https://auth.catknows.app</code>.</p>
 <p>This is the privacy policy for the <strong>hosted service</strong>. If you run catknows yourself from the source (locally over stdio, or on your own server), none of this applies &mdash; no data reaches me, and you are your own controller. For the tool&#x27;s terms of use and Skool-related caveats, see <a href="/legal">Legal & Responsible Use</a>.</p>
-<p>Last updated: 2026-08-11.</p>
+<p>Last updated: 2026-08-17.</p>
 <hr>
 <h2>1. Who is responsible</h2>
 <pre>Niklas Schröer
@@ -124,6 +124,12 @@ nklsschroeer@gmail.com</pre>
 <h3>2.4 Server logs</h3>
 <p>The reverse proxy logs request metadata: timestamp, IP address, HTTP method, path, status code, user agent. <code>Authorization</code> and <code>Cookie</code> headers are <strong>stripped before writing</strong> &mdash; deliberately, so an access log cannot be replayed as your session. Request and response bodies are not logged.</p>
 <p>Legal basis: art. 6(1)(f) &mdash; operating the service, diagnosing faults, spotting abuse. Rotated at 10 MiB with 5 files kept, so logs age out in normal operation rather than accumulating indefinitely.</p>
+<h3>2.5 Usage records</h3>
+<p>The proxy log in &sect;2.4 cannot say <em>who</em> made a request: your identity sits in the bearer token, and that header is stripped before writing. So the application itself records one line per accepted request, to the server&#x27;s system journal:</p>
+<div class="tablewrap"><table><tr><th>Data</th><th>Why</th></tr><tr><td>Your account id (the internal identifier, not your email)</td><td>Distinguishes your requests from someone else&#x27;s</td></tr><tr><td>Timestamp</td><td>When</td></tr><tr><td>Which AI client the token was issued to (e.g. Claude, ChatGPT)</td><td>Tells apart your own clients when something misbehaves</td></tr></table></div>
+<p>What this is <strong>not</strong>: it does not record which tool you called, what you asked for, or anything that came back from Skool. The component writing it runs before any of that is known &mdash; it checks the token and nothing else. So it answers &quot;how much does this account use the service&quot;, never &quot;what did they look at&quot;.</p>
+<p>Legal basis: art. 6(1)(f) &mdash; knowing how much capacity is used and by whom, which is what makes it possible to keep a shared server running and to spot one account consuming it all. Once the service is paid for, the same figure becomes the basis for billing, then art. 6(1)(b).</p>
+<p>Kept for <strong>30 days</strong>, then deleted by the journal&#x27;s retention limit. No profiles are built from it and it is not combined with the Skool data in &sect;2.3.</p>
 <h2>3. What is <em>not</em> done</h2>
 <ul><li>No analytics, tracking pixels, or advertising.</li><li>No cookies beyond those needed to log you in.</li><li>No sale or sharing of your data, and none passed to third parties beyond the processors named in &sect;4.</li><li>No use of your data or your community&#x27;s data to train AI models.</li><li>No profiling and no automated decision-making with legal effect (art. 22).</li></ul>
 <h2>4. Where it runs, and who else touches it</h2>
@@ -131,8 +137,8 @@ nklsschroeer@gmail.com</pre>
 <p>Everything is inside the EU/EEA except certificate issuance, which involves no personal data. Data processing agreements under GDPR art. 28 are in place with both processors &mdash; netcup&#x27;s concluded in writing, Scaleway&#x27;s as the highest-ranking document of their terms, accepted on sign-up. Both publish a sub-processor list; both bind their own sub-processors, all inside the EU.</p>
 <p>Your AI client (e.g. Anthropic) is <strong>not</strong> my processor &mdash; it is the other party in your own relationship, and receives data because you asked it to call these tools.</p>
 <h2>5. How long</h2>
-<div class="tablewrap"><table><tr><th>Data</th><th>Retention</th></tr><tr><td>Account (email, password hash)</td><td>Until you delete it, or 12 months after last login</td></tr><tr><td>Your stored Skool session</td><td>Until you delete it, or 12 months after last use</td></tr><tr><td>OAuth tokens / sessions</td><td>Minutes to days, per token lifetime; then gone</td></tr><tr><td>Proxy logs</td><td>Until rotated out (see &sect;2.4)</td></tr><tr><td>Failed-login counters</td><td>Reset on success, or after 12 hours</td></tr></table></div>
-<p>Accounts are created by me on request, not by self-signup, so there is no backlog of unconfirmed registrations. An account that is never confirmed by email is removed after 30 days.</p>
+<div class="tablewrap"><table><tr><th>Data</th><th>Retention</th></tr><tr><td>Account (email, password hash)</td><td>Until you delete it, or 12 months after last login</td></tr><tr><td>Your stored Skool session</td><td>Until you delete it, or 12 months after last use</td></tr><tr><td>OAuth tokens / sessions</td><td>Minutes to days, per token lifetime; then gone</td></tr><tr><td>Proxy logs</td><td>Until rotated out (see &sect;2.4)</td></tr><tr><td>Usage records (&sect;2.5)</td><td>30 days</td></tr><tr><td>Failed-login counters</td><td>Reset on success, or after 12 hours</td></tr></table></div>
+<p>An account that is never confirmed by email is removed after 30 days.</p>
 <h2>6. Your rights</h2>
 <p>Under GDPR you may request access (art. 15), correction (16), erasure (17), restriction (18), portability (20), and object to processing based on legitimate interests (21). Where processing rests on consent, you may withdraw it at any time.</p>
 <p>Two things you can do yourself, immediately:</p>

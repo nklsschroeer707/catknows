@@ -465,6 +465,39 @@ sudo -u catknows /opt/catknows/.venv/bin/pip install -e ".[mcp]"
 systemctl restart catknows-mcp
 ```
 
+The dashboard is a second unit and does not pick up changes from that restart:
+`systemctl restart catknows-dashboard` too when `dashboard.py` or
+`remote_login.py` moved.
+
+## Usage records and their retention
+
+The verifier writes one `catknows: serving subject <sub> via <client>` line per
+accepted request — the only place per-person usage is visible, because Caddy
+strips the bearer token and so logs an empty `user_id`. Read it with:
+
+```bash
+journalctl -u catknows-mcp --since "7 days ago" | grep "serving subject" \
+  | awk '{print $8}' | sort | uniq -c | sort -rn
+```
+
+The subject maps to a stored session file as `sha256(subject)[:32]`.
+
+**[PRIVACY.md](PRIVACY.md) §2.5 promises these are kept 30 days**, and journald
+by default rotates on size alone, which makes no such promise. Set the limit so
+the text is true:
+
+```bash
+mkdir -p /etc/systemd/journald.conf.d
+cat >/etc/systemd/journald.conf.d/catknows-retention.conf <<'EOF'
+# PRIVACY.md §2.5 states usage records are kept 30 days. Without this, journald
+# rotates on size only and a quiet month would keep them far longer.
+[Journal]
+MaxRetentionSec=30d
+EOF
+systemctl restart systemd-journald
+journalctl --header | grep -i retention   # confirm it took
+```
+
 ## Writes
 
 Off unless you set `CATKNOWS_ALLOW_WRITE=1` in `/etc/catknows/env`. Leave it

@@ -7,7 +7,7 @@ yourself from the source (locally over stdio, or on your own server), none of
 this applies — no data reaches me, and you are your own controller. For the
 tool's terms of use and Skool-related caveats, see [LEGAL.md](../LEGAL.md).
 
-Last updated: 2026-08-11.
+Last updated: 2026-08-17.
 
 ---
 
@@ -94,6 +94,31 @@ Legal basis: art. 6(1)(f) — operating the service, diagnosing faults, spotting
 abuse. Rotated at 10 MiB with 5 files kept, so logs age out in normal operation
 rather than accumulating indefinitely.
 
+### 2.5 Usage records
+
+The proxy log in §2.4 cannot say *who* made a request: your identity sits in the
+bearer token, and that header is stripped before writing. So the application
+itself records one line per accepted request, to the server's system journal:
+
+| Data | Why |
+|---|---|
+| Your account id (the internal identifier, not your email) | Distinguishes your requests from someone else's |
+| Timestamp | When |
+| Which AI client the token was issued to (e.g. Claude, ChatGPT) | Tells apart your own clients when something misbehaves |
+
+What this is **not**: it does not record which tool you called, what you asked
+for, or anything that came back from Skool. The component writing it runs before
+any of that is known — it checks the token and nothing else. So it answers "how
+much does this account use the service", never "what did they look at".
+
+Legal basis: art. 6(1)(f) — knowing how much capacity is used and by whom, which
+is what makes it possible to keep a shared server running and to spot one account
+consuming it all. Once the service is paid for, the same figure becomes the basis
+for billing, then art. 6(1)(b).
+
+Kept for **30 days**, then deleted by the journal's retention limit. No profiles
+are built from it and it is not combined with the Skool data in §2.3.
+
 ## 3. What is *not* done
 
 - No analytics, tracking pixels, or advertising.
@@ -130,11 +155,10 @@ tools.
 | Your stored Skool session | Until you delete it, or 12 months after last use |
 | OAuth tokens / sessions | Minutes to days, per token lifetime; then gone |
 | Proxy logs | Until rotated out (see §2.4) |
+| Usage records (§2.5) | 30 days |
 | Failed-login counters | Reset on success, or after 12 hours |
 
-Accounts are created by me on request, not by self-signup, so there is no
-backlog of unconfirmed registrations. An account that is never confirmed by
-email is removed after 30 days.
+An account that is never confirmed by email is removed after 30 days.
 
 ## 6. Your rights
 

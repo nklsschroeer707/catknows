@@ -157,6 +157,17 @@ class KeycloakVerifier(TokenVerifier):
             )
             return None
 
+        # The counterpart to the refusal above, and the only place per-person
+        # usage is visible: Caddy logs an empty user_id because the identity
+        # sits in the bearer token, which it deliberately does not write down.
+        # This counts requests per subject, not tool calls — the verifier never
+        # sees which tool was asked for. Covered by deploy/PRIVACY.md.
+        print(
+            f"catknows: serving subject {claims.get('sub')} "
+            f"via {claims.get('azp') or claims.get('client_id') or 'unknown client'}",
+            file=sys.stderr,
+        )
+
         return AccessToken(
             token=token,
             client_id=claims.get("azp") or claims.get("client_id") or "",
