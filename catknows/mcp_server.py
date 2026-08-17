@@ -748,6 +748,115 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         )
         return {"status": "commented", "comment": _safe_raw(created)}
 
+    def _edit_draft(post_id: str, title: str, content: str) -> dict:
+        """Old -> new for one post/comment, without writing anything.
+
+        Shared by edit_post and edit_comment: a comment IS a post on Skool, so
+        the draft, the lookup and the write are the same in both directions.
+        """
+        current = _get_client().post_by_id(post_id) or {}
+        meta = current.get("metadata") or {}
+        change: dict = {}
+        if title is not None:
+            change["title"] = {"from": meta.get("title", ""), "to": title}
+        if content is not None:
+            change["content"] = {"from": meta.get("content", ""), "to": content}
+        return {"post_id": post_id, "changes": change or "(nothing would change)"}
+
+    @mcp.tool()
+    def edit_post(community_slug: str, post_id: str, title: str = "",
+                  content: str = "", confirm: bool = False) -> dict:
+        """Edit the title and/or body of an EXISTING post, as the logged-in user.
+
+        Leave title or content empty to keep the current value — an empty
+        string means "unchanged", not "blank it". Fields you never mention
+        (category, attachments) are preserved too.
+
+        Draft-first: with confirm=false (the default) NOTHING is changed — you
+        get the current text and the proposed text back to show the user. Only
+        call again with confirm=true after they approved it.
+        """
+        new_title = title or None
+        new_content = content or None
+        if not confirm:
+            return {
+                "status": "DRAFT — nothing was changed",
+                "would_edit": _edit_draft(post_id, new_title, new_content),
+                "next_step": "Show this to the user; call again with confirm=true once they approve.",
+            }
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.update_post(post_id, title=new_title, content=new_content)
+        return {"status": "edited", "post": _safe_raw(updated)}
+
+    @mcp.tool()
+    def edit_comment(community_slug: str, comment_id: str, content: str = "",
+                     confirm: bool = False) -> dict:
+        """Edit the text of an EXISTING comment or reply, as the logged-in user.
+
+        comment_id comes from get_post_comments. A comment has no title, only
+        text. Same draft-first rule as edit_post: confirm=false changes nothing.
+        """
+        new_content = content or None
+        if not confirm:
+            return {
+                "status": "DRAFT — nothing was changed",
+                "would_edit": _edit_draft(comment_id, None, new_content),
+                "next_step": "Show this to the user; call again with confirm=true once they approve.",
+            }
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.update_post(comment_id, content=new_content)
+        return {"status": "edited", "comment": _safe_raw(updated)}
+
+    def _delete_draft(post_id: str, kind: str) -> dict:
+        """What exactly would be deleted — id alone is not reviewable."""
+        current = _get_client().post_by_id(post_id) or {}
+        meta = current.get("metadata") or {}
+        return {
+            f"{kind}_id": post_id,
+            "title": meta.get("title", ""),
+            "content": (meta.get("content", "") or "")[:300],
+            "created_at": current.get("created_at", ""),
+        }
+
+    @mcp.tool()
+    def delete_post(community_slug: str, post_id: str, confirm: bool = False) -> dict:
+        """PERMANENTLY delete a post. This cannot be undone.
+
+        confirm=false (the default) deletes nothing and returns the post's
+        title and text so the user can see WHAT would disappear before saying
+        yes. Deleting somebody else's post needs moderator rights and is
+        untested.
+        """
+        if not confirm:
+            return {
+                "status": "NOT DELETED — confirmation required",
+                "would_delete": _delete_draft(post_id, "post"),
+                "next_step": "Show this to the user; call again with confirm=true "
+                             "only after they explicitly approved deleting it.",
+            }
+        _get_client().delete_post(post_id)
+        return {"status": "deleted", "post_id": post_id}
+
+    @mcp.tool()
+    def delete_comment(community_slug: str, comment_id: str,
+                       confirm: bool = False) -> dict:
+        """PERMANENTLY delete a comment or reply. This cannot be undone.
+
+        Same confirm-first rule as delete_post: confirm=false shows the text
+        that would disappear and deletes nothing.
+        """
+        if not confirm:
+            return {
+                "status": "NOT DELETED — confirmation required",
+                "would_delete": _delete_draft(comment_id, "comment"),
+                "next_step": "Show this to the user; call again with confirm=true "
+                             "only after they explicitly approved deleting it.",
+            }
+        _get_client().delete_post(comment_id)
+        return {"status": "deleted", "comment_id": comment_id}
+
     @mcp.tool()
     def send_dm(
         channel_id: str, content: str, attachments: str = "", confirm: bool = False
@@ -967,6 +1076,7 @@ _READ_ONLY = {
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
     "create_post", "create_comment", "send_dm",
+    "edit_post", "edit_comment", "delete_post", "delete_comment",
     "create_course", "create_course_item", "update_course_item",
     "publish_course", "move_course_item", "delete_course_item",
 }
