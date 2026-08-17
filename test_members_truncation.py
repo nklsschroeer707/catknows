@@ -21,18 +21,23 @@ from catknows.client import MemberList, SkoolClient  # noqa: E402
 class _FakeHTTP:
     """Serves canned members.json pages; repeats the last one past the end."""
 
-    def __init__(self, pages):
+    def __init__(self, pages, total=None, total_pages=None):
         self.pages, self.calls = pages, 0
+        self.total, self.total_pages = total, total_pages
 
     def get_next(self, q, slug):
         page = self.pages[min(self.calls, len(self.pages) - 1)]
         self.calls += 1
-        return {"pageProps": {"users": page, "totalPages": len(self.pages)}}
+        pp = {"users": page,
+              "totalPages": self.total_pages or len(self.pages)}
+        if self.total is not None:
+            pp["total"] = self.total
+        return {"pageProps": pp}
 
 
-def _client(pages):
+def _client(pages, total=None, total_pages=None):
     c = SkoolClient.__new__(SkoolClient)
-    c.http = _FakeHTTP(pages)
+    c.http = _FakeHTTP(pages, total, total_pages)
     return c
 
 
@@ -63,6 +68,67 @@ def test_limit_stops_the_walk_early():
     assert len(got) == 30
     assert c.http.calls == 1, f"limit satisfied on page 1, stop paging: {c.http.calls}"
     assert got.incomplete is False, "hitting the limit is success, not truncation"
+
+
+def test_short_walk_is_flagged_even_when_all_pages_were_walked():
+    """catnose, 2026-08-17, measured as OWNER: Skool reported totalPages=2 and
+    served byte-identical rows on pages 1..4, so the walk ran both pages it was
+    told about and stopped with 30 rows while the same response said total=35.
+    Page count called it complete; the row count did not. This is the case the
+    revoke pass must never mistake for a full list — a member missing from a
+    short list would look like someone who cancelled."""
+    got = _client([P1, P1], total=35, total_pages=2).members("x")
+    assert len(got) == 30, len(got)
+    assert got.pages_walked >= got.total_pages, "every announced page was walked"
+    assert got.total_members == 35, got.total_members
+    assert got.short_by == 5, got.short_by
+    assert got.incomplete is True, "walked every page and still short = incomplete"
+
+
+def test_complete_walk_with_total_stays_clean():
+    """The guard must not cry wolf when Skool's count and the rows agree."""
+    got = _client([P1, P2], total=60).members("x")
+    assert len(got) == 60 and got.short_by == 0
+    assert got.incomplete is False, "count matches rows — nothing is missing"
+
+
+def test_limit_below_total_is_not_truncation():
+    """limit=25 on a 600-member community is short ON PURPOSE. Flagging it
+    would make the marker meaningless on the most common call there is."""
+    got = _client([P1, P2], total=593).members("x", limit=25)
+    assert len(got) == 25 and got.total_members == 593
+    assert got.incomplete is False, "asking for fewer than all is not truncation"
+
+
+def test_missing_total_keeps_old_behaviour():
+    """Skool omitting `total` must not make every walk look suspicious."""
+    got = _client([P1, P2]).members("x")
+    assert got.total_members is None and got.short_by == 0
+    assert got.incomplete is False
+
+
+def test_mcp_trailer_names_the_missing_members():
+    """An agent reading the trailer must learn the list is a lower bound —
+    'Skool repeated pages' would be the wrong explanation for this case."""
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            ml = MemberList(P1)
+            ml.incomplete, ml.pages_walked, ml.total_pages = True, 2, 2
+            ml.total_members = 35
+            return ml
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        out = m.list_members("x")
+    finally:
+        m._get_client = real
+    trailer = out[-1]
+    assert trailer["incomplete"] is True and trailer["missing"] == 5, trailer
+    assert trailer["members_reported_by_skool"] == 35, trailer
+    assert "LOWER BOUND" in trailer["note"], trailer["note"]
 
 
 def test_mcp_tool_filter_plumbing():
@@ -172,6 +238,11 @@ if __name__ == "__main__":
     test_truncated_walk_is_flagged()
     test_full_walk_is_not_flagged()
     test_limit_stops_the_walk_early()
+    test_short_walk_is_flagged_even_when_all_pages_were_walked()
+    test_complete_walk_with_total_stays_clean()
+    test_limit_below_total_is_not_truncation()
+    test_missing_total_keeps_old_behaviour()
+    test_mcp_trailer_names_the_missing_members()
     test_mcp_tool_filter_plumbing()
     test_mcp_tool_appends_incomplete_trailer()
     test_mcp_tool_flags_our_own_cap()

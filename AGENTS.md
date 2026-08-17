@@ -190,6 +190,15 @@ existing: an entry is a verified possibility, not a feature.
   only because the scrub removes the Stripe/payout fields Skool embeds. Removing
   it would make a signed contract inaccurate.
 - **Never commit `.skool-profile/`** — it holds the user's live session.
+- **Pick the branch before you commit, not after.** `main` is the open-source
+  side users pull via `update_catknows`; `hosted-mcp` adds HTTP transport, OAuth
+  and `deploy/`. Anything generic — client fixes, new endpoints, the MCP server,
+  tests, docs — belongs on `main` first and reaches `hosted-mcp` by merge. Only
+  files that name `catknows.app` or the server's own structure are hosted-only.
+  Committing generic work straight to `hosted-mcp` because that branch happens
+  to be checked out means community users never get it; it happened on
+  2026-08-17 and cost a cherry-pick plus a merge conflict to undo. Asking once
+  before `git commit` is cheaper than repairing the history afterwards.
 - This is not an official API; write code defensively (endpoints may 403/change).
 - Personal data (member emails/names) is being exported — see [LEGAL.md](LEGAL.md).
 - Anything user-facing you write (README copy, posts, About/event texts) follows

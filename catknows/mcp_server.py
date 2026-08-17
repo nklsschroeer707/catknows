@@ -368,7 +368,7 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
     if capped:
         out.append(capped)
     if users.incomplete:
-        out.append({
+        marker = {
             "incomplete": True,
             "unique_members_returned": len(users),
             "pages_served": users.pages_walked,
@@ -378,7 +378,19 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
                     "per community/role/session (seen on large communities as a "
                     "regular member, and on stale sessions). A fresh login can "
                     "help; some communities never serve later pages to non-admins.",
-        })
+        }
+        if users.short_by:
+            marker["members_reported_by_skool"] = users.total_members
+            marker["missing"] = users.short_by
+            marker["note"] = (
+                f"Skool counts {users.total_members} members for this query but "
+                f"only handed over {len(users)} — {users.short_by} are missing. "
+                "Measured on small communities where every page repeats page 1, "
+                "even for the owner, so no filter or page size gets the rest out. "
+                "Treat this list as a LOWER BOUND: it is safe to say these people "
+                "are members, never that someone absent is not one."
+            )
+        out.append(marker)
     return out
 
 
