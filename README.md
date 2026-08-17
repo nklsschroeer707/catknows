@@ -217,8 +217,10 @@ Then just talk to your AI:
 > connector — your AI is the router, catknows is the data tap.)
 
 **Writing (posts, comments & DMs) is off by default.** The server only registers
-`create_post`, `create_comment` and `send_dm` when you opt in with an env var in
-the MCP config:
+the write tools — creating, editing and deleting posts and comments
+(`create_post`, `create_comment`, `edit_post`, `edit_comment`, `delete_post`,
+`delete_comment`), `send_dm`, and the classroom writers — when you opt in with
+an env var in the MCP config:
 
 ```json
 "catknows": {
@@ -329,7 +331,10 @@ commenting, and sending DMs — in [docs/API.md §5](docs/API.md#5-writing-to-sk
 The client implements the everyday ones: `create_post`, `create_comment` (one
 tool for both a comment and a reply) and `send_dm` — all three with optional
 file **attachments**: pass local paths and they are uploaded for you
-(`upload_file` does the register → S3 two-step). Category labels, video
+(`upload_file` does the register → S3 two-step). The rest of the lifecycle is
+covered too: `edit_post` / `edit_comment` (draft-first, showing old versus new,
+replacing only the fields you pass) and `delete_post` / `delete_comment`
+(explicit confirm). Category labels, video
 links and native **polls** (`create_poll` / the `poll_options` parameter) are
 supported too; GIF and video attachments stay documented for you to build on. **Write carefully** — these act as *you*, visible to real
 members; see the MCP section for the safety switch.
