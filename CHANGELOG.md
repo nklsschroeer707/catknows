@@ -9,6 +9,31 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-08-17
+
+### Fixed
+- **A missing membership row no longer poses as a founding-date join.**
+  `metadata.member` carries both your role and your real join date. When it was
+  absent, `joined_at` silently fell back to the community's founding date and
+  `role` defaulted to `member`. Both read like facts and neither was measured,
+  which is how a community you joined last year could report a 2019 join.
+  `joined_at` is now `None` in that case and the record carries an `incomplete`
+  note saying why. A gap is honest; a plausible wrong date hid this for two
+  weeks. Owners keep a trustworthy role, it comes from `metadata.owner`.
+  Measured over 26 live communities first: `metadata.member` is present and
+  parseable in all 26, so this changes no real output. It closes the blind
+  case, it does not fix a live miss. (Reported by Dan Schaad)
+
+### Note
+- **Roles are per account, so two people can measure the same tool and both be
+  right.** `list_my_communities` reporting `member` for a community where
+  someone else sees `group-admin` is not a bug when the two accounts hold
+  different roles there. Verified live: `list_members` with the `admins` filter
+  lists 8 admins/moderators of `hoomans`, and the account behind a
+  contradicting measurement was simply not one of them. When a role looks
+  wrong, compare against `list_members --filters admins` for the same account
+  before assuming the parser is at fault.
+
 ## 2026-08-16
 
 ### Documentation
