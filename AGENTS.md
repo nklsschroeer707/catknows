@@ -59,11 +59,19 @@ over `SkoolClient`; don't duplicate client logic in it.
   every other tool needs a slug, and this is where slugs come from. Skool omits
   `role` for communities you own, so it's derived by comparing
   `metadata.owner` against your own `/self` id (`normalize.my_community`).
-- Write tools (`create_post`, `create_comment`, `send_dm`): **only registered when
-  `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first — `confirm=false` returns the
-  draft without posting; `confirm=true` actually writes. `notify_members` (email
-  broadcast) is a separate explicit flag. Never weaken this: writes act as the
-  user, visible to real members.
+- Write tools (`create_post`, `create_comment`, `edit_post`, `edit_comment`,
+  `delete_post`, `delete_comment`, `send_dm`, and the classroom writers):
+  **only registered when `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first —
+  `confirm=false` returns the draft without writing; `confirm=true` actually
+  writes. Deletes show the title and text that would disappear, because an id
+  alone is not something a user can review. `notify_members` (email broadcast)
+  is a separate explicit flag. Never weaken this: writes act as the user,
+  visible to real members.
+- Every new tool must be listed in `_READ_ONLY` or `_DESTRUCTIVE` — a tool in
+  neither fails the self-check, on purpose.
+- Writes into an **archived** community refuse up front
+  (`group_id_for(for_write=True)`). Archived communities stay readable, so
+  reads must keep calling it without the flag.
 - Install/run: `pip install -e ".[mcp]"` then `python -m catknows.mcp_server`
   (stdio). Register with `claude mcp add catknows -- python -m catknows.mcp_server`,
   or a project `.mcp.json` (gitignored — holds machine paths).
@@ -88,7 +96,9 @@ over `SkoolClient`; don't duplicate client logic in it.
 - `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
   Anything a tool prints to stdout would corrupt the stream.
 - **Size cap:** tool results have a max token size. `list_members`/`list_posts`
-  hard-cap their `limit` (`_cap()`, raw capped harder); `get_community_about` and
+  hard-cap their `limit` (`_cap()`, raw capped harder) and append a
+  `limit_capped` trailer when the caller asked for more, so a capped list can't
+  pass for a complete one; `get_community_about` and
   `get_discovery` return compact summaries, not the raw payload. Don't return big
   raw blobs by default — mobile clients have no filesystem fallback.
 - **Secret scrubbing (SECURITY — never weaken):** Skool page/api payloads embed

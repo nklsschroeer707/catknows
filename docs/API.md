@@ -768,24 +768,54 @@ Implemented as `SkoolClient.create_comment()` / the `create_comment` MCP tool
 this easy to get wrong: `root_id` is **always** the post, while `parent_id` is
 the *comment* for a reply and the *post* for a top-level comment.
 
-### 5.9 Deleting a post — `DELETE /posts/{id}`
+### 5.9 Edit and delete a post or comment
+
+Captured from live browser traffic 2026-08-17 (throwaway objects in
+`hoomans-9944`). A comment **is** a post, so both verbs serve both.
 
 ```
-DELETE https://api2.skool.com/posts/{post_id}
+POST   https://api2.skool.com/posts/{id}/update
+DELETE https://api2.skool.com/posts/{id}
 ```
 
-Empty 200 on success, same api2 header set as every other write. Verified live
-2026-08-16 (own post in a private group; the post and its attachment vanish from
-the feed immediately). Deleting someone else's post is untested — expect the
-usual moderator-permission rules.
+The update body is **flat** — no `metadata` wrapper (unlike §5.1) and no
+`group_id`, because the id in the path is the whole address:
+
+```jsonc
+{
+  "title": "catknows edit-endpoint probe",       // "" for a comment
+  "content": "the new body text",
+  "attachments": "",
+  "labels": "c1c43fbd67844f79889c4edbbd223d47",  // absent on comments
+  "video_links": "",
+  "video_ids": []
+}
+```
+
+> **The field trap.** Skool's editor sends *every* field on *every* save, so a
+> field left out of the body is **cleared**, not kept. Editing only the text
+> that way silently drops the post's category and attachments. Read the current
+> object first — `GET /posts/{id}` (verified 2026-08-17) returns
+> `metadata.{title, content, attachments}` plus `label_id` — and send the
+> unchanged values back with the edit.
+
+Delete takes an empty body and answers an empty `200`. The object is gone from
+the feed immediately, and `GET /posts/{id}` then answers `404 post not found`.
+Deleting somebody **else's** post needs moderator rights and is untested.
+
+Implemented as `SkoolClient.post_by_id()` / `update_post()` / `delete_post()`
+and the `edit_post`, `edit_comment`, `delete_post`, `delete_comment` MCP tools
+(behind `CATKNOWS_ALLOW_WRITE=1`): edits are draft-first and show old vs new,
+deletes require an explicit `confirm` and first show the text that would
+disappear.
 
 ### 5.10 What's *not* here
 
-These were never observed in the reverse-engineered traffic, so they're left
-undocumented rather than guessed: casting a **like/vote** and **editing** a
-post. The read side (§1.4, §1.5) exists; the corresponding write verbs likely
-follow the same `api2` conventions (`POST`/`PUT` on `/posts/{id}/...`) but
-confirm them from your own browser's Network tab before relying on them.
+Casting a **like/vote** was never observed in the reverse-engineered traffic,
+so it stays undocumented rather than guessed. The read side (§1.5,
+`/posts/{id}/vote-users`) exists; the write verb likely follows the same `api2`
+conventions but confirm it from your own browser's Network tab before relying
+on it.
 
 ---
 

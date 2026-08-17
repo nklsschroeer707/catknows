@@ -822,6 +822,69 @@ class SkoolClient:
             },
         )
 
+    def post_by_id(self, post_id: str) -> dict:
+        """One post or comment by its id: ``GET api2 /posts/{id}``.
+
+        Verified 2026-08-17. Returns the flat object (``metadata.title`` /
+        ``metadata.content``, ``label_id``, ``root_id``), which is what an edit
+        needs to keep the fields it isn't changing.
+        """
+        return self.http.get_api2(f"/posts/{post_id}")
+
+    def update_post(self, post_id: str, *, title: str | None = None,
+                    content: str | None = None, labels: str | None = None,
+                    video_links: str | None = None,
+                    attachments: str | None = None) -> dict:
+        """Edit an existing post or comment (§5.9). Returns Skool's response.
+
+        Captured from the browser 2026-08-17: the body is **flat**, not wrapped
+        in ``metadata`` like `create_post`, and carries no ``group_id`` — the
+        post id in the path is the whole address.
+
+        Skool's own editor sends every field on every save, so a field left out
+        of the body is *cleared*, not kept. That makes "just change the text"
+        a way to silently drop a post's category and attachments. Every
+        argument here therefore defaults to None meaning "leave as is": the
+        current values are read back from `post_by_id` and only what the caller
+        actually passed is replaced.
+
+        A comment is a post, so this edits comments too (measured: same
+        endpoint, ``title`` empty, no ``labels``).
+        """
+        current = self.post_by_id(post_id) or {}
+        meta = current.get("metadata") or {}
+
+        def keep(passed, *names, default=""):
+            if passed is not None:
+                return passed
+            for n in names:
+                v = meta.get(n)
+                if v:
+                    return v
+            return default
+
+        body: dict = {
+            "title": keep(title, "title"),
+            "content": keep(content, "content"),
+            "attachments": keep(attachments, "attachments"),
+            "video_links": keep(video_links, "video_links", "videoLinks"),
+            "video_ids": [],
+        }
+        label = keep(labels, "labels", "label_id") or current.get("label_id") or ""
+        if label:
+            body["labels"] = label
+        return self.http.post_api2(f"/posts/{post_id}/update", body)
+
+    def delete_post(self, post_id: str) -> dict:
+        """Delete a post or a comment (§5.9). Empty 200 on success.
+
+        Same endpoint for both, because a comment IS a post. Verified live
+        2026-08-16 (post) and 2026-08-17 (comment) on throwaway objects in
+        `hoomans-9944`. Deleting somebody *else's* post needs moderator rights
+        and is untested.
+        """
+        return self.http.delete_api2(f"/posts/{post_id}")
+
     def send_dm(self, channel_id: str, content: str, *, attachments: list[str] = ()) -> dict:
         """Send a direct message into an existing chat channel (§5.7).
 

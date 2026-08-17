@@ -28,6 +28,21 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   attachment id, so a PDF someone attached to a post was visible but unreadable;
   the same information had been available for DM attachments all along. Verified
   on a live 60 KB PDF. (Reported by Dan Schaad)
+- **Posts and comments can now be edited and deleted: `edit_post`,
+  `edit_comment`, `delete_post`, `delete_comment`.** Deleting was already
+  measured; editing had never been seen in Skool's traffic, so it was captured
+  from the browser first: `POST /posts/{id}/update` with a flat body (no
+  `metadata` wrapper and no `group_id`, unlike creating), and `DELETE
+  /posts/{id}` for both posts and comments, because a comment is a post.
+  Skool's editor sends every field on every save, so a field left out is
+  cleared rather than kept, which would make "change the text" silently drop a
+  post's category and attachments. catknows reads the current post back and
+  only replaces what you actually passed. Edits are draft-first and show old
+  versus new; deletes need an explicit confirm and first show the title and
+  text that would disappear. Verified end to end on throwaway objects in a test
+  community: edit kept the category, delete answered 404 afterwards. Deleting
+  somebody else's post needs moderator rights and is untested. (Requested by
+  Dan Schaad)
 - **`list_my_communities` now tells you which communities are archived, and
   writes into one refuse up front.** Skool states the state twice (`archived:
   true` alongside `metadata.archived: 1`) and the compact record passed on
