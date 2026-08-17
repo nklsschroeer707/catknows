@@ -40,6 +40,18 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   Dan Schaad)
 
 ### Fixed
+- **A trend snapshot taken with an expired login no longer looks like a
+  measurement.** `python -m catknows.snapshot` appends one line per community
+  per run. When the stored session had gone stale, Skool still answered `200`
+  with an empty payload, so the run wrote a row with `null` in every field —
+  members, posts, plan, all of it — and exited `0`. Scheduled daily, that fills
+  the series with placeholders that are indistinguishable from a community
+  whose numbers really were unavailable, and the scheduler shows a green tick
+  the whole time. The snapshot now refuses to write such a row and says the
+  session likely expired; if nothing at all could be collected it exits non-zero
+  so a scheduled run is visibly red. **If you already have `null` rows in
+  `<vault>/trends/*.jsonl`, they are gaps, not data — drop them before charting
+  anything.** Snapshots are not backfillable: a day without one is gone.
 - **Asking for more members or posts than one call can return now says it was
   capped.** `list_members` and `list_posts` return at most 200 records per call
   (30 with `raw=true`) so the response fits the tool-result size limit. That cap

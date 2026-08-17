@@ -130,6 +130,11 @@ over `SkoolClient`; don't duplicate client logic in it.
    verbatim passthrough), send it through `_safe_raw()` — no exceptions.** New
    secret field names go in `normalize.SECRET_KEYS`.
 5. Keep API.md and the code in sync — the docs are the contract.
+6. Add the tool to `workspaces/_shared/references/mcp-tools.md`. That cheatsheet
+   is the only place the workspace agents learn what exists, so a tool missing
+   there is a tool no agent will ever call. `python test_mcp_tools_doc.py`
+   enforces it — it matches on word boundaries, because a plain substring check
+   counts `get_post` as documented the moment `get_post_comments` is listed.
 
 ## Guardrails
 
