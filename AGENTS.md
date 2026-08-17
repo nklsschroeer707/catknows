@@ -122,6 +122,12 @@ over `SkoolClient`; don't duplicate client logic in it.
 
 ## To add a new endpoint
 
+**Before you build a read tool, check it against the access policy**
+([LEGAL.md](LEGAL.md#access-policy-what-catknows-will-read-and-what-it-wont)).
+The test is not "is there a route?" but "can the logged-in user see this in
+normal use of Skool?". Finding a way past a limit Skool drew on purpose is not
+a bugfix task. Read it now, not after the feature.
+
 1. Document it in `docs/API.md` first (URL, shape, JSON fields, quirks) —
    including any credential-class fields it carries (§6.6).
 2. Add a method to `SkoolClient` in `client.py` (return raw JSON).
