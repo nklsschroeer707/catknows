@@ -85,6 +85,10 @@ def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
     as "that is the whole community". The incomplete marker never fired here — it
     only reports Skool cutting the page walk short, not us lowering the limit.
     Both list tools append this instead, so the two stay in step.
+
+    ``returned`` is the ceiling, i.e. the most the walk may collect. A caller
+    that can end the walk earlier (the role cap in `list_members`) overwrites it
+    with the real row count before appending.
     """
     ceiling = 30 if raw else 200
     try:
@@ -162,6 +166,11 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
     URL. raw=True returns Skool's unmodified JSON (large — keep limit small, it's
     hard-capped to avoid exceeding the tool-result size limit).
 
+    Your role decides how much of the list exists for you: as a regular member
+    you get the FIRST PAGE only, the same as Skool's own UI gives you, and the
+    last list entry is {"capped_by_role": true, ...}. Raising limit does not
+    lift this. Moderators, admins and owners get every page.
+
     One call returns at most 200 members (30 with raw=True), whatever limit says,
     so the response fits the tool-result size limit. Ask for more and the last
     list entry is {"limit_capped": true, "requested": ..., "returned": ...} —
@@ -196,7 +205,23 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
         tiers=_csv_arg(tiers), course_ids=_csv_arg(course_ids), **kwargs)
     out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
     if capped:
+        # `returned` is computed from the limit, before the walk runs. The role
+        # cap can end the walk sooner, and a marker claiming 200 next to 30 rows
+        # is exactly the dishonesty this marker exists to prevent.
+        capped["returned"] = len(users)
         out.append(capped)
+    if users.capped_by_role:
+        out.append({
+            "capped_by_role": True,
+            "role": "member",
+            "returned": len(users),
+            "members_reported_by_skool": users.total_members,
+            "pages_available": users.total_pages,
+            "note": "You are a regular member of this community, so catknows "
+                    "returns the first page only, the same as Skool's own UI "
+                    "shows you. This list is NOT the full member list. Only a "
+                    "moderator, admin or owner gets every page.",
+        })
     if users.incomplete:
         marker = {
             "incomplete": True,

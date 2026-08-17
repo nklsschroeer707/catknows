@@ -21,23 +21,27 @@ from catknows.client import MemberList, SkoolClient  # noqa: E402
 class _FakeHTTP:
     """Serves canned members.json pages; repeats the last one past the end."""
 
-    def __init__(self, pages, total=None, total_pages=None):
+    def __init__(self, pages, total=None, total_pages=None, is_admin=True):
         self.pages, self.calls = pages, 0
         self.total, self.total_pages = total, total_pages
+        self.is_admin = is_admin
 
     def get_next(self, q, slug):
         page = self.pages[min(self.calls, len(self.pages) - 1)]
         self.calls += 1
         pp = {"users": page,
-              "totalPages": self.total_pages or len(self.pages)}
+              "totalPages": self.total_pages or len(self.pages),
+              # Native bool, spelled as Skool spells it — copied from a live
+              # members.json (hoomans True / skooligans False, 2026-08-17).
+              "isAdmin": self.is_admin}
         if self.total is not None:
             pp["total"] = self.total
         return {"pageProps": pp}
 
 
-def _client(pages, total=None, total_pages=None):
+def _client(pages, total=None, total_pages=None, is_admin=True):
     c = SkoolClient.__new__(SkoolClient)
-    c.http = _FakeHTTP(pages, total, total_pages)
+    c.http = _FakeHTTP(pages, total, total_pages, is_admin)
     return c
 
 
@@ -105,6 +109,80 @@ def test_missing_total_keeps_old_behaviour():
     got = _client([P1, P2]).members("x")
     assert got.total_members is None and got.short_by == 0
     assert got.incomplete is False
+
+
+def test_member_gets_first_page_only():
+    """A regular member stops after page 1: one request, no second page, and
+    the cut is stated. Skool's UI shows a member no more than this."""
+    c = _client([P1, P2], total=597, total_pages=20, is_admin=False)
+    got = c.members("x")
+    assert [u["id"] for u in got] == [u["id"] for u in P1], got
+    assert c.http.calls == 1, f"member walk must not page: {c.http.calls} calls"
+    assert got.capped_by_role is True, "a cut list must say it was cut"
+    # The role cap owns this case; incomplete would send a caller retrying
+    # against a wall that is there on purpose.
+    assert got.incomplete is False, "role cap must not also cry truncation"
+
+
+def test_staff_still_walks_every_page():
+    """isAdmin=True is owner/admin/moderator — the walk is unchanged."""
+    c = _client([P1, P2], total=60, total_pages=2, is_admin=True)
+    got = c.members("x")
+    assert len(got) == 60, len(got)
+    assert c.http.calls == 2, f"staff must page: {c.http.calls}"
+    assert got.capped_by_role is False and got.incomplete is False
+
+
+def test_member_of_single_page_community_is_not_capped():
+    """Page 1 IS the whole list here, so claiming a cap would be a lie."""
+    got = _client([P1], total=30, total_pages=1, is_admin=False).members("x")
+    assert len(got) == 30 and got.capped_by_role is False, got.capped_by_role
+
+
+def test_mcp_trailer_states_the_role_cap():
+    """The trailer must tell an agent this is NOT the full list, in the same
+    shape as the existing limit_capped/incomplete markers."""
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            ml = MemberList(P1)
+            ml.capped_by_role, ml.total_pages, ml.total_members = True, 20, 597
+            return ml
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        out = m.list_members("x")
+    finally:
+        m._get_client = real
+    trailer = out[-1]
+    assert trailer["capped_by_role"] is True, trailer
+    assert trailer["members_reported_by_skool"] == 597, trailer
+    assert "NOT the full member list" in trailer["note"], trailer["note"]
+
+
+def test_limit_marker_reports_real_rows_when_role_cap_hits_first():
+    """Both markers can fire on one call (limit=650 as a plain member). The
+    limit marker must then report the rows that actually came back, not the
+    200 it would have allowed — measured live on skooligans: 30 rows."""
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            ml = MemberList(P1)
+            ml.capped_by_role, ml.total_pages, ml.total_members = True, 20, 597
+            return ml
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        out = m.list_members("x", limit=650)
+    finally:
+        m._get_client = real
+    limit_marker = [r for r in out if r.get("limit_capped")][0]
+    assert limit_marker["returned"] == 30, limit_marker
+    assert limit_marker["requested"] == 650, limit_marker
 
 
 def test_mcp_trailer_names_the_missing_members():

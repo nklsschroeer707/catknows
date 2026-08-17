@@ -57,12 +57,18 @@ class MemberList(list):
     across 20 pages with the same code and session. Page count alone therefore
     cannot decide completeness, which is why the row count is compared against
     ``total`` as well: a revoke pass that trusts a short list cancels paying
-    members."""
+    members.
+
+    ``capped_by_role`` means we stopped after page 1 on purpose: Skool's own UI
+    shows a regular member only the first page of a community's member list, and
+    walking further is a workaround we choose not to take. Distinct from
+    ``incomplete``, which reports Skool failing to serve pages it announced."""
 
     incomplete = False
     pages_walked = 1
     total_pages = 1
     total_members = None  # Skool's own count for this query, None if unreported
+    capped_by_role = False  # we stopped at page 1 because the viewer is a member
 
     @property
     def short_by(self) -> int:
@@ -193,6 +199,16 @@ class SkoolClient:
             tp = _dig(data, "pageProps", "totalPages")
             if tp:
                 total_pages = int(tp)
+            # Skool's own verdict on who is looking, in the very response we are
+            # already reading — no second request, and no reliance on
+            # self/groups, which reports plain "member" for communities where
+            # the same account is group-admin (measured 2026-08-17 across 53
+            # communities: only owner and member ever came back).
+            # True for owner/admin/moderator, since Skool gates the members
+            # admin view on it; a regular member gets page 1 in the UI too.
+            if page == 1:
+                is_staff = bool(_dig(data, "pageProps", "isAdmin"))
+
             # Skool's own count for this exact query — the only cross-check we
             # get without a second request, and the one that catches a walk
             # that ran every page it was told about and still came up short.
@@ -211,6 +227,15 @@ class SkoolClient:
             if limit is not None and len(out) >= limit:
                 del out[limit:]  # trim in place — slicing would drop the flags
                 break
+            # A regular member sees the first page and no more. Skool's UI does
+            # the same; paging past it is a workaround we deliberately drop.
+            # Not a size cap (that one lives in mcp_server._cap and still
+            # applies on top) — this one is about what a member may see at all.
+            # Only a real cut counts: if page 1 was already the last page, the
+            # member has the whole list and flagging a cap would be a lie.
+            if not is_staff:
+                out.capped_by_role = bool(total_pages and total_pages > 1)
+                break
             # Empty page = past the end; all-duplicates = Skool is repeating a
             # page it already served (also an end signal, and the guard that
             # keeps a degraded walk from collecting page 1 over and over).
@@ -226,13 +251,17 @@ class SkoolClient:
         # satisfied the caller's limit. A silently short list looks complete
         # and is worse than the duplicates ever were.
         satisfied = limit is not None and len(out) >= limit
-        out.incomplete = bool(all_pages and page < out.total_pages and not satisfied)
+        # A role cap is a deliberate stop, not a failed walk. Reporting both
+        # would tell a caller to retry against a wall that is there by design,
+        # so capped_by_role owns this case alone.
+        out.incomplete = bool(all_pages and page < out.total_pages
+                              and not satisfied and not out.capped_by_role)
         # Pages alone are not proof. catnose walked 2 of 2 pages and still
         # returned 30 of 35 because Skool re-served page 1 as page 2 — page
         # count said complete, the row count said otherwise. Only trust this
         # when the caller wanted everything; a limit=25 walk is short on
         # purpose.
-        if all_pages and not satisfied and out.short_by:
+        if all_pages and not satisfied and out.short_by and not out.capped_by_role:
             out.incomplete = True
         return out
 
@@ -1036,18 +1065,22 @@ if __name__ == "__main__":  # python -m catknows.client
     # The pagination walks are the only real logic in here, and the members
     # walk shipped duplicates for months. Fake the transport, assert the walk.
     class _FakeHTTP:
-        def __init__(self, pages):
+        def __init__(self, pages, is_admin=True):
             self.pages = pages
             self.calls = 0
+            self.is_admin = is_admin
 
         def get_next(self, q, slug):
             page = self.pages[min(self.calls, len(self.pages) - 1)]
             self.calls += 1
-            return {"pageProps": {"users": page, "totalPages": len(self.pages)}}
+            # isAdmin as Skool sends it (native bool, live members.json):
+            # these cases test the page walk, so they walk as staff.
+            return {"pageProps": {"users": page, "totalPages": len(self.pages),
+                                  "isAdmin": self.is_admin}}
 
-    def _client(pages):
+    def _client(pages, is_admin=True):
         c = SkoolClient.__new__(SkoolClient)
-        c.http = _FakeHTTP(pages)
+        c.http = _FakeHTTP(pages, is_admin)
         return c
 
     _INTER_PAGE_DELAY_S = 0  # noqa: F811 — don't sleep through the self-check
@@ -1060,6 +1093,13 @@ if __name__ == "__main__":  # python -m catknows.client
     assert repeat.incomplete is True, "a repeated-page walk must flag incomplete"
     assert (repeat.pages_walked, repeat.total_pages) == (2, 3), \
         (repeat.pages_walked, repeat.total_pages)
+    # As a regular member the walk stops after page 1 on purpose (Skool's UI
+    # shows no more), and says so instead of looking complete.
+    as_member = _client([p1, [{"id": "d"}]], is_admin=False)
+    capped = as_member.members("x")
+    assert [u["id"] for u in capped] == ["a", "b", "c"], capped
+    assert as_member.http.calls == 1, "a member walk must not page"
+    assert capped.capped_by_role is True and capped.incomplete is False, capped
     # Real page 2 that overlaps page 1 (live sort shifts a member across pages).
     overlap = _client([p1, [{"id": "c"}, {"id": "d"}]]).members("x")
     assert [u["id"] for u in overlap] == ["a", "b", "c", "d"], overlap
