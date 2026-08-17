@@ -152,6 +152,11 @@ over `SkoolClient`; don't duplicate client logic in it.
    `mcp_server.py` (unlisted = annotated as a writer). Then
    `python -m catknows.mcp_server --self-check`.
 6. Keep API.md and the code in sync — the docs are the contract.
+7. Add the tool to `workspaces/_shared/references/mcp-tools.md`. That cheatsheet
+   is the only place the workspace agents learn what exists, so a tool missing
+   there is a tool no agent will ever call. `python test_mcp_tools_doc.py`
+   enforces it — it matches on word boundaries, because a plain substring check
+   counts `get_post` as documented the moment `get_post_comments` is listed.
 
 If you measured an endpoint but stopped short of wiring it up, don't let the
 finding evaporate: add a row to "Verified but unbuilt" below.
