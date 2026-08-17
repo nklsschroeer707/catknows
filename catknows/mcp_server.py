@@ -1072,6 +1072,7 @@ _READ_ONLY = {
     "get_member_profile", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
+    "get_post", "get_video_transcript",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
