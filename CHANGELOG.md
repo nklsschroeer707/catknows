@@ -68,6 +68,16 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   short, not catknows lowering the limit, which is exactly the gap this landed
   in. Verified live on `hoomans`: `limit=250` returns 200 unique members plus the
   marker. (Reported by Dan Schaad)
+- **The streamed Skool login now works from a touchscreen keyboard.** Typing
+  was wired to the streamed `<img>` itself, and a phone only raises its
+  on-screen keyboard for an editable element — an image is not one, so on
+  mobile the keyboard mostly never appeared at all. A hidden input field now
+  takes the focus and forwards typing (autocorrect and IME composition
+  included) as CDP `Input.insertText`; special keys stay on the key-event
+  path. Covered by tests that drive the real page script in Chromium, locally
+  and on the box; the one thing no automated browser can prove is a phone's
+  own keyboard appearing, so a real-device confirmation is still open.
+  (Reported by Sean Hegarty)
 - **A missing membership row no longer poses as a founding-date join.**
   `metadata.member` carries both your role and your real join date. When it was
   absent, `joined_at` silently fell back to the community's founding date and

@@ -165,9 +165,8 @@ section in `docs/API.md`. Move an entry out when you ship it, and into
 `CHANGELOG.md` — the changelog stays a record of what exists, so nothing below
 belongs there yet.
 
-| What | Verified | Why it isn't built |
-|---|---|---|
-| `delete_post` — `DELETE /posts/{id}` | §5.9, measured 2026-08-16 (empty 200, post and attachment gone) | Came up while cleaning a test post. Needs the same draft-first `confirm` as `create_post`, plus a decision on deleting *other people's* posts (untested, moderator rules unknown). |
+*Empty right now: the last entry (`delete_post`) shipped 2026-08-17 with the
+rest of the edit/delete lifecycle.*
 
 Two rules for this list. Nothing enters it on a hunch — measure it, document it
 in API.md, then add the row. And nothing here may be described to users as
