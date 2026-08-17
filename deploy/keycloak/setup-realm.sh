@@ -244,7 +244,13 @@ echo "      - Max Clients: keep a ceiling"
 # not here — a realm reimport drops it and every AI client then fails to
 # register with a 403 the *user* sees as "automatic registration failed".
 # Written down so it can be restored, but read the live list before you trust
-# this one (34 entries here, the realm reported 36 on 2026-08-16):
+# this one. It is a RESTORE FLOOR, not a mirror: 34 entries here, the realm
+# reported 36 on 2026-08-16 and again on 2026-08-17 after the Max-Clients
+# change. Which two the realm has on top is unknown — the list lives only in
+# the database, so the query below is the only way to find out, and it must be
+# run ON THE BOX. Restoring from this block alone would silently drop them and
+# the affected clients would fail registration with a 403 that users read as
+# "automatic registration failed". Diff first, then restore:
 #
 #   docker compose exec -T db psql -U keycloak -d keycloak -t -A -c \
 #     "SELECT cc.value FROM component c JOIN component_config cc ON cc.component_id=c.id
