@@ -437,7 +437,7 @@ class SkoolClient:
         if min_tier > 0:
             metadata["min_tier"] = min_tier
         return self.http.post_api2("/courses", {
-            "group_id": self.group_id_for(community_slug),
+            "group_id": self.group_id_for(community_slug, for_write=True),
             "unit_type": "course",
             "state": 1 if draft else 2,
             "metadata": metadata,
@@ -657,7 +657,7 @@ class SkoolClient:
                 "content_length": len(data),
                 "content_disposition": "",
                 "ref": "",
-                "owner_id": community if is_uuid else self.group_id_for(community),
+                "owner_id": community if is_uuid else self.group_id_for(community, for_write=True),
                 "large_thumbnail": False,
             },
         )
@@ -689,7 +689,7 @@ class SkoolClient:
         return self.http.post_api2(
             "/polls",
             {
-                "group_id": community if is_uuid else self.group_id_for(community),
+                "group_id": community if is_uuid else self.group_id_for(community, for_write=True),
                 "options": opts,
             },
         )
@@ -728,7 +728,7 @@ class SkoolClient:
             f"/posts{query}",
             {
                 "post_type": "generic",
-                "group_id": self.group_id_for(community_slug),
+                "group_id": self.group_id_for(community_slug, for_write=True),
                 "metadata": metadata,
             },
         )
@@ -757,7 +757,7 @@ class SkoolClient:
             "/posts?follow=false",
             {
                 "post_type": "comment",
-                "group_id": self.group_id_for(community_slug),
+                "group_id": self.group_id_for(community_slug, for_write=True),
                 "root_id": post_id,
                 "parent_id": parent_comment_id or post_id,
                 "metadata": metadata,
@@ -779,19 +779,36 @@ class SkoolClient:
 
     # -- convenience -----------------------------------------------------------
 
-    def group_id_for(self, community_slug: str) -> str:
+    def group_id_for(self, community_slug: str, *, for_write: bool = False) -> str:
         """Discover a community's group UUID without the user supplying it.
 
         Fast path: ``GET api2 /groups/{slug}`` resolves a slug directly
         (verified 2026-08-15). Fallback: it also "falls out" of the first posts
         response as ``post.groupId`` — so one posts fetch bootstraps it.
+
+        ``for_write=True`` additionally refuses archived communities. That group
+        payload already states it (``archived: true`` plus ``metadata.archived:
+        1``, measured on `vrooms-3264` 17.08.), so the check costs no extra
+        request. Archiving leaves a community readable and turns every write
+        off, so only the write paths pass the flag; reads must keep working.
         """
+        group = {}
         try:
-            gid = (self.http.get_api2(f"/groups/{community_slug}") or {}).get("id")
-            if gid:
-                return gid
+            group = self.http.get_api2(f"/groups/{community_slug}") or {}
         except SkoolHTTPError:
             pass  # e.g. WAF hiccup — the posts bootstrap still works
+        # Outside the try: an archived community is a definitive answer, not a
+        # transient failure, so it must not fall through to the posts bootstrap.
+        if for_write and (group.get("archived")
+                          or (group.get("metadata") or {}).get("archived")):
+            raise ValueError(
+                f"'{community_slug}' is archived on Skool. Archived communities "
+                "stay readable, but posting, commenting and liking are turned "
+                "off, so this write would fail. Un-archive it in Skool's group "
+                "settings first."
+            )
+        if group.get("id"):
+            return group["id"]
         trees = self.posts(community_slug, all_pages=False)
         for tree in trees:
             gid = _dig(tree, "post", "groupId")

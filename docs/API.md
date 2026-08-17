@@ -332,6 +332,14 @@ Implemented as `SkoolClient.self_groups()` / the `list_my_communities` MCP tool
 `name` is the **slug**, the human label is `metadata.displayName` — the same
 trap that made `list_posts` return slugs instead of titles.
 
+**Archived groups** carry `archived: true` at the top level **and**
+`metadata.archived: 1`; live groups omit the field entirely in both places
+(measured 2026-08-17 across 53 groups, 2 of them archived). Either spelling
+alone is enough to treat a group as archived. `GET /groups/{slug}` returns the
+same two fields, which is why the write path can check it without an extra
+request. Archiving is **read-only, not hidden**: posts and members still list,
+while creating posts, comments, polls and courses is off.
+
 **`admin-metrics`** (owner-only) returns `total_members[]` and `active_members[]`
 as 30-day time series (`{value, time}` points) plus `latest_active_members` and a
 `daily_activities` range — the raw numbers behind a community's admin dashboard.

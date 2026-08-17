@@ -11,6 +11,19 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-08-17
 
+### Added
+- **`list_my_communities` now tells you which communities are archived, and
+  writes into one refuse up front.** Skool states the state twice (`archived:
+  true` alongside `metadata.archived: 1`) and the compact record passed on
+  neither, so an archived community was indistinguishable from a live one until
+  a post failed. An archived community stays fully readable and only writing is
+  off, so reads are untouched: `create_post`, `create_comment`, `create_poll`
+  and `create_course` now stop with "this community is archived" instead of
+  letting Skool reject the write with an error that looked like a catknows bug.
+  The check reads the group payload the write path already fetches, so it costs
+  no extra request. Verified live on 53 communities, 2 archived. (Requested by
+  Dan Schaad)
+
 ### Fixed
 - **Asking for more members or posts than one call can return now says it was
   capped.** `list_members` and `list_posts` return at most 200 records per call

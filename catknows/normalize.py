@@ -329,6 +329,12 @@ def my_community(group: dict, my_user_id: str = "") -> dict:
     Owners are a special case: Skool lists them as ``group-admin`` in
     ``metadata.member``, so ``metadata.owner`` (a user UUID, sometimes a JSON
     string) against your own id still wins and yields ``role: "owner"``.
+
+    ``archived`` matters to a caller because an archived community stays
+    readable while posting, commenting and liking are off. Skool states it
+    twice, outer ``archived`` (bool) and ``metadata.archived`` (1), and this
+    record used to pass on neither, so an agent could not tell a read-only
+    community from a live one until a write failed.
     """
     meta = group.get("metadata") or {}
     owner = maybe_json(meta.get("owner"))
@@ -354,6 +360,11 @@ def my_community(group: dict, my_user_id: str = "") -> dict:
         "total_members": int(_either(meta, "totalMembers", "total_members", 0) or 0),
         "is_owner": is_owner,
         "joined_at": _ns_or_iso_to_dt(joined),
+        # Either spelling counts, and either alone is enough: measured live on
+        # two archived communities, both carried both. `read_only` is NOT
+        # derived here — no payload states it, and archived is the only
+        # read-only case there is evidence for.
+        "archived": bool(group.get("archived") or meta.get("archived")),
         "color": meta.get("color", ""),
         "logo_url": _either(meta, "logoUrl", "logo_url", ""),
     }
@@ -620,4 +631,28 @@ if __name__ == "__main__":
     )
     assert "incomplete" not in dayone, f"a present row is complete: {dayone}"
     assert dayone["joined_at"].day == 25 and dayone["joined_at"].hour == 20, dayone
+    # archived: an archived community stays readable but every write is off, and
+    # this record used to pass on neither of Skool's two statements of it. Shape
+    # copied from a live self/groups entry (vrooms-3264, 17.08.): outer bool AND
+    # metadata 1, both present together. Either alone must still count — nothing
+    # measured says Skool always sends both, and guessing that it does is how a
+    # made-up fixture would freeze the bug in place.
+    arch = my_community(
+        {"name": "vrooms-3264", "archived": True, "public": True,
+         "created_at": "2025-06-30T05:15:16.746011Z",
+         "metadata": {"display_name": "vRooms - Real Connections", "archived": 1,
+                      "total_members": 11, "color": "#E9597F",
+                      "member": '{"role": "member",'
+                                ' "created_at": "2025-07-01T05:15:16.746011Z"}'}}
+    )
+    assert arch["archived"] is True, f"both spellings present must read as True: {arch}"
+    assert arch["role"] == "member" and arch["total_members"] == 11, arch
+    outer_only = my_community({"name": "g", "archived": True, "metadata": {}})
+    assert outer_only["archived"] is True, f"outer bool alone counts: {outer_only}"
+    meta_only = my_community({"name": "g", "metadata": {"archived": 1}})
+    assert meta_only["archived"] is True, f"metadata 1 alone counts: {meta_only}"
+    # A live community must not come back archived, in any spelling of "no".
+    for quiet in ({"name": "g", "metadata": {}},
+                  {"name": "g", "archived": False, "metadata": {"archived": 0}}):
+        assert my_community(quiet)["archived"] is False, quiet
     print("normalize self-check OK")

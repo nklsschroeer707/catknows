@@ -473,6 +473,11 @@ def list_my_communities(raw: bool = False) -> list[dict]:
     "where am I barely active?") — every other tool needs a community_slug,
     and this is where the slugs come from. Skool omits the role for
     communities you own, so it's resolved against your own user id.
+
+    `archived: true` means the community is read-only: you can still list its
+    posts and members, but posting, commenting and liking are off. The write
+    tools refuse an archived community up front rather than letting Skool
+    reject the write.
     """
     client = _get_client()
     groups = client.self_groups()
