@@ -12,6 +12,18 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-08-17
 
 ### Fixed
+- **Asking for more members or posts than one call can return now says it was
+  capped.** `list_members` and `list_posts` return at most 200 records per call
+  (30 with `raw=true`) so the response fits the tool-result size limit. That cap
+  is deliberate and it stays, but it was silent: asking a 592-member community
+  for 650 returned exactly 200 rows and nothing marked them as a partial list,
+  which reads as "that is everyone". Both tools now append a final
+  `{"limit_capped": true, "requested": 650, "returned": 200, ...}` entry with a
+  pointer to narrowing the query instead of raising `limit`. The existing
+  `incomplete` marker never covered this: it reports Skool cutting the page walk
+  short, not catknows lowering the limit, which is exactly the gap this landed
+  in. Verified live on `hoomans`: `limit=250` returns 200 unique members plus the
+  marker. (Reported by Dan Schaad)
 - **A missing membership row no longer poses as a founding-date join.**
   `metadata.member` carries both your role and your real join date. When it was
   absent, `joined_at` silently fell back to the community's founding date and

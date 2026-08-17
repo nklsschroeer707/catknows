@@ -74,17 +74,38 @@ def _get_client():
     return _client
 
 
-def _cap(limit: int, raw: bool) -> int:
-    """Bound a list limit so results don't blow past the tool-result size cap.
+def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
+    """Bound a list limit so results don't blow past the tool-result size cap,
+    and hand back the marker to append when the caller asked for more.
 
     Raw records are far bigger than normalized ones, so cap them harder.
+
+    The cap itself is deliberate, but it used to be silent: asking a 592-member
+    community for 650 returned exactly 200 rows and nothing said so, which reads
+    as "that is the whole community". The incomplete marker never fired here — it
+    only reports Skool cutting the page walk short, not us lowering the limit.
+    Both list tools append this instead, so the two stay in step.
     """
     ceiling = 30 if raw else 200
     try:
         limit = int(limit)
     except (TypeError, ValueError):
         limit = ceiling
-    return max(1, min(limit, ceiling))
+    effective = max(1, min(limit, ceiling))
+    if limit <= ceiling:
+        return effective, None
+    return effective, {
+        "limit_capped": True,
+        "requested": limit,
+        "returned": effective,
+        "note": f"catknows caps this tool at {ceiling} records per call"
+                f"{' (raw records are much bigger)' if raw else ''} so the "
+                "response stays inside the tool-result size limit. This list is "
+                "the first "
+                f"{effective}, not everything that matched. Narrow the query "
+                "instead of raising limit: filters, lifecycle, tiers or "
+                "course_ids on list_members, so each call returns fewer rows.",
+    }
 
 
 def _jsonable(obj: Any) -> Any:
@@ -141,9 +162,16 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
     URL. raw=True returns Skool's unmodified JSON (large — keep limit small, it's
     hard-capped to avoid exceeding the tool-result size limit).
 
+    One call returns at most 200 members (30 with raw=True), whatever limit says,
+    so the response fits the tool-result size limit. Ask for more and the last
+    list entry is {"limit_capped": true, "requested": ..., "returned": ...} —
+    narrow the query with the filters below rather than raising limit.
+
     Filtering (works for regular members too, not just admins):
     - lifecycle: active | cancelling | churned | banned (empty = default view)
-    - sort: newest | last_active | most_points
+    - sort: newest | last_active | most_points. As a regular member Skool may
+      ignore the sort and answer with its own last-active ordering; that is a
+      Skool role limit, not something catknows can override.
     - filters: comma-separated flags out of admins, online, trials, monthly,
       annual, one_time, free. Multiple flags combine as AND (Skool-native) —
       "annual OR free" needs two calls, merged by you.
@@ -162,10 +190,13 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
                 f"Unknown filter {name!r}. "
                 f"One of: {', '.join(_MEMBER_FILTER_KWARGS)}.")
         kwargs[key] = True
+    effective, capped = _cap(limit, raw)
     users = _get_client().members(
-        community_slug, limit=_cap(limit, raw), lifecycle=lifecycle, sort=sort,
+        community_slug, limit=effective, lifecycle=lifecycle, sort=sort,
         tiers=_csv_arg(tiers), course_ids=_csv_arg(course_ids), **kwargs)
     out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
+    if capped:
+        out.append(capped)
     if users.incomplete:
         out.append({
             "incomplete": True,
@@ -187,9 +218,17 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[
 
     raw=True returns Skool's unmodified post trees. Keep limit small — raw trees
     are large and can exceed the tool-result size cap.
+
+    One call returns at most 200 posts (30 with raw=True), whatever limit says.
+    Ask for more and the last list entry is {"limit_capped": true, ...} — the
+    list is the newest 200, not the whole community.
     """
-    trees = _get_client().posts(community_slug, limit=_cap(limit, raw))
-    return _safe_raw(trees) if raw else [_jsonable(normalize.post(t)) for t in trees]
+    effective, capped = _cap(limit, raw)
+    trees = _get_client().posts(community_slug, limit=effective)
+    out = _safe_raw(trees) if raw else [_jsonable(normalize.post(t)) for t in trees]
+    if capped:
+        out = [*out, capped]
+    return out
 
 
 @mcp.tool()

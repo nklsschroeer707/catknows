@@ -130,10 +130,49 @@ def test_mcp_tool_appends_incomplete_trailer():
     assert len(out) == 30 and "incomplete" not in out[-1], out[-1]
 
 
+def test_mcp_tool_flags_our_own_cap():
+    """Dan Schaad, 17.08.: hoomans has 592 members, limit=650 returned exactly
+    200 and said nothing. The cap is ours and deliberate; being silent about it
+    was the bug, because 200 rows with no marker read as the whole community.
+    The incomplete trailer never covered this — it only fires when SKOOL cuts
+    the walk short, not when we lower the limit."""
+    import catknows.mcp_server as m
+
+    effective, capped = m._cap(650, raw=False)
+    assert effective == 200, effective
+    assert capped["limit_capped"] is True and capped["requested"] == 650, capped
+    assert capped["returned"] == 200, capped
+    assert m._cap(200, raw=False) == (200, None), "asking for exactly the cap is not capped"
+    assert m._cap(25, raw=False) == (25, None), "the common case must stay clean"
+    assert m._cap(100, raw=True)[0] == 30, "raw caps harder"
+    assert m._cap(100, raw=True)[1]["returned"] == 30, "and says so"
+
+    # Both list tools must append it — one shared mechanism, not two patches.
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            return MemberList([{"id": f"u{i}"} for i in range(kwargs["limit"])])
+
+        def posts(self, slug, limit):
+            return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(limit)]
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        members = m.list_members("x", limit=650)
+        posts = m.list_posts("x", limit=650)
+    finally:
+        m._get_client = real
+    assert len(members) == 201, "200 members + 1 trailer"
+    assert members[-1]["limit_capped"] is True, members[-1]
+    assert len(posts) == 201, "200 posts + 1 trailer"
+    assert posts[-1]["requested"] == 650, posts[-1]
+
+
 if __name__ == "__main__":
     test_truncated_walk_is_flagged()
     test_full_walk_is_not_flagged()
     test_limit_stops_the_walk_early()
     test_mcp_tool_filter_plumbing()
     test_mcp_tool_appends_incomplete_trailer()
+    test_mcp_tool_flags_our_own_cap()
     print("ok — truncated member walks are flagged, complete ones stay clean")
