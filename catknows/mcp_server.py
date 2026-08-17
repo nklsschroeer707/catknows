@@ -193,6 +193,37 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[
 
 
 @mcp.tool()
+def get_post(community_slug: str, post_name: str, raw: bool = False) -> Any:
+    """Get ONE post with its file attachments (name, type, download URL) and video ids.
+
+    Use this when a post has an attachment you need to read: the post LIST only
+    carries attachment ids, and the downloadable URL exists only here. Each
+    entry in `files` has a `url` you can fetch directly. `post_name` is the
+    post's URL slug (the `name` field from list_posts), not its id.
+    """
+    pp = _get_client().post_detail(community_slug, post_name)
+    if raw:
+        return _safe_raw(pp)
+    return _jsonable(normalize.post(pp.get("postTree") or {}))
+
+
+@mcp.tool()
+def get_video_transcript(community_slug: str, post_name: str) -> list[dict]:
+    """Get the spoken transcript of a post's Skool-hosted video(s).
+
+    Reads the captions Skool itself generates for its player, so it needs no
+    audio download. One record per video, with `transcript` (full text) and
+    timestamped `cues`.
+
+    Limits, both measured: videos with NO audio track have no captions and come
+    back has_transcript=false. Videos merely EMBEDDED from YouTube/Loom/Vimeo
+    are not Skool-hosted and are not covered here — only Skool's own uploads.
+    `post_name` is the post's URL slug (the `name` field from list_posts).
+    """
+    return _get_client().video_transcript(community_slug, post_name)
+
+
+@mcp.tool()
 def get_post_comments(community_slug: str, post_id: str, raw: bool = False) -> Any:
     """Get the full nested comment thread of a post. post_id is the post's Skool id (from list_posts)."""
     client = _get_client()
