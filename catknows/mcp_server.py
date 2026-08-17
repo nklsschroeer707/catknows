@@ -238,6 +238,12 @@ def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
     ``returned`` is the ceiling, i.e. the most the walk may collect. A caller
     that can end the walk earlier (the role cap in `list_members`) overwrites it
     with the real row count before appending.
+
+    The marker is a claim about the RESULT, so the caller only appends it once
+    the walk shows fewer rows than were asked for — see `_capped_marker`. A
+    650-limit query against a 10-member community returns all 10 and must not
+    claim a cut, which is the silent cap's mirror image: inventing a truncation
+    that never happened.
     """
     ceiling = 30 if raw else 200
     try:
@@ -259,6 +265,26 @@ def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
                 "instead of raising limit: filters, lifecycle, tiers or "
                 "course_ids on list_members, so each call returns fewer rows.",
     }
+
+
+def _capped_marker(capped: dict | None, rows: int, *, also_cut: bool = False) -> dict | None:
+    """The `_cap` marker to append, or None when nothing was actually cut.
+
+    `_cap` fires on intent (limit > ceiling); truncation is a fact about the
+    result. Asking a 10-member community for 650 returns all 10 — a marker
+    there reports a cut that never happened, which is the silent cap's mirror
+    image (measured live on vrooms-3264: 10 of 10 rows, marker fired anyway).
+
+    A cut is real when the walk filled the ceiling, or when the caller knows
+    another limit ended it short (`also_cut` — the role cap in `list_members`,
+    which stops at page 1 well below 200). `rows` is the real row count, so a
+    marker never claims more than came back.
+    """
+    if not capped:
+        return None
+    if rows < capped["returned"] and not also_cut:
+        return None
+    return {**capped, "returned": rows}
 
 
 def _jsonable(obj: Any) -> Any:
@@ -374,12 +400,12 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
         community_slug, limit=effective, lifecycle=lifecycle, sort=sort,
         tiers=_csv_arg(tiers), course_ids=_csv_arg(course_ids), **kwargs)
     out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
-    if capped:
-        # `returned` is computed from the limit, before the walk runs. The role
-        # cap can end the walk sooner, and a marker claiming 200 next to 30 rows
-        # is exactly the dishonesty this marker exists to prevent.
-        capped["returned"] = len(users)
-        out.append(capped)
+    # `returned` is computed from the limit, before the walk runs. The role cap
+    # can end the walk sooner, and a marker claiming 200 next to 30 rows is
+    # exactly the dishonesty this marker exists to prevent.
+    limit_marker = _capped_marker(capped, len(users), also_cut=users.capped_by_role)
+    if limit_marker:
+        out.append(limit_marker)
     if users.capped_by_role:
         out.append({
             "capped_by_role": True,
@@ -433,9 +459,8 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[
     effective, capped = _cap(limit, raw)
     trees = _get_client().posts(community_slug, limit=effective)
     out = _safe_raw(trees) if raw else [_jsonable(normalize.post(t)) for t in trees]
-    if capped:
-        out = [*out, capped]
-    return out
+    marker = _capped_marker(capped, len(trees))
+    return [*out, marker] if marker else out
 
 
 @mcp.tool()
@@ -760,6 +785,10 @@ if not sessions.enabled():
 
 
 def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) -> dict:
+    import time
+
+    from .client import _INTER_PAGE_DELAY_S
+
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
     vault.ensure_scaffold(out)
@@ -773,10 +802,21 @@ def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) 
         (t["post"]["groupId"] for t in trees if (t.get("post") or {}).get("groupId")), ""
     )
     posts_written = comments_failed = 0
+    fetched_comments = 0
     for tree in trees:
         prec = normalize.post(tree)
         comment_recs = None
         if include_comments and group_id and prec["comments"] > 0:
+            # Pace the comment fetches. `client.comments` only sleeps BETWEEN
+            # pages of one post, and almost every post has a single page, so a
+            # 700-post pull used to fire ~4.5 requests/s and got CloudFront-
+            # blocked after ~165 of them (comments_failed: 543 on hoomans).
+            # Measured 2026-08-17: the cut-off lands at the same call count at
+            # half that rate, so it is a refilling budget, not a rate — 0.8s
+            # apart (the existing page delay) carried 200/200, 0.35s did not.
+            if fetched_comments:
+                time.sleep(_INTER_PAGE_DELAY_S)
+            fetched_comments += 1
             try:
                 comment_recs = normalize.comments(client.comments(prec["skool_id"], group_id))
             except Exception:  # one bad post shouldn't kill the pull
@@ -792,6 +832,19 @@ def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) 
     }
     if getattr(members, "incomplete", False):
         result["members_incomplete"] = True  # truncated walk — not the whole community
+    # Same honesty as the list tool: a vault holding the first page of a
+    # community you are only a member of must not read as the full roster.
+    # Files on disk outlive the call that wrote them, so an unflagged partial
+    # pull is the version that gets trusted months later.
+    if getattr(members, "capped_by_role", False):
+        result["members_capped_by_role"] = True
+        result["members_reported_by_skool"] = members.total_members
+        result["note"] = (
+            "You are a regular member of this community, so only the first page "
+            "of members was pulled, the same as Skool's UI shows you. The member "
+            "notes in the vault are a partial roster, not the full community. "
+            "Posts and comments are unaffected."
+        )
     return result
 
 

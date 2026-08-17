@@ -111,6 +111,58 @@ def test_missing_total_keeps_old_behaviour():
     assert got.incomplete is False
 
 
+def test_vault_pull_states_the_role_cap():
+    """Files outlive the call that wrote them: a partial roster on disk must
+    carry the reason, or it gets trusted as the full community later."""
+    import tempfile
+
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            ml = MemberList(P1)
+            ml.capped_by_role, ml.total_members = True, 597
+            return ml
+
+        def posts(self, slug, **kwargs):
+            return []
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            res = m._pull_to_vault("x", d, include_comments=False)
+    finally:
+        m._get_client = real
+    assert res["members"] == 30, res
+    assert res["members_capped_by_role"] is True, res
+    assert res["members_reported_by_skool"] == 597, res
+    assert "partial roster" in res["note"], res
+
+
+def test_vault_pull_stays_quiet_for_staff():
+    """An owner's full pull must not carry a cap note."""
+    import tempfile
+
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            return MemberList(P1)  # capped_by_role stays False
+
+        def posts(self, slug, **kwargs):
+            return []
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            res = m._pull_to_vault("x", d, include_comments=False)
+    finally:
+        m._get_client = real
+    assert "members_capped_by_role" not in res and "note" not in res, res
+
+
 def test_member_gets_first_page_only():
     """A regular member stops after page 1: one request, no second page, and
     the cut is stated. Skool's UI shows a member no more than this."""
@@ -312,16 +364,172 @@ def test_mcp_tool_flags_our_own_cap():
     assert posts[-1]["requested"] == 650, posts[-1]
 
 
+def test_no_cap_marker_when_nothing_was_cut():
+    """The silent cap's mirror image: `limit=650` against a 10-member community
+    returns all 10, so claiming a truncation invents one. Measured live on
+    vrooms-3264 (10 of 10 rows, marker fired anyway)."""
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            return MemberList(P1[:10])
+
+        def posts(self, slug, limit):
+            return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(10)]
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        members = m.list_members("x", limit=650)
+        posts = m.list_posts("x", limit=650)
+    finally:
+        m._get_client = real
+    assert len(members) == 10, members
+    assert not any(r.get("limit_capped") for r in members), members
+    assert len(posts) == 10, posts
+    assert not any(r.get("limit_capped") for r in posts), posts
+
+
+def test_cap_marker_still_fires_on_a_real_cut():
+    """The honesty check itself must survive the fix: a genuine cut still says so."""
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            return MemberList([{"id": f"u{i}"} for i in range(200)])
+
+        def posts(self, slug, limit):
+            return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(200)]
+
+    real = m._get_client
+    m._get_client = lambda: FakeClient()
+    try:
+        members = m.list_members("x", limit=650)
+        posts = m.list_posts("x", limit=650)
+    finally:
+        m._get_client = real
+    assert members[-1]["limit_capped"] is True, members[-1]
+    assert members[-1]["returned"] == 200, members[-1]
+    assert posts[-1]["limit_capped"] is True, posts[-1]
+
+
+def test_vault_pull_paces_comment_fetches():
+    """A 700-post pull fired ~4.5 comment requests/s and CloudFront blocked it
+    after ~165 (comments_failed: 543 on hoomans, 2026-08-17). One sleep per
+    post after the first, none when comments are off."""
+    import tempfile
+
+    import catknows.mcp_server as m
+
+    class FakeClient:
+        def members(self, slug, **kwargs):
+            return MemberList([])
+
+        def posts(self, slug, **kwargs):
+            # The count lives in post.metadata.comments — verified against a
+            # live hoomans post (594), where no top-level "comments" key exists.
+            return [{"post": {"id": f"p{i}", "groupId": "g1",
+                              "metadata": {"comments": 3}}} for i in range(5)]
+
+        def comments(self, post_id, group_id):
+            return {"post_tree": {"children": []}}
+
+    slept: list[float] = []
+    real, real_sleep = m._get_client, None
+    m._get_client = lambda: FakeClient()
+    import time as _t
+    real_sleep = _t.sleep
+    _t.sleep = slept.append
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            res = m._pull_to_vault("x", d, include_comments=True)
+        paced = list(slept)
+        slept.clear()
+        with tempfile.TemporaryDirectory() as d:
+            m._pull_to_vault("x", d, include_comments=False)
+        unpaced = list(slept)
+    finally:
+        m._get_client, _t.sleep = real, real_sleep
+    assert res["posts"] == 5 and res["comments_failed"] == 0, res
+    # 5 posts with comments -> 4 pauses (none before the first fetch).
+    # This module pins CATKNOWS_PAGE_DELAY=0, so assert the pull reuses that
+    # knob rather than a second hardcoded one — the value itself is config.
+    from catknows.client import _INTER_PAGE_DELAY_S
+    assert paced == [_INTER_PAGE_DELAY_S] * 4, paced
+    assert unpaced == [], "include_comments=False must not pace anything"
+
+
+def test_waf_block_is_waited_out_but_dead_session_is_not():
+    """CloudFront's burst 403 carries 'Request blocked' and heals after ~60s;
+    a stale session's 403 does not and must fail fast. Bodies copied from a
+    live block (2026-08-17) and from _auth_rejected's own path."""
+    import catknows.http as H
+
+    BLOCK = ('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">\n'
+             "<HTML><HEAD><TITLE>ERROR: The request could not be satisfied</TITLE>\n"
+             "</HEAD><BODY><H1>403 ERROR</H1>\nRequest blocked.\n</BODY></HTML>")
+
+    def _client(bodies):
+        c = H.SkoolHTTP.__new__(H.SkoolHTTP)
+        c._cache, c._profile = {}, {"ua": "t", "lang": "en", "sec_ch_ua": ""}
+        c._cookie_header = lambda: "t"
+        c.calls = []
+
+        class Resp:
+            def __init__(s, code, body):
+                s.status_code, s.text = code, body
+
+        def get(url, headers=None, timeout=None):
+            code, body = bodies[min(len(c.calls), len(bodies) - 1)]
+            c.calls.append(url)
+            return Resp(code, body)
+
+        c._http = type("T", (), {"get": staticmethod(get)})()
+        return c
+
+    slept: list[float] = []
+    real_sleep = H.time.sleep
+    H.time.sleep = slept.append
+    try:
+        # Blocked twice, then served: the pull survives instead of losing 543.
+        c = _client([(403, BLOCK), (403, BLOCK), (200, '{"ok":1}')])
+        assert c._get_with_retry("https://x/y", {}) == {"ok": 1}
+        assert len(c.calls) == 3, c.calls
+        assert slept == [H.RETRY_WAF_DELAY_S] * 2, slept
+
+        # A stale session 403 has no marker: fail immediately, no waiting.
+        slept.clear()
+        c = _client([(403, '{"error":"forbidden"}')])
+        try:
+            c._get_with_retry("https://x/y", {})
+        except H.SkoolHTTPError as e:
+            assert e.status == 403 and "gone stale" in str(e), e
+        else:
+            raise AssertionError("a stale-session 403 must raise")
+        assert slept == [], slept
+        assert len(c.calls) == 1, c.calls
+
+        # A block that never clears still raises rather than looping forever.
+        slept.clear()
+        c = _client([(403, BLOCK)])
+        try:
+            c._get_with_retry("https://x/y", {})
+        except H.SkoolHTTPError as e:
+            assert e.status == 403, e
+        else:
+            raise AssertionError("an unending block must raise")
+        assert len(slept) == H.MAX_RETRIES_WAF, slept
+    finally:
+        H.time.sleep = real_sleep
+
+
 if __name__ == "__main__":
-    test_truncated_walk_is_flagged()
-    test_full_walk_is_not_flagged()
-    test_limit_stops_the_walk_early()
-    test_short_walk_is_flagged_even_when_all_pages_were_walked()
-    test_complete_walk_with_total_stays_clean()
-    test_limit_below_total_is_not_truncation()
-    test_missing_total_keeps_old_behaviour()
-    test_mcp_trailer_names_the_missing_members()
-    test_mcp_tool_filter_plumbing()
-    test_mcp_tool_appends_incomplete_trailer()
-    test_mcp_tool_flags_our_own_cap()
-    print("ok — truncated member walks are flagged, complete ones stay clean")
+    # Run every test_* in this module — an explicit list silently skipped five
+    # of them for a while, which is the same failure mode these tests exist to
+    # catch: looking complete while being short.
+    _fns = [(n, f) for n, f in sorted(vars().items())
+            if n.startswith("test_") and callable(f)]
+    for _n, _f in _fns:
+        _f()
+    print(f"ok — {len(_fns)} checks passed: truncation, role cap, "
+          "limit marker, comment pacing")

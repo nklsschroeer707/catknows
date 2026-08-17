@@ -37,6 +37,22 @@ FETCH_TIMEOUT_S = 30
 MAX_RETRIES_202 = 3          # Skool ISR returns 202 while a page is still building
 RETRY_202_DELAY_S = 2
 
+# CloudFront blocks a burst of reads with a bare "Request blocked." 403 (no
+# Retry-After, no WAF action header) — the same status a dead session gets, so
+# only the body tells them apart. Measured 2026-08-17 on hoomans comments:
+#
+#   ungoverned (~4.5 req/s)  -> blocked at call #169 after 37s
+#   0.35s apart (~1.8 req/s) -> blocked at call #167 after 92s
+#   1.0s apart (~0.8 req/s)  -> all 200 calls passed, 241s
+#
+# Same cut-off at half the rate: it is a refilling budget of ~165 reads, NOT a
+# per-second rate. Pacing is therefore the fix and the retry below is only the
+# net — a block clears after roughly a minute, so short backoffs just knock on
+# a closed door (2/4/8/15s all still 403, 30s later recovered).
+_WAF_BLOCK_MARKER = "Request blocked"
+MAX_RETRIES_WAF = 2
+RETRY_WAF_DELAY_S = 30
+
 # Successful GETs are cached in-process so repeated research doesn't re-hit
 # Skool. CATKNOWS_CACHE_TTL (seconds) overrides; 0 disables. Chat channels are
 # never cached (unread state must be live), and any write clears the cache.
@@ -333,7 +349,10 @@ class SkoolHTTP:
                 return copy.deepcopy(hit[1])
 
         last_err = "unknown"
-        for attempt in range(1, MAX_RETRIES_202 + 1):
+        waf_waits = 0
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 resp = self._http.get(url, headers=headers, timeout=FETCH_TIMEOUT_S)
             except RequestException as e:
@@ -342,6 +361,15 @@ class SkoolHTTP:
             code = resp.status_code
             body = resp.text
 
+            if code == 403 and _WAF_BLOCK_MARKER in body and waf_waits < MAX_RETRIES_WAF:
+                # Burst budget spent, not a dead session (a stale session gets a
+                # 403 without this marker). Sit out the block instead of burning
+                # the caller's whole pull on one hot minute.
+                waf_waits += 1
+                attempt -= 1  # a wait is not an ISR attempt
+                last_err = "HTTP 403 blocked (rate)"
+                time.sleep(RETRY_WAF_DELAY_S)
+                continue
             if code == 401 or code == 403:
                 raise _auth_rejected(code, url)
             if code == 202 or not body.strip():
