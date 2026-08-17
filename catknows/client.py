@@ -18,6 +18,7 @@ import json
 import mimetypes
 import os
 import pathlib
+import re
 import time
 from typing import Iterator
 
@@ -242,6 +243,63 @@ class SkoolClient:
             time.sleep(_INTER_PAGE_DELAY_S)
         return out
 
+    def post_detail(self, community_slug: str, post_name: str) -> dict:
+        """One post's own page (raw ``pageProps``), by its URL slug.
+
+        Worth a second request because the feed does NOT carry everything the
+        post has: file attachments only reach ``metadata.attachmentsData`` here
+        (the feed sends the bare id list), and Skool-hosted videos only get
+        their playback handles here, in ``postTree.videos[]``.
+
+        ``post_name`` is the post's ``name`` (URL slug), not its UUID — that is
+        what the Next.js route keys on.
+        """
+        return self.http.get_next(
+            f"/{community_slug}/{post_name}.json?group={community_slug}",
+            community_slug,
+        ).get("pageProps", {})
+
+    def video_transcript(self, community_slug: str, post_name: str) -> list[dict]:
+        """Transcripts of a post's Skool-hosted videos, via Skool's own player.
+
+        Skool hosts video on Mux and, for anything with an audio track, ships
+        an auto-generated "English CC" subtitle track. Nothing in the Skool
+        payload says so: the route is postTree.videos[] → the signed Mux HLS
+        master → its SUBTITLES track → WebVTT segments, which we stitch.
+
+        Two hard requirements, both measured: the playback token is
+        Referer-restricted (no Skool Referer → HTTP 403 E184-1), and it expires
+        (``expire``), so the manifest must be fetched with a token freshly read
+        from the page. Videos with no audio carry no subtitle track at all and
+        come back ``has_transcript: False`` rather than raising — that is a
+        real state, not an error.
+
+        Externally hosted videos (``metadata.videoLinksData``: YouTube, Loom,
+        …) are NOT covered — they never reach Mux and each hoster has its own
+        transcript path.
+        """
+        out = []
+        for v in (self.post_detail(community_slug, post_name)
+                  .get("postTree") or {}).get("videos") or []:
+            rec = {"video_id": v.get("id", ""),
+                   "duration_s": round((v.get("duration") or 0) / 1000, 3),
+                   "has_transcript": False, "transcript": "", "cues": []}
+            master = self.http.get_mux(
+                f"https://stream.mux.com/{v['playbackId']}.m3u8"
+                f"?token={v['playbackToken']}")
+            track = re.search(r'TYPE=SUBTITLES[^\n]*?URI="([^"]+)"', master)
+            if track:
+                playlist = self.http.get_mux(track.group(1))
+                vtt = "".join(
+                    self.http.get_mux(seg) for seg in playlist.splitlines()
+                    if seg and not seg.startswith("#")
+                )
+                rec["cues"] = _vtt_cues(vtt)
+                rec["transcript"] = " ".join(c["text"] for c in rec["cues"])
+                rec["has_transcript"] = bool(rec["cues"])
+            out.append(rec)
+        return out
+
     # -- profile ---------------------------------------------------------------
 
     def profile(self, user_name: str, community_slug: str) -> dict | None:
@@ -437,7 +495,7 @@ class SkoolClient:
         if min_tier > 0:
             metadata["min_tier"] = min_tier
         return self.http.post_api2("/courses", {
-            "group_id": self.group_id_for(community_slug),
+            "group_id": self.group_id_for(community_slug, for_write=True),
             "unit_type": "course",
             "state": 1 if draft else 2,
             "metadata": metadata,
@@ -657,7 +715,7 @@ class SkoolClient:
                 "content_length": len(data),
                 "content_disposition": "",
                 "ref": "",
-                "owner_id": community if is_uuid else self.group_id_for(community),
+                "owner_id": community if is_uuid else self.group_id_for(community, for_write=True),
                 "large_thumbnail": False,
             },
         )
@@ -689,7 +747,7 @@ class SkoolClient:
         return self.http.post_api2(
             "/polls",
             {
-                "group_id": community if is_uuid else self.group_id_for(community),
+                "group_id": community if is_uuid else self.group_id_for(community, for_write=True),
                 "options": opts,
             },
         )
@@ -728,7 +786,7 @@ class SkoolClient:
             f"/posts{query}",
             {
                 "post_type": "generic",
-                "group_id": self.group_id_for(community_slug),
+                "group_id": self.group_id_for(community_slug, for_write=True),
                 "metadata": metadata,
             },
         )
@@ -757,7 +815,7 @@ class SkoolClient:
             "/posts?follow=false",
             {
                 "post_type": "comment",
-                "group_id": self.group_id_for(community_slug),
+                "group_id": self.group_id_for(community_slug, for_write=True),
                 "root_id": post_id,
                 "parent_id": parent_comment_id or post_id,
                 "metadata": metadata,
@@ -779,19 +837,36 @@ class SkoolClient:
 
     # -- convenience -----------------------------------------------------------
 
-    def group_id_for(self, community_slug: str) -> str:
+    def group_id_for(self, community_slug: str, *, for_write: bool = False) -> str:
         """Discover a community's group UUID without the user supplying it.
 
         Fast path: ``GET api2 /groups/{slug}`` resolves a slug directly
         (verified 2026-08-15). Fallback: it also "falls out" of the first posts
         response as ``post.groupId`` — so one posts fetch bootstraps it.
+
+        ``for_write=True`` additionally refuses archived communities. That group
+        payload already states it (``archived: true`` plus ``metadata.archived:
+        1``, measured on `vrooms-3264` 17.08.), so the check costs no extra
+        request. Archiving leaves a community readable and turns every write
+        off, so only the write paths pass the flag; reads must keep working.
         """
+        group = {}
         try:
-            gid = (self.http.get_api2(f"/groups/{community_slug}") or {}).get("id")
-            if gid:
-                return gid
+            group = self.http.get_api2(f"/groups/{community_slug}") or {}
         except SkoolHTTPError:
             pass  # e.g. WAF hiccup — the posts bootstrap still works
+        # Outside the try: an archived community is a definitive answer, not a
+        # transient failure, so it must not fall through to the posts bootstrap.
+        if for_write and (group.get("archived")
+                          or (group.get("metadata") or {}).get("archived")):
+            raise ValueError(
+                f"'{community_slug}' is archived on Skool. Archived communities "
+                "stay readable, but posting, commenting and liking are turned "
+                "off, so this write would fail. Un-archive it in Skool's group "
+                "settings first."
+            )
+        if group.get("id"):
+            return group["id"]
         trees = self.posts(community_slug, all_pages=False)
         for tree in trees:
             gid = _dig(tree, "post", "groupId")
@@ -816,6 +891,35 @@ def tiptap(text: str) -> str:
             node["content"] = [{"type": "text", "text": line}]
         nodes.append(node)
     return "[v2]" + json.dumps(nodes, separators=(",", ":"), ensure_ascii=False)
+
+
+_VTT_TIME = re.compile(
+    r"(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})")
+
+
+def _vtt_cues(vtt: str) -> list[dict]:
+    """WebVTT text → ``[{start, end, text}]``, in order.
+
+    Mux serves long videos as several VTT *segments*, so this parses a
+    concatenation of them: every segment restarts at "WEBVTT" and renumbers
+    its cues from 1, which is why cue numbers are ignored and timestamps are
+    kept as the segments state them (already absolute). A cue's text can span
+    several lines and is joined with spaces.
+    """
+    cues: list[dict] = []
+    cur: dict | None = None
+    for line in vtt.splitlines():
+        stamp = _VTT_TIME.search(line)
+        if stamp:
+            cur = {"start": stamp.group(1), "end": stamp.group(2), "text": ""}
+            cues.append(cur)
+        elif cur is not None:
+            line = line.strip()
+            if not line:
+                cur = None  # blank line ends the cue
+            elif line != "WEBVTT":
+                cur["text"] = f"{cur['text']} {line}".strip()
+    return [c for c in cues if c["text"]]
 
 
 def _dig(obj, *keys):
@@ -958,5 +1062,27 @@ if __name__ == "__main__":  # python -m catknows.client
     mod.http = _ClassroomHTTP(tree_ok=False)
     flat = mod.update_course_item("m1", {"title": "t", "desc": "plain"})
     assert flat["title"] == "t" and flat["desc"].startswith("[v2]"), flat
+
+    # WebVTT: two Mux segments concatenated, exactly as stitched live (Mux
+    # restarts "WEBVTT" and renumbers cues from 1 per segment, so cue numbers
+    # are meaningless and timestamps are already absolute). Text below is from
+    # the real goosify capture (17.08.), plus a two-line cue.
+    stitched = (
+        "WEBVTT\n\n1\n00:00:00.000 --> 00:00:05.280\nBaby up, the vaults are open\n\n"
+        "2\n00:00:05.280 --> 00:00:07.000\nThe scores are loaded\nMonday is coming\n\n"
+        "WEBVTT\n\n1\n00:02:50.480 --> 00:02:51.480\n49, let's go\n"
+    )
+    cues = _vtt_cues(stitched)
+    assert len(cues) == 3, cues
+    assert cues[0] == {"start": "00:00:00.000", "end": "00:00:05.280",
+                       "text": "Baby up, the vaults are open"}, cues[0]
+    # A multi-line cue is ONE cue, joined — not two.
+    assert cues[1]["text"] == "The scores are loaded Monday is coming", cues[1]
+    # The second segment's cue keeps its own (absolute) time, and the repeated
+    # "WEBVTT" header never leaks into the text.
+    assert cues[2]["start"] == "00:02:50.480", cues[2]
+    assert "WEBVTT" not in " ".join(c["text"] for c in cues)
+    # A video with no audio has no subtitle track at all → no cues, not a crash.
+    assert _vtt_cues("") == []
 
     print("client self-check OK")

@@ -11,7 +11,48 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-08-17
 
+### Added
+- **catknows can read the transcript of a Skool-hosted video.** New
+  `get_video_transcript`: it reads the captions Skool's own player uses, so
+  nothing is downloaded and no transcription runs on your machine. You get the
+  full text plus timestamped cues, which is enough to ask an AI what was said
+  in a lesson, or to search a video without watching it. Two honest limits, both
+  measured rather than assumed: a video with **no audio track** has no captions
+  at all and comes back `has_transcript: false`, and videos merely **embedded**
+  from YouTube, Loom or Vimeo are not Skool-hosted, so they are not covered —
+  each of those platforms has its own transcript route. Verified across four
+  communities. (Requested by Dan Schaad)
+- **Post attachments now come with a filename and a working download link.**
+  New `get_post` returns one post with its `files[]` — name, content type and a
+  URL your AI can fetch directly. Until now a post carried only an opaque
+  attachment id, so a PDF someone attached to a post was visible but unreadable;
+  the same information had been available for DM attachments all along. Verified
+  on a live 60 KB PDF. (Reported by Dan Schaad)
+- **`list_my_communities` now tells you which communities are archived, and
+  writes into one refuse up front.** Skool states the state twice (`archived:
+  true` alongside `metadata.archived: 1`) and the compact record passed on
+  neither, so an archived community was indistinguishable from a live one until
+  a post failed. An archived community stays fully readable and only writing is
+  off, so reads are untouched: `create_post`, `create_comment`, `create_poll`
+  and `create_course` now stop with "this community is archived" instead of
+  letting Skool reject the write with an error that looked like a catknows bug.
+  The check reads the group payload the write path already fetches, so it costs
+  no extra request. Verified live on 53 communities, 2 archived. (Requested by
+  Dan Schaad)
+
 ### Fixed
+- **Asking for more members or posts than one call can return now says it was
+  capped.** `list_members` and `list_posts` return at most 200 records per call
+  (30 with `raw=true`) so the response fits the tool-result size limit. That cap
+  is deliberate and it stays, but it was silent: asking a 592-member community
+  for 650 returned exactly 200 rows and nothing marked them as a partial list,
+  which reads as "that is everyone". Both tools now append a final
+  `{"limit_capped": true, "requested": 650, "returned": 200, ...}` entry with a
+  pointer to narrowing the query instead of raising `limit`. The existing
+  `incomplete` marker never covered this: it reports Skool cutting the page walk
+  short, not catknows lowering the limit, which is exactly the gap this landed
+  in. Verified live on `hoomans`: `limit=250` returns 200 unique members plus the
+  marker. (Reported by Dan Schaad)
 - **A missing membership row no longer poses as a founding-date join.**
   `metadata.member` carries both your role and your real join date. When it was
   absent, `joined_at` silently fell back to the community's founding date and
