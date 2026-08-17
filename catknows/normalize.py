@@ -108,31 +108,51 @@ def chat_message(msg: dict) -> dict:
     do not exist here; reading those gives every message the same blank author
     and makes a whole conversation look like it came from one person.
 
-    ``attachments`` is a comma-joined id string like a post's, and
-    ``attachments_data`` (a JSON string) carries the file name, type and a
-    ready-to-use ``read_url`` per attachment — surfaced as ``files``.
+    ``attachments`` is a comma-joined id string like a post's; the file name,
+    type and ready-to-use URL come out of the sibling JSON string via
+    :func:`_files`, surfaced as ``files`` (same shape as a post's).
     """
     md = msg.get("metadata") or {}
-    files = []
-    for f in maybe_json(md.get("attachments_data")) or []:
-        if not isinstance(f, dict):
-            continue
-        fm = f.get("metadata") or {}
-        files.append({
-            "id": f.get("id", ""),
-            "file_name": fm.get("file_name", ""),
-            "content_type": fm.get("content_type", ""),
-            "url": fm.get("read_url") or fm.get("image_md_url", ""),
-        })
     return {
         "message_id": msg.get("id", ""),
         "from_user_id": md.get("src", ""),
         "to_user_id": md.get("dst", ""),
         "content": md.get("content", ""),
         "attachments": md.get("attachments", ""),
-        "files": files,
+        "files": _files(md),
         "created_at": _ns_or_iso_to_dt(msg.get("created_at")),
     }
+
+
+def _files(md: dict) -> list[dict]:
+    """File attachments from a DM's or post's ``metadata``, as records.
+
+    The id list (``attachments``) is useless on its own — name, type and a
+    ready-to-use download URL only live in the sibling JSON *string*, spelled
+    ``attachments_data`` on api2 (DMs) and ``attachmentsData`` on the Next.js
+    feed (posts). Note the post *list* payload omits it entirely and only the
+    post detail page carries it, so a post record built from a feed page has
+    ids but no files — that is Skool's doing, not a parse failure.
+    """
+    for key in ("attachments_data", "attachmentsData"):
+        raw = md.get(key)
+        if raw:
+            break
+    else:
+        return []
+    out = []
+    for f in maybe_json(raw) or []:
+        if not isinstance(f, dict):
+            continue
+        fm = f.get("metadata") or {}
+        out.append({
+            "id": f.get("id", ""),
+            "file_name": _either(fm, "fileName", "file_name", "") or "",
+            "content_type": _either(fm, "contentType", "content_type", "") or "",
+            "url": (_either(fm, "readUrl", "read_url", "")
+                    or _either(fm, "imageMdUrl", "image_md_url", "") or ""),
+        })
+    return out
 
 
 def post(tree: dict) -> dict:
@@ -168,6 +188,12 @@ def post(tree: dict) -> dict:
         "comments": int(meta.get("comments", 0) or 0),
         "upvotes": int(meta.get("upvotes", 0) or 0),
         "poll": poll,
+        "attachments": meta.get("attachments", ""),
+        "files": _files(meta),
+        # Skool-hosted videos, id only — the playable/transcribable handles sit
+        # outside the post object, in the detail page's postTree.videos.
+        "video_ids": [v for v in (meta.get("videoIds")
+                                  or meta.get("video_ids") or "").split(",") if v],
         "created_at": _ns_or_iso_to_dt(p.get("createdAt")),
     }
 
@@ -486,6 +512,32 @@ if __name__ == "__main__":
     assert pp["poll"] == [{"option": "Ja", "votes": 3},
                           {"option": "Nein", "votes": 1}], pp
     assert post({"post": {"id": "p0", "metadata": {}}})["poll"] is None
+
+    # Post attachment, trimmed verbatim from the live detail page of
+    # catnose/afd79108… (17.08.). The trap: the OUTER key is camelCase
+    # (attachmentsData) while the fields INSIDE the JSON string stay
+    # snake_case — assuming one casing for both drops every file.
+    ap = post({"post": {"id": "p8", "metadata": {
+        "attachments": "6ab9cacf0d444f63a441c69e22320f6a",
+        "attachmentsData":
+            '[{"id":"6ab9cacf0d444f63a441c69e22320f6a","metadata":'
+            '{"content_type":"application/pdf",'
+            '"file_name":"catknows_list_members_reliability_and_feature_spec.pdf",'
+            '"read_url":"https://assets.skool.com/f/1037f7d6/5a6aee0f",'
+            '"src_content_length":60446}}]'}}})
+    assert ap["attachments"] == "6ab9cacf0d444f63a441c69e22320f6a", ap
+    assert ap["files"][0]["file_name"].endswith("feature_spec.pdf"), ap
+    assert ap["files"][0]["content_type"] == "application/pdf", ap
+    assert ap["files"][0]["url"].startswith("https://assets.skool.com/"), ap
+    # The post LIST payload carries the id but no attachmentsData at all — the
+    # record must still parse, with files simply empty (measured, not assumed).
+    listed = post({"post": {"id": "p7", "metadata": {
+        "attachments": "6ab9cacf0d444f63a441c69e22320f6a"}}})
+    assert listed["attachments"] and listed["files"] == [], listed
+    # videoIds is a comma-joined string; two-video posts are real (skooligans).
+    assert post({"post": {"id": "p6", "metadata": {
+        "videoIds": "a,b"}}})["video_ids"] == ["a", "b"]
+    assert post({"post": {"id": "p5", "metadata": {"videoIds": ""}}})["video_ids"] == []
 
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"

@@ -181,6 +181,74 @@ Each tree has a `post`:
 need the group UUID. It "falls out" of the first posts response as
 `post.groupId` — one posts fetch bootstraps it.
 
+### 1.2b One post's own page — attachments and video (Next.js shape)
+
+```
+GET /_next/data/{buildId}/{slug}/{postName}.json?group={slug}
+```
+
+`{postName}` is the post's **`name`** (URL slug), not its UUID. Response:
+`pageProps.postTree` — the same tree shape as the feed, but the feed is
+**lossy** and this page is not. Two things exist only here:
+
+**1. File attachments.** The feed gives you `metadata.attachments` — a
+comma-joined id string and nothing else. No name, no type, no URL. The
+detail page adds the sibling `metadata.attachmentsData`, a JSON **string**:
+
+```jsonc
+"attachments": "6ab9cacf0d444f63a441c69e22320f6a",
+"attachmentsData": "[{\"id\":\"6ab9…\",\"metadata\":{
+    \"file_name\":\"report.pdf\", \"content_type\":\"application/pdf\",
+    \"read_url\":\"https://assets.skool.com/f/{groupId}/{hash}\",
+    \"src_content_length\":60446}}]"
+```
+
+> **⚠ Mixed casing in one field:** the outer key is **camelCase**
+> (`attachmentsData`) while the fields *inside* the JSON string are
+> **snake_case** (`file_name`, `read_url`) — the same shape DMs return under
+> the fully snake_case `attachments_data` (§1.6). Assume one casing for both
+> and every file silently disappears. `read_url` needs no auth header and
+> answers 200 directly.
+
+**2. Skool-hosted video.** `metadata.videoIds` (comma-joined) only names the
+videos; the playable handles live in `postTree.videos[]`, which the feed
+omits entirely:
+
+```jsonc
+{ "id": "video-uuid", "playbackId": "mux-playback-id",
+  "playbackToken": "eyJ…",   // signed JWT, aud:"v"
+  "thumbnailToken": "eyJ…",  // aud:"t"    "storyboardToken": "…",  // aud:"s"
+  "expire": 1787059512, "duration": 179560, "aspectRatio": "16:9" }
+```
+
+Skool hosts video on **Mux**. `duration` is in **milliseconds**. The tokens
+expire (`expire`), so read them fresh per request.
+
+**Transcripts — Skool generates them, but never says so.** No field anywhere
+in the Skool payload mentions captions. They are reachable through the
+player's own chain:
+
+```
+GET https://stream.mux.com/{playbackId}.m3u8?token={playbackToken}
+    → #EXT-X-MEDIA:TYPE=SUBTITLES … NAME="English CC" … URI="…subtitles.m3u8"
+GET {that URI}          → one or more .vtt segment URLs
+GET {each segment}      → WebVTT; concatenate for the full transcript
+```
+
+> **⚠ Referer-restricted:** the playback token carries a
+> `playback_restriction_id`. Without `Referer: https://www.skool.com/` Mux
+> answers **403 `E184-1`** even with a perfectly valid token.
+
+Two honest limits, both measured: a video with **no audio track** carries no
+subtitle track at all (its manifest has no `mp4a` codec and no `SUBTITLES`
+line) — absence of captions, not an error. And **externally embedded** video
+(`metadata.videoLinksData`: YouTube, Loom, Vimeo, Wistia) never reaches Mux;
+each hoster has its own transcript path, none of them this one.
+
+Long videos are split into several VTT segments, each restarting with a
+`WEBVTT` header and renumbering its cues from 1 — the timestamps are already
+absolute, so concatenate and ignore the cue numbers.
+
 ### 1.3 Profile (single member) — Next.js shape
 
 ```
@@ -586,6 +654,9 @@ Body: <raw video bytes>
 ```
 
 Then put `video_id` in the post's `metadata.video_ids` (comma-join multiple).
+
+Reading one back (playback handles, and the auto-generated captions Skool
+never advertises) is the post detail page, not this endpoint — see §1.2b.
 
 ### 5.5 Attach a poll
 

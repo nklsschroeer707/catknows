@@ -209,6 +209,31 @@ class SkoolHTTP:
         url = f"{SKOOL_API2}{path_and_query}"
         return self._get_with_retry(url, self._api2_headers())
 
+    def get_mux(self, url: str) -> str:
+        """GET a signed Mux playback URL and return its body as TEXT.
+
+        Skool's video CDN, not Skool itself: no cookies, no Bearer — the signed
+        token in the URL is the whole authorization. It carries a playback
+        restriction, so the request MUST look like it came from the Skool
+        player; without a Skool Referer Mux answers 403 ``E184-1``. Returns
+        text (HLS manifests and WebVTT), never JSON.
+        """
+        r = self._http.get(url, headers={
+            "User-Agent": self._profile["ua"],
+            "Accept": "*/*",
+            "Accept-Language": self._profile["lang"],
+            "Referer": f"{SKOOL_BASE}/",
+            "Origin": SKOOL_BASE,
+        }, timeout=FETCH_TIMEOUT_S)
+        if r.status_code != 200:
+            raise SkoolHTTPError(
+                f"HTTP {r.status_code} from Mux ({url.split('?')[0]}). A 403 "
+                "here usually means the playback token expired — re-read the "
+                "post page to get a fresh one.",
+                r.status_code,
+            )
+        return r.text
+
     def post_api2(self, path_and_query: str, body: dict) -> dict:
         """POST to an api2.skool.com endpoint — the write shape (docs/API.md §5).
 
