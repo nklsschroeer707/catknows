@@ -238,8 +238,36 @@ echo "  is how you accidentally publish an open registration endpoint."
 echo "  Set them deliberately in the admin console:"
 echo "    Clients -> Client registration -> Anonymous access policies"
 echo "      - Allowed Client Scopes: add $SCOPE"
-echo "      - Trusted Hosts: the callers you expect (claude.ai infra)"
+echo "      - Trusted Hosts: the callers you expect (see the list below)"
 echo "      - Max Clients: keep a ceiling"
+# The Trusted Hosts list as set on the live realm. It lives in the database,
+# not here — a realm reimport drops it and every AI client then fails to
+# register with a 403 the *user* sees as "automatic registration failed".
+# Written down so it can be restored, but read the live list before you trust
+# this one (34 entries here, the realm reported 36 on 2026-08-16):
+#
+#   docker compose exec -T db psql -U keycloak -d keycloak -t -A -c \
+#     "SELECT cc.value FROM component c JOIN component_config cc ON cc.component_id=c.id
+#      WHERE c.provider_id='trusted-hosts' AND cc.name='trusted-hosts' ORDER BY cc.value;"
+#
+#   claude.ai *.claude.ai claude.com *.claude.com
+#   chatgpt.com *.chatgpt.com openai.com *.openai.com
+#   googleusercontent.com *.googleusercontent.com *.google.com gemini.google.com
+#   cursor.sh *.cursor.sh cursor.com *.cursor.com
+#   notion.so *.notion.so notion.com *.notion.com
+#   windsurf.com *.windsurf.com codeium.com *.codeium.com
+#   perplexity.ai *.perplexity.ai mistral.ai *.mistral.ai
+#   zed.dev *.zed.dev vscode.dev *.vscode.dev
+#   localhost 127.0.0.1
+#
+# `client-uris-must-match=true`, `host-sending-registration-request-must-match=false`
+# — the redirect URI is what gets matched, not the caller's IP.
+#
+# Gemini is the trap: it does NOT register from gemini.google.com. It sends a
+# redirect URI on `oauth-redirect[-test].googleusercontent.com`, so listing the
+# product domain alone rejects every Google client. Measured 2026-08-16 from a
+# real user's failed connect; the log line naming the URI is the only way to
+# learn a client's actual redirect host — grep Keycloak for KC-SERVICES0108.
 echo
 echo "Realm $REALM configured. Discovery:"
 echo "  https://auth.catknows.app/realms/$REALM/.well-known/openid-configuration"
