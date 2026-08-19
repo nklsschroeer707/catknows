@@ -898,6 +898,35 @@ def _csv_arg(value: str) -> list[str]:
 
 if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
+    # Every draft that carries prose to a human carries this too. The server
+    # cannot rewrite anything itself (no model here), so it asks the client's
+    # model to do the pass before the user ever sees the text. Patterns from
+    # Wikipedia's "Signs of AI writing" via github.com/blader/humanizer (MIT).
+    _HUMANIZE = (
+        "Before showing this draft, rewrite it so it does not read as AI-written. "
+        "Drop: em dashes (use a comma or full stop), bold label lists, "
+        "'not just X but Y', forced groups of three, stock words (testament, "
+        "delve, showcase, vibrant, crucial, landscape, underscore, tapestry), "
+        "openers that announce the point ('Let's dive in', 'Here's the thing'), "
+        "and vague sign-offs. Keep every fact, number and name exactly as it is. "
+        "Match how the user writes if you have seen their writing."
+    )
+
+    def _draft(status: str, key: str, body: dict, *, prose: bool = True) -> dict:
+        """A draft reply: nothing written yet, here is what would be.
+
+        `prose` is False for drafts a human never reads as text (a move, a
+        delete, a course's metadata) — nothing to humanize there.
+        """
+        out = {
+            "status": status,
+            key: body,
+            "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
+        }
+        if prose:
+            out["before_you_show_this"] = _HUMANIZE
+        return out
+
     def _attachment_preview(paths: str) -> list[dict]:
         """Describe local files for the draft, without uploading anything yet.
 
@@ -976,11 +1005,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "notify_members (emails everyone!)": notify_members,
         }
         if not confirm:
-            return {
-                "status": "DRAFT — nothing was posted",
-                "would_post": draft,
-                "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
-            }
+            return _draft("DRAFT — nothing was posted", "would_post", draft)
         client = _get_client()
         poll_id = client.create_poll(community_slug, options)["poll_id"] if options else ""
         created = client.create_post(
@@ -1024,11 +1049,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "attachments": _attachment_preview(attachments),
         }
         if not confirm:
-            return {
-                "status": "DRAFT — nothing was written",
-                "would_comment": draft,
-                "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
-            }
+            return _draft("DRAFT — nothing was written", "would_comment", draft)
         created = _get_client().create_comment(
             community_slug, post_id, content,
             parent_comment_id=parent_comment_id,
@@ -1067,11 +1088,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         new_title = title or None
         new_content = content or None
         if not confirm:
-            return {
-                "status": "DRAFT — nothing was changed",
-                "would_edit": _edit_draft(post_id, new_title, new_content),
-                "next_step": "Show this to the user; call again with confirm=true once they approve.",
-            }
+            return _draft("DRAFT — nothing was changed", "would_edit",
+                          _edit_draft(post_id, new_title, new_content))
         client = _get_client()
         client.group_id_for(community_slug, for_write=True)  # archived guard
         updated = client.update_post(post_id, title=new_title, content=new_content)
@@ -1087,11 +1105,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """
         new_content = content or None
         if not confirm:
-            return {
-                "status": "DRAFT — nothing was changed",
-                "would_edit": _edit_draft(comment_id, None, new_content),
-                "next_step": "Show this to the user; call again with confirm=true once they approve.",
-            }
+            return _draft("DRAFT — nothing was changed", "would_edit",
+                          _edit_draft(comment_id, None, new_content))
         client = _get_client()
         client.group_id_for(community_slug, for_write=True)  # archived guard
         updated = client.update_post(comment_id, content=new_content)
@@ -1159,15 +1174,11 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         approved the message text.
         """
         if not confirm:
-            return {
-                "status": "DRAFT — nothing was sent",
-                "would_send": {
-                    "channel_id": channel_id,
-                    "content": content,
-                    "attachments": _attachment_preview(attachments),
-                },
-                "next_step": "Show this to the user; call again with confirm=true once they approve.",
-            }
+            return _draft("DRAFT — nothing was sent", "would_send", {
+                "channel_id": channel_id,
+                "content": content,
+                "attachments": _attachment_preview(attachments),
+            })
         client = _get_client()
         ids: list[str] = []
         if attachments:
@@ -1219,8 +1230,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                  "min_access_level": min_access_level, "min_tier": min_tier,
                  "created_as_invisible_draft": draft}
         if not confirm:
-            return {"status": "DRAFT — nothing was created", "would_create": would,
-                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+            return _draft("DRAFT — nothing was created", "would_create", would)
         created = _get_client().create_course(
             community_slug, title, desc=description, privacy=privacy,
             min_access_level=min_access_level, min_tier=min_tier, draft=draft)
@@ -1251,8 +1261,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                  "kind": "folder" if folder else "page",
                  "content": content[:500], "video_link": video_link, "draft": draft}
         if not confirm:
-            return {"status": "DRAFT — nothing was created", "would_create": would,
-                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+            return _draft("DRAFT — nothing was created", "would_create", would)
         created = _get_client().create_course_item(
             course_id, title, parent_id=parent_id, folder=folder,
             content=content, video_link=video_link, draft=draft)
@@ -1292,9 +1301,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         if not fields:
             raise ValueError("Nothing to update — pass title, content or a setting.")
         if not confirm:
-            return {"status": "DRAFT — nothing was changed",
-                    "would_update": {"item_id": item_id, **fields},
-                    "next_step": "Show this to the user; call again with confirm=true once they approve."}
+            return _draft("DRAFT — nothing was changed", "would_update",
+                          {"item_id": item_id, **fields},
+                          prose="desc" in fields or "title" in fields)
         updated = _get_client().update_course_item(item_id, fields)
         return {"status": "updated", "item": _safe_raw(updated)}
 
