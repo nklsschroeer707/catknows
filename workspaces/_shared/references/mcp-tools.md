@@ -20,7 +20,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
 | `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |
-| `get_course_tree` | course_id | one course's full structure: folders + pages with ids, titles, order, draft state. `course_id` from `get_classroom`. The **only** way to read page bodies; child order = display order |
+| `get_course_tree` | course_id, community_slug="" | one course's full structure: folders + pages with ids, titles, order, draft state. `course_id` from `get_classroom`. Page bodies live here, not in the course list; child order = display order. **Pass `community_slug` for a community you have not joined** — Skool's API refuses those, and only the classroom page shows what the community publishes (see skool-quirks.md) |
 | `get_calendar` | slug, cal_date=0 | events; cal_date = unix ts for a future month |
 | `get_admin_metrics` | slug, range="30d" | growth/engagement (members, active, activity series) — owner/admin only; no visitors/conversion/MRR (see skool-quirks.md) |
 | `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread (limit above 30 is refused) |
