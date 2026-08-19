@@ -1029,7 +1029,8 @@ A unit (snake_case, api2 shape):
 |---|---|
 | Slug → group UUID (no posts fetch needed) | `GET api2 /groups/{slug}` → `{id, name, metadata}` |
 | Course list of a community | `GET api2 /groups/{gid}/courses` → `{courses: [unit], num_all_courses}` |
-| **One course's full tree — the ONLY module read** | `GET api2 /courses/{courseId}?withChildren=true` → `{course, children: [{course, children: […]}]}` |
+| **One course's full tree — members only** | `GET api2 /courses/{courseId}?withChildren=true` → `{course, children: [{course, children: […]}]}` |
+| Same tree, as the website reads it (no membership needed) | `GET /_next/data/{buildId}/{slug}/classroom/{courseName}.json?group={slug}&md={moduleId}` → `pageProps.course` |
 
 The Next.js classroom page (`{slug}/classroom.json`, §1.6) carries **only the
 course tiles** (`pageProps.allCourses[]`, camelCase) — no modules, just
@@ -1037,6 +1038,36 @@ course tiles** (`pageProps.allCourses[]`, camelCase) — no modules, just
 empty body** for non-root units: pages are readable *only* through their
 course's tree. Child order in `children[]` is the display order; there is no
 position field on the unit.
+
+**Membership gates both api2 course reads — but the page does not.** An
+account that is not in the community gets `401 action not permitted` on
+`/groups/{gid}/courses` AND on `/courses/{id}`, for **every** course, open
+ones included. The classroom page has no such gate: it serves whatever the
+community publishes, which is why a non-member can open a course in a browser
+at all. So api2 is not "the ONLY module read" — it is the door that needs
+membership (and the only one for our own drafts and the whole write path),
+while the page is the door the website itself uses.
+
+Reading a course through the page (measured 2026-08-19, `wealthpack` and
+`skooligans`, neither joined):
+
+```
+GET /_next/data/{buildId}/{slug}/classroom/{courseNAME}.json?group={slug}
+  -> pageProps.__N_REDIRECT = "/{slug}/classroom/{name}?md={firstModuleId}"
+GET  …same URL…&md={firstModuleId}
+  -> pageProps.course = {course, children:[…]}   // the full tree
+```
+
+Two catches: the path wants the course's short `name`, not its `id` (resolve
+it through `classroom.json`), and without `md=` Skool answers a redirect stub
+instead of the tree — the browser follows it, so we do too. The payload is
+camelCase here and snake_case on api2 (`unitType`/`unit_type`,
+`hasAccess`/`has_access`); readers must take both.
+
+`client.course_tree(course_id, community_slug)` tries api2 first and falls
+back to the page. `http._auth_rejected` also forks on the `action not
+permitted` body, so when neither door opens the error names the real cause —
+re-logging in never clears that one.
 
 ### 7.2 Creating — `POST /courses`
 

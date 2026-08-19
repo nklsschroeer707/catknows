@@ -517,14 +517,58 @@ class SkoolClient:
     # unit_type "course" (root), "set" (folder), "module" (page). All verbs go
     # through api2 /courses. Verified live 2026-08-15 on a private community.
 
-    def course_tree(self, course_id: str) -> dict:
+    def course_tree(self, course_id: str, community_slug: str = "") -> dict:
         """One course's full tree: ``{course, children:[{course, children}]}``.
 
-        This is the ONLY way to read modules/pages — the classroom page payload
-        carries just the course list, and ``GET /courses/{moduleId}`` answers
-        400 for non-root units. Child order in ``children[]`` is display order.
+        Two doors lead here and they do NOT grant the same thing (measured
+        2026-08-19). ``api2 /courses/{id}`` needs membership: an account
+        outside the community gets 401 ``action not permitted`` on EVERY
+        course, open ones included. The classroom page reads it the way the
+        website does and shows whatever the community publishes — which is how
+        a non-member can open a course in the browser at all.
+
+        So: api2 first (it is the only door for our own drafts and the write
+        path), the page as the fallback. ``community_slug`` enables that
+        fallback; without it a non-member just gets the 401.
         """
-        return self.http.get_api2(f"/courses/{course_id}?withChildren=true")
+        try:
+            return self.http.get_api2(f"/courses/{course_id}?withChildren=true")
+        except SkoolHTTPError as e:
+            if not community_slug or e.status not in (401, 403):
+                raise
+            tree = self._course_tree_via_page(community_slug, course_id)
+            if tree is None:
+                raise
+            return tree
+
+    def _course_tree_via_page(self, community_slug: str, course_id: str) -> dict | None:
+        """The course as the website reads it, or None if it isn't visible there.
+
+        The page wants the course's short slug (``name``), not its id, so this
+        resolves the id through the classroom list first. Opening a course
+        without a module answers a redirect stub carrying the first lesson's
+        ``md=`` — the browser follows it, and so do we.
+        """
+        name = ""
+        for c in ((self.classroom(community_slug).get("pageProps") or {})
+                  .get("allCourses") or []):
+            if c.get("id") == course_id:
+                name = c.get("name") or ""
+                break
+        if not name:
+            return None
+
+        base = f"/{community_slug}/classroom/{name}.json?group={community_slug}"
+        data = self.http.get_next(base, community_slug)
+        pp = data.get("pageProps") or {}
+        if not pp.get("course"):
+            target = str(pp.get("__N_REDIRECT") or "")
+            md = target.partition("md=")[2].split("&", 1)[0]
+            if not md:
+                return None
+            data = self.http.get_next(f"{base}&md={md}", community_slug)
+            pp = data.get("pageProps") or {}
+        return pp.get("course") or None
 
     def classroom_courses(self, community_slug: str) -> dict:
         """The api2 course list: ``{courses: [unit], num_all_courses}``.

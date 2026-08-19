@@ -76,11 +76,35 @@ class SkoolHTTPError(RuntimeError):
         self.status = status
 
 
-def _auth_rejected(code: int, url: str) -> SkoolHTTPError:
-    """The 401/403 error, worded for both deployments: a stored session's WAF
-    token ages even while the year-long login stays valid, and AWS WAF then
-    rejects exactly the paginated/filtered endpoints first (measured
-    2026-08-15: a stale token turns members.json into 202-challenges/403s)."""
+# Skool's api2 wording for "you may see this endpoint, but not this object":
+# a membership gate, not an auth failure. Measured 2026-08-19 on
+# /groups/{gid}/courses and /courses/{id} — an account that is NOT in the
+# community gets exactly this body, while every course in a community it IS in
+# answers 200 across all privacy levels.
+_NOT_PERMITTED_MARKER = "action not permitted"
+
+
+def _auth_rejected(code: int, url: str, body: str = "") -> SkoolHTTPError:
+    """The 401/403 error. Two very different causes share these codes.
+
+    A stored session's WAF token ages even while the year-long login stays
+    valid, and AWS WAF then rejects the paginated/filtered endpoints first
+    (measured 2026-08-15: a stale token turns members.json into
+    202-challenges/403s). But Skool ALSO answers 401 ``action not permitted``
+    when the login is perfectly fine and the account simply isn't in the
+    community. Telling a user to re-login for that sends them in circles, so
+    the body decides which advice we give.
+    """
+    if _NOT_PERMITTED_MARKER in body.lower():
+        return SkoolHTTPError(
+            f"HTTP {code} on {url} — Skool says \"action not permitted\". The "
+            "session is fine; the logged-in Skool account just isn't in that "
+            "community (classroom and member data are members-only). Joining "
+            "it, or connecting the account that is in it, is the fix — "
+            "re-logging in will not change this. Public info (about, "
+            "discovery) works without membership.",
+            code,
+        )
     return SkoolHTTPError(
         f"HTTP {code} on {url} — auth or WAF rejected. The stored Skool "
         "session has likely gone stale (its WAF token expires even while the "
@@ -262,7 +286,7 @@ class SkoolHTTP:
 
         code = resp.status_code
         if code == 401 or code == 403:
-            raise _auth_rejected(code, url)
+            raise _auth_rejected(code, url, resp.text)
         if not (200 <= code < 300):
             raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
         self._cache.clear()  # a write invalidates anything we read before it
@@ -343,7 +367,7 @@ class SkoolHTTP:
             body = resp.text
 
             if code == 401 or code == 403:
-                raise _auth_rejected(code, url)
+                raise _auth_rejected(code, url, body)
             if code == 202 or not body.strip():
                 # ISR deferred: page still building. Wait and retry.
                 last_err = f"HTTP {code} deferred/empty"

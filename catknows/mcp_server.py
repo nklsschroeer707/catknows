@@ -474,30 +474,44 @@ def get_classroom(community_slug: str, raw: bool = False) -> dict:
 
 
 @mcp.tool()
-def get_course_tree(course_id: str, raw: bool = False) -> dict:
+def get_course_tree(course_id: str, community_slug: str = "", raw: bool = False) -> dict:
     """Read one course's full structure: folders and pages with ids, titles, order and draft state.
 
-    course_id comes from get_classroom. This is the only way to read page
-    bodies — the classroom list carries just the course tiles. Child order in
-    the tree is the display order.
+    course_id comes from get_classroom, which carries just the course tiles —
+    page bodies live here. Child order in the tree is the display order.
+
+    Pass community_slug for courses in communities you have NOT joined: Skool's
+    own API refuses those outright, and only the classroom page shows what the
+    community publishes (the same thing you see in a browser). Without it such
+    a course comes back as a 401.
     """
-    data = _get_client().course_tree(course_id)
+    data = _get_client().course_tree(course_id, community_slug)
     if raw:
         return _safe_raw(data)
+
+    # The two doors disagree on spelling: the API answers snake_case, the page
+    # camelCase. Same tree, so read both rather than compacting twice.
+    def _f(md: dict, *names, default=None):
+        for n in names:
+            if md.get(n) not in (None, ""):
+                return md[n]
+        return default
 
     def _compact(node):
         unit = node.get("course") or {}
         md = unit.get("metadata") or {}
+        kind = _f(unit, "unit_type", "unitType")
         out = {
             "id": unit.get("id"),
-            "type": unit.get("unit_type"),  # course | set (folder) | module (page)
+            "type": kind,  # course | set (folder) | module (page)
             "title": md.get("title", ""),
             "is_draft": unit.get("state") == 1,
         }
-        if unit.get("unit_type") == "module":
+        if kind == "module":
             out["content"] = md.get("desc", "")
-            if md.get("video_link"):
-                out["video_link"] = md.get("video_link")
+            video = _f(md, "video_link", "videoLink")
+            if video:
+                out["video_link"] = video
         children = [_compact(ch) for ch in node.get("children") or []]
         if children:
             out["children"] = children

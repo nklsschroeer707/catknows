@@ -6,15 +6,27 @@
 - **Never fetch skool.com yourself** (no requests/curl/fetch). AWS-WAF
   fingerprints the TLS handshake; only the catknows tools get through.
 - **Classroom depth:** `get_classroom` returns the course *list* only. Module
-  and lesson trees need one request per course following a `?md=` redirect —
-  that's what `classroom-research`'s pull script does. Lesson video links are
-  in the tree; lesson *text* would be one extra request per lesson.
+  and lesson trees come from `get_course_tree`, one call per course. Lesson
+  video links are in the tree; lesson *text* would be one extra request per
+  lesson.
+- **Courses outside your communities:** `get_course_tree` reads a course two
+  ways, and they don't grant the same thing. Skool's API needs you to be a
+  member and refuses *every* course otherwise, open ones included. The
+  classroom page has no such gate, which is why you can open a course in a
+  browser without joining. Pass `community_slug` and the tool falls back to
+  that page; leave it out and a non-member gets a 401 (measured 2026-08-19).
 - **Access flags:** courses carry `hasAccess` and `privacy` (1 = paid/locked,
-  2 = level-locked). Locked content is simply not available — say so instead
-  of retrying.
-- **Membership matters:** posts, members, classroom need you to be a member
-  of the community. Only `get_community_about` and `get_discovery` work from
-  the outside.
+  2 = level-locked). `hasAccess: 1` describes the COURSE ("open to members"),
+  not you — a non-member sees it on courses they cannot read. Locked content
+  is simply not available — say so instead of retrying.
+- **Membership matters:** posts and members need you to be a member of the
+  community. `get_community_about` and `get_discovery` work from the outside,
+  and so does the classroom (list always, course content via the page
+  fallback above).
+- **401 "action not permitted" is not a broken session.** Skool sends it when
+  the login is fine and the account simply isn't in that community. Telling
+  the user to reconnect will not help; joining, or connecting the account
+  that IS in it, will.
 - **Pricing models:** `get_community_about` reports `membership_model` as
   free / paid / freemium / tiers / one_time (Skool's five pricing options);
   older groups may have none set → `null`. Paid, tiers and one_time carry a
