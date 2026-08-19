@@ -9,6 +9,39 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-08-19
+
+### Fixed
+- **Courses in communities you have not joined are readable again.**
+  `get_course_tree` only ever asked Skool's api2, which requires membership and
+  refuses `401 action not permitted` for **every** course of a non-member, open
+  ones included — while `get_classroom` (a different route) happily listed those
+  same courses with `hasAccess: 1`. "The list works but the tree 401s" therefore
+  looked like a broken endpoint and was a locked door. The tool now takes a
+  `community_slug` and falls back to the classroom page, which is the route the
+  Skool website itself uses and shows whatever the community publishes.
+  `docs/API.md` §7.1 called api2 "the ONLY module read" — that was measured on
+  own communities only, and is now corrected. Verified against `wealthpack` and
+  `skooligans` (neither joined) and against member communities on both routes.
+  (Reported by Des Cooke)
+- **A 401 no longer always blames your session.** `_auth_rejected` sent everyone
+  to "reconnect your Skool login", including the case where the login is fine
+  and the account simply isn't in the community — which no re-login can fix.
+  It now forks on Skool's `action not permitted` body and says which of the two
+  it is. (Des re-connected twice on that wrong advice.)
+
+### Added
+- **Drafts that carry prose ask the calling model to humanize them first.**
+  `create_post`, `create_comment`, `edit_post`, `edit_comment`, `send_dm`,
+  `create_course`, `create_course_item` and `update_course_item` return a
+  `before_you_show_this` instruction: strip em dashes, bold label lists, stock
+  AI words and forced triples, keep every fact, then show the user. The server
+  has no model of its own, so this is the only point where the pass can happen.
+  Settings-only drafts (a privacy flag, a move, a delete) skip it. Patterns from
+  Wikipedia's "Signs of AI writing" via
+  [humanizer](https://github.com/blader/humanizer) (MIT). New helper `_draft()`
+  keeps all draft returns in one shape.
+
 ## 2026-08-17
 
 ### Added

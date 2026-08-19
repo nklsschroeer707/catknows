@@ -67,6 +67,13 @@ over `SkoolClient`; don't duplicate client logic in it.
   alone is not something a user can review. `notify_members` (email broadcast)
   is a separate explicit flag. Never weaken this: writes act as the user,
   visible to real members.
+- Drafts that carry prose (post, comment, DM, course page) also return
+  `before_you_show_this`: a short instruction telling the calling model to
+  strip AI tells before the user reads the draft. The server has no model, so
+  this is the only place the pass can happen. Patterns from Wikipedia's "Signs
+  of AI writing" via [humanizer](https://github.com/blader/humanizer) (MIT).
+  Settings-only drafts (a privacy flag, a move, a delete) skip it — no prose,
+  no pass. Build drafts with `_draft(...)` so this stays in one place.
 - Every new tool must be listed in `_READ_ONLY` or `_DESTRUCTIVE` — a tool in
   neither fails the self-check, on purpose.
 - Writes into an **archived** community refuse up front
