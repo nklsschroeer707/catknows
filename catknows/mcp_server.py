@@ -908,6 +908,13 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     #   CATKNOWS_WRITE_MODE=draft_only   turns the lockout on (set it on hosted).
     #   CATKNOWS_WRITE_ALLOW_SLUGS=a,b   communities exempt from it, for the
     #                                    control experiment (e.g. hoomans-9944).
+    # Deliberately env-gated, not tied to _http_mode(): the lockout is meant for
+    # the hosted deployment (its data-centre egress IP is the leading suspect),
+    # so it is enabled by setting the env var on the box. A local stdio install
+    # leaves the var unset and keeps posting — local and hosted share the same
+    # curl_cffi write path, the only measured difference is the egress IP, and no
+    # local write has been observed being un-listed yet. The control experiment
+    # is what decides whether local also needs it.
     _WRITE_DRAFT_ONLY = os.environ.get("CATKNOWS_WRITE_MODE", "") == "draft_only"
     _WRITE_ALLOW_SLUGS = frozenset(
         s.strip() for s in os.environ.get("CATKNOWS_WRITE_ALLOW_SLUGS", "").split(",") if s.strip()
