@@ -1,10 +1,13 @@
 """Append-only trend snapshots: numbers today, growth curves tomorrow.
 
     python -m catknows.snapshot --vault ./vault skoolers my-community --discovery
+    python -m catknows.snapshot --vault ./vault --rank my-community
 
 Per community slug, appends one JSON line (date + the public About numbers)
 to `<vault>/trends/<slug>.jsonl`. With --discovery, also snapshots page 1 of
-Skool's ranked board into `<vault>/trends/discovery.jsonl`.
+Skool's ranked board into `<vault>/trends/discovery.jsonl`. With --rank SLUG
+(owner-only), appends that community's overall + category discovery rank to
+`<vault>/trends/rank.jsonl` — the series that shows a penalty or a recovery.
 
 No AI involved and strictly headless: safe to run from a scheduler. If the
 persisted login has expired it exits with code 2 instead of opening a
@@ -68,6 +71,22 @@ def _discovery_top(client: SkoolClient) -> list[dict]:
     return top
 
 
+def _rank_row(client: SkoolClient, slug: str) -> dict:
+    d = client.discovery_rank(client.group_id_for(slug))
+    # Same guard as _about_numbers: a null rank is a broken read, not a data point.
+    if d.get("rank") is None:
+        raise RuntimeError("empty rank payload (no rank) — not the owner, or session expired")
+    return {
+        "slug": slug,
+        "rank": d.get("rank"),
+        "category": (d.get("category") or {}).get("name"),
+        "category_rank": d.get("category_rank"),
+        "is_showing": d.get("is_showing"),
+        "boost_enabled": d.get("boost_enabled"),
+        "rank_updated_at": d.get("rank_updated_at"),
+    }
+
+
 def _append(path: Path, line: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -83,10 +102,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--vault", default="./vault", help="Vault directory.")
     parser.add_argument("--discovery", action="store_true",
                         help="Also snapshot page 1 of the discovery board.")
+    parser.add_argument("--rank", nargs="*", default=[], metavar="SLUG",
+                        help="Also log the discovery rank of these communities you own.")
     args = parser.parse_args(argv)
 
-    if not args.slugs and not args.discovery:
-        parser.error("nothing to do: pass slugs and/or --discovery")
+    if not args.slugs and not args.discovery and not args.rank:
+        parser.error("nothing to do: pass slugs, --discovery and/or --rank SLUG")
 
     try:
         session = login(profile_dir=_profile_dir(), headless=True, timeout_ms=30_000)
@@ -123,9 +144,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"!! discovery: {e}", file=sys.stderr)
             failed += 1
 
+    for slug in args.rank:
+        try:
+            line = {"date": now, **_rank_row(client, slug)}
+        except Exception as e:
+            print(f"!! rank {slug}: {e}", file=sys.stderr)
+            failed += 1
+            continue
+        _append(trends / "rank.jsonl", line)
+        # Category names carry emoji; a cp1252 console must not kill the run.
+        print(f"rank {slug}: overall=#{line['rank']} category=#{line['category_rank']}")
+
     # Exit non-zero if nothing was collected, so the scheduler shows a failed run
     # instead of a green tick on a snapshot that silently gathered nothing.
-    return 1 if failed and failed == len(args.slugs) + int(args.discovery) else 0
+    jobs = len(args.slugs) + int(args.discovery) + len(args.rank)
+    return 1 if failed and failed == jobs else 0
 
 
 def _selfcheck() -> None:
@@ -157,6 +190,26 @@ def _selfcheck() -> None:
         except RuntimeError:
             continue
         raise AssertionError(f"empty payload silently accepted: {payload}")
+
+    class _FakeRank:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def group_id_for(self, slug):
+            return "gid"
+
+        def discovery_rank(self, gid):
+            return self._payload
+
+    row = _rank_row(_FakeRank({"rank": 4891, "category": {"name": "Relationships"},
+                               "category_rank": 85}), "x")
+    assert row["rank"] == 4891 and row["category_rank"] == 85, row
+    for payload in ({}, {"rank": None}):
+        try:
+            _rank_row(_FakeRank(payload), "x")
+        except RuntimeError:
+            continue
+        raise AssertionError(f"null rank silently accepted: {payload}")
 
     print("selfcheck ok")
 
