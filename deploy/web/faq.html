@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>catknows. Frequently Asked Questions</title>
+<style>
+:root {
+  --bg: #0F0E0C; --card: #1A1816; --line: #2A2724;
+  --ink: #F5F0EB; --dim: #9C9690; --muted: #6B6560;
+  --brand: #FF5C8A; --brand-deep: #E04570; --coral: #F0786A;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       background: var(--bg); color: var(--ink); min-height: 100vh;
+       padding: 28px 16px 40px; -webkit-font-smoothing: antialiased; }
+.container { max-width: 820px; margin: 0 auto; }
+.topbar { display: flex; align-items: center; justify-content: space-between;
+          gap: 16px; margin-bottom: 26px; }
+/* The cat mark from the landing page, corner-sized. Static: on a legal page
+   the draw animation is noise, and it would replay on every navigation. */
+.mark { display: block; width: 72px; line-height: 0; padding: 2px 0; }
+.mark svg { width: 100%; height: auto; overflow: visible; }
+.mark:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px;
+                      border-radius: 4px; }
+.mark .whisker, .mark .snout { fill: none; stroke: var(--ink);
+                               stroke-width: 2.6; stroke-linecap: round; }
+.mark .heart { fill: var(--brand); }
+.home { font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
+        text-decoration: none; border: 1px solid var(--line);
+        padding: 7px 13px; border-radius: 999px; white-space: nowrap; }
+.home:hover { color: var(--ink); border-color: var(--brand); }
+.header { margin-bottom: 26px; }
+.header h1 { font-size: 1.7em; color: var(--ink); margin-bottom: 6px;
+             letter-spacing: -0.02em; }
+.header p { color: var(--dim); font-size: 0.92em; font-family: var(--mono); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+        padding: 26px 30px; line-height: 1.75; margin-bottom: 20px; }
+h2 { color: var(--brand); font-size: 1.18em; margin: 30px 0 12px;
+     letter-spacing: -0.01em; }
+h2:first-child { margin-top: 0; }
+h3 { color: var(--coral); font-size: 1.02em; margin: 22px 0 8px; }
+h4 { color: var(--ink); font-size: 0.97em; margin: 16px 0 6px; }
+p, li { margin-bottom: 10px; font-size: 0.95em; color: var(--ink); }
+ul, ol { margin-left: 22px; margin-bottom: 12px; }
+a { color: var(--brand); text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+code { background: #221F1C; padding: 1px 6px; border-radius: 4px;
+       font-size: 0.88em; font-family: var(--mono); color: var(--ink); }
+pre { background: #131110; border: 1px solid var(--line); border-radius: 8px;
+      padding: 14px 16px; margin: 12px 0; overflow-x: auto; }
+pre code { background: none; padding: 0; font-size: 0.86em; line-height: 1.55; }
+blockquote { border-left: 3px solid var(--coral); padding: 4px 0 4px 16px;
+             margin: 14px 0; color: var(--dim); }
+blockquote p:last-child { margin-bottom: 0; }
+hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+.tablewrap { overflow-x: auto; margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left;
+         vertical-align: top; }
+th { background: #221F1C; color: var(--ink); font-weight: 600; }
+.back { display: inline-block; margin-top: 4px; color: var(--brand);
+        text-decoration: none; font-size: 0.9em; font-family: var(--mono); }
+.back:hover { text-decoration: underline; }
+.foot { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
+        justify-content: center; margin-top: 26px; padding-top: 18px;
+        border-top: 1px solid var(--line);
+        font-family: var(--mono); font-size: 0.74rem; }
+.foot a { color: var(--dim); text-decoration: none; }
+.foot a:hover { color: var(--ink); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <a class="mark" href="/" aria-label="catknows &mdash; home">
+      <svg viewBox="0 0 500 200" aria-hidden="true">
+        <path class="whisker" d="M18 62 C 80 58, 148 70, 205 92"/>
+        <path class="whisker" d="M10 96 C 76 94, 146 98, 205 104"/>
+        <path class="whisker" d="M20 132 C 82 132, 150 124, 206 114"/>
+        <path class="whisker" d="M482 62 C 420 58, 352 70, 295 92"/>
+        <path class="whisker" d="M490 96 C 424 94, 354 98, 295 104"/>
+        <path class="whisker" d="M480 132 C 418 132, 350 124, 294 114"/>
+        <path class="snout" d="M250 108 C 250 132, 240 146, 226 146 C 214 146, 208 137, 208 128"/>
+        <path class="snout" d="M250 108 C 250 132, 260 146, 274 146 C 286 146, 292 137, 292 128"/>
+        <path class="heart" d="M250 104 C 243 96, 232 92, 226 99 C 219 106, 224 116, 250 132
+                               C 276 116, 281 106, 274 99 C 268 92, 257 96, 250 104 Z"/>
+      </svg>
+    </a>
+    <a class="home" href="/">&larr; Back to catknows.app</a>
+  </div>
+  <div class="header">
+    <h1>Frequently Asked Questions</h1>
+    <p>what to ask, what it costs, what it can’t do</p>
+  </div>
+  <div class="card">
+<p>This page answers what people actually asked in the first weeks of the hosted service: the questions worth trying, the limits, the price, and where your password goes. If yours is missing, post it in the community and it will end up here.</p>
+<h2>What can I ask?</h2>
+<p>Not just single numbers. catknows is not a fixed report: your AI reads the raw data behind your account, members, posts, comments, DMs, the Discovery charts, and reasons across all of it at once. That is what sets it apart from every dashboard: you can ask questions no Skool tool has a column for.</p>
+<h3>Where do I start?</h3>
+<p>First check the connection: ask <strong>“Which Skool communities am I in?”</strong> A list with your roles and member counts means it works. Then ask something a dashboard cannot answer.</p>
+<h3>Questions worth stealing</h3>
+<ul><li>Who joined this month but never posted?</li><li>Who was active in June but has gone quiet since?</li><li>Read the last 50 posts. What do my members actually struggle with?</li><li>Which questions in my community were asked twice but never answered?</li><li>Summarize my unread DMs and draft replies to the urgent ones.</li><li>Which communities rank above mine on Discovery, and what do they charge?</li><li>Write my monthly report: growth, top posts, who needs a check-in.</li></ul>
+<p>Each of these crosses at least two kinds of data. That is the trick: the AI joins what Skool keeps on separate pages.</p>
+<h3>Can it write, too?</h3>
+<p>Yes, when you ask it to. It can draft posts, comments and DMs, and build Classroom courses. Every write is draft first: your AI shows you the exact text, and nothing goes live until you say yes.</p>
+<h2>What it can’t do</h2>
+<h3>It only sees what you see</h3>
+<p>catknows works through your own Skool login. Communities you never joined show only what Skool shows everyone: the About page and the Discovery listing. There is no back door, which is the point.</p>
+<h3>Video transcripts</h3>
+<p>Transcripts work for videos hosted on Skool itself. Videos embedded from YouTube, Loom or Vimeo have no transcript to fetch.</p>
+<h3>Freshness</h3>
+<p>Answers are cached for up to ten minutes, so a number you changed on Skool a moment ago can lag briefly. Any write clears the cache.</p>
+<h3>Very large lists</h3>
+<p>One call returns at most a few hundred rows. When a list was cut short, the result says so instead of pretending it saw everything.</p>
+<h3>Phones</h3>
+<p>The streamed Skool login is happiest in a desktop browser. Everything after that first connection works anywhere your AI does.</p>
+<h2>What does it cost?</h2>
+<h3>Today</h3>
+<p>Nothing. Standard is $0: you run the open-source tool on your own machine, and that stays free whatever happens to the rest. The hosted service at catknows.app is also free right now.</p>
+<h3>Later</h3>
+<p>Once the community reaches 100 members, the hosted service becomes $7 a month or $77 a year. Everyone who joined before then keeps it free. Forever, not for a year. Joining early is the whole discount.</p>
+<blockquote><p>Nobody pays anything today. The price is announced, not switched on: billing does not exist yet, and nothing will start charging quietly.</p></blockquote>
+<h3>What is VIP then?</h3>
+<p>$67 a month, and it gets you nothing extra on purpose. You would be paying so that everyone else does not have to.</p>
+<h3>Will the free version quietly get worse?</h3>
+<p>No. That would defeat the point of having built this.</p>
+<h2>Is it safe?</h2>
+<h3>Where does my password go?</h3>
+<p>To Skool, nowhere else. Connecting opens a real browser on the server, streamed to your screen, showing Skool’s own login page. What I keep is the session cookie that login produces, encrypted at rest.</p>
+<h3>What is stored on the server?</h3>
+<p>Not your Skool data. It is fetched when you ask, used for the answer, and gone. The server keeps your account email, your encrypted Skool session, and 30 days of technical usage records. The <a href="/privacy">privacy policy</a> lists all of it.</p>
+<h3>Can the AI act without me?</h3>
+<p>No. Reads happen when you ask. Writes are draft first: the exact text is shown, and nothing is posted, sent or deleted without your explicit yes.</p>
+<h3>Where does it run?</h3>
+<p>On a server in Nürnberg, Germany, under GDPR, with a signed processing agreement with the hoster. Details are in the <a href="/privacy">privacy policy</a> and the <a href="/dpa">DPA</a>.</p>
+<h3>Can I disconnect?</h3>
+<p>Any time. Disconnecting deletes your stored session from the server. Logging out of all devices on Skool kills every session copy anywhere, including mine.</p>
+<h3>Is the code really public?</h3>
+<p>Yes: <a href="https://github.com/nklsschroeer707/catknows">github.com/nklsschroeer707/catknows</a>. The hosted service runs the code you can read.</p>
+  </div>
+  <a class="back" href="/">&larr; Back to catknows.app</a>
+  <div class="foot">
+    <a href="/privacy">Privacy Policy</a><a href="/dpa">Data Processing Agreement</a><a href="/legal">Legal &amp; Responsible Use</a><a href="/impressum">Imprint</a>
+  </div>
+</div>
+</body>
+</html>

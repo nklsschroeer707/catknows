@@ -5,7 +5,7 @@
 
 The Markdown files stay the source of truth — editing HTML by hand means the
 two drift, and a privacy policy that contradicts itself is worse than none.
-Re-run this after touching PRIVACY.md or DPA.md, then upload the HTML.
+Re-run this after touching FAQ.md, PRIVACY.md or DPA.md, then upload the HTML.
 
 No dependencies: the subset of Markdown these documents use is small enough to
 convert directly, and a build step that needs pip on a web host is a build step
@@ -24,6 +24,7 @@ DEPLOY = HERE.parent
 
 # (source, output, page title, subtitle)
 PAGES = [
+    ("FAQ.md", "faq.html", "Frequently Asked Questions", "what to ask, what it costs, what it can’t do"),
     ("PRIVACY.md", "privacy.html", "Privacy Policy", "catknows hosted MCP server"),
     ("DPA.md", "dpa.html", "Data Processing Agreement", "GDPR art. 28 · catknows hosted"),
     # Lives in the repo root, not deploy/ — it's about the tool, not the service,
@@ -275,6 +276,10 @@ def convert(md: str) -> str:
                 elif lines[i].strip() and lines[i].startswith((" ", "\t")) and items:
                     items[-1] += " " + lines[i].strip()  # continuation line
                     i += 1
+                elif (not lines[i].strip() and i + 1 < len(lines)
+                      and (mn := re.match(r"^(\s*)([-*]|\d+\.) ", lines[i + 1]))
+                      and mn.group(2)[0].isdigit() == ordered):
+                    i += 1  # loose list: a blank line between items of one list
                 else:
                     break
             body = "".join(f"<li>{_inline(x)}</li>" for x in items)

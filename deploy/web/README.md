@@ -5,6 +5,7 @@ Standalone HTML, no dependencies, no build tooling on the host. Upload and done.
 | File | Publish at | Source |
 |---|---|---|
 | `index.html` | `catknows.app/` | hand-written one-pager |
+| `faq.html` | `catknows.app/faq` | `../FAQ.md` |
 | `privacy.html` | `catknows.app/privacy` | `../PRIVACY.md` |
 | `dpa.html` | `catknows.app/dpa` | `../DPA.md` |
 | `legal.html` | `catknows.app/legal` | `../../LEGAL.md` |
@@ -13,8 +14,10 @@ Standalone HTML, no dependencies, no build tooling on the host. Upload and done.
 | `header-loop-mobile.mp4` | `catknows.app/media/…` | same clip, 1280×640 |
 | `header-poster.jpg` | `catknows.app/media/…` | its first frame |
 
-`index.html` is the landing page: one screen, no scrolling, with the clip
-running full-bleed behind the copy. Fonts are embedded as `data:` URIs — no CDN,
+`index.html` is the landing page: the hero is one screen (the `.fold` wrapper
+pins it to `100dvh`), with the clip running full-bleed behind the copy; below
+it, on opaque ground, the "What can you ask it?" section with copyable example
+questions. Fonts are embedded as `data:` URIs — no CDN,
 and `font-src 'self' data:` in the Caddyfile is what lets them load at all.
 
 **The clip loops across two stacked `<video>` elements**, not with the `loop`
@@ -29,8 +32,8 @@ Media files are served by their own route (`/media/<name>`), an allowlist in
 `dashboard.py` — the page route next to it only publishes the legal pages.
 A new asset therefore needs an entry in `LANDING_MEDIA`, or it 404s.
 
-The three generated pages come from the Markdown, which stays the source of
-truth. After editing any of it:
+The four generated pages (FAQ, privacy, DPA, legal) come from the Markdown,
+which stays the source of truth. After editing any of it:
 
 ```bash
 python3 deploy/web/build-legal.py
@@ -76,8 +79,8 @@ they do — make that true before the page goes up.
 ## How these are actually served
 
 Not by a file server. Caddy proxies `catknows.app` to the dashboard app, and
-`dashboard.py` publishes them by name from an allowlist: `/privacy`, `/dpa`,
-`/legal`, `/impressum` — **extensionless**. `/privacy.html` is a 404.
+`dashboard.py` publishes them by name from an allowlist: `/faq`, `/privacy`,
+`/dpa`, `/legal`, `/impressum` — **extensionless**. `/privacy.html` is a 404.
 
 That bit once: `build-legal.py` wrote `privacy.html` into every cross-reference,
 so each link between the legal pages dead-ended on the live site while working

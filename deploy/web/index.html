@@ -70,6 +70,7 @@ body {
   will-change: opacity;
 }
 .bg-video.on { opacity: 1; }
+.bg-video {
   /* Phones crop to the cat and the desk lamp glow, pushing the clip's own
      chat window off-frame — the copy sits there. Wide screens re-centre. */
   object-position: 50% 88%;
@@ -92,6 +93,11 @@ body {
         rgba(15, 14, 12, 0.1) 80%, rgba(15, 14, 12, 0.7) 100%);
   }
 }
+/* The hero is one full screen, header to footer. It used to be body itself;
+   since the questions section below, body is taller than a screen, and
+   `.shell { flex: 1 }` only fills free space — so the screen is fenced here,
+   or the hero collapses to its natural height the moment the page scrolls. */
+.fold { min-height: 100dvh; display: flex; flex-direction: column; flex: none; }
 /* Header and footer span the real viewport corners; only the middle column
    is capped. The middle stays clear for the animated background to come. */
 .shell {
@@ -350,6 +356,68 @@ footer {
 footer a { color: var(--muted); text-underline-offset: 3px; }
 footer a:hover { color: var(--ink); }
 footer .unofficial { color: var(--brand); }
+/* The one hint that the page goes on. Sits over the veil's darkest band, so it
+   needs no scrim of its own; bobs unless motion is reduced. */
+.more {
+  display: block; text-align: center; text-decoration: none;
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.14em;
+  color: var(--muted); padding: 14px 0 4px;
+  animation: bob 2.6s ease-in-out infinite;
+}
+.more:hover { color: var(--ink); }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+
+/* -- below the fold: what can you ask it? --------------------------------- */
+/* Opaque ground: the fixed clip and veil sit at z-index -2/-1, so this simply
+   slides over them on scroll. The clip's CSS and loop script stay untouched. */
+.ask { background: var(--bg); padding: 58px 22px 64px; }
+.ask-shell { max-width: 640px; margin: 0 auto; }
+.ask h2 {
+  font-family: var(--serif); font-weight: 900;
+  font-size: clamp(1.45rem, 5.4vw, 2.05rem);
+  line-height: 1.08; letter-spacing: -0.02em;
+  text-wrap: balance; margin: 8px 0 10px;
+}
+.ask-lead { color: #CFC8C1; font-size: 0.9rem; max-width: 56ch; margin: 0 0 18px; }
+/* Each question is a button: click copies it, the same pattern as the MCP
+   endpoint above. Set in mono with a prompt sign, like what you type to your AI. */
+.prompts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; list-style: none; }
+.prompts li { display: contents; }
+.prompts li:last-child button { grid-column: 1 / -1; }
+.prompts button {
+  display: flex; align-items: baseline; gap: 9px; width: 100%;
+  text-align: left; cursor: pointer;
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 11px 13px;
+  font-family: var(--mono); font-size: 0.76rem; line-height: 1.5;
+  transition: border-color 0.2s ease;
+}
+.prompts button::before { content: ">"; color: var(--coral); font-weight: 600; }
+.prompts button::after {
+  content: attr(data-state); margin-left: auto; align-self: center;
+  font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); opacity: 0; transition: opacity 0.2s ease;
+}
+.prompts button:hover { border-color: var(--brand); }
+.prompts button:hover::after, .prompts button.done::after { opacity: 1; }
+.prompts button.done::after { color: var(--ok); }
+.prompts button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ask-note { color: var(--dim); font-size: 0.85rem; margin: 16px 0 22px; max-width: 58ch; }
+/* Like .fineprint, minus its scrim: this sits on solid ground. */
+.trust {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 4px clamp(14px, 2.5vw, 30px);
+  font-family: var(--mono); font-size: 0.66rem; line-height: 1.8;
+  color: #B4ADA6; text-align: center; margin: 22px auto 0;
+}
+.trust span { text-wrap: balance; }
+.faqline {
+  text-align: center; margin-top: 20px;
+  font-family: var(--mono); font-size: 0.7rem; color: var(--dim);
+}
+.faqline a { color: var(--ink); text-underline-offset: 3px; }
+.faqline a:hover { color: var(--brand); }
 
 /* -- the streamed Skool login, in a modal on this page -------------------- */
 .modal {
@@ -419,6 +487,7 @@ input, textarea { cursor: text; }
 @media (prefers-reduced-motion: reduce) {
   .whisker, .snout, .heart { animation: none; stroke-dashoffset: 0; opacity: 1; }
   .cta { transition: none; }
+  .more { animation: none; }
 }
 /* Phones: the three-slot header does not fit, so the labels go and the icons
    tuck in beside the mark. */
@@ -429,6 +498,7 @@ input, textarea { cursor: text; }
   .social a { padding: 6px; gap: 0; }
   .social span { display: none; }
   .social svg { width: 17px; height: 17px; flex-basis: 17px; }
+  .prompts { grid-template-columns: 1fr; }
 }
 @media (max-width: 400px) {
   .shell { padding-left: 18px; padding-right: 18px; }
@@ -446,6 +516,7 @@ input, textarea { cursor: text; }
 <video class="bg-video" id="bgv-b" src="/media/header-loop.mp4"
        muted playsinline preload="auto" aria-hidden="true"></video>
 <div class="bg-veil" aria-hidden="true"></div>
+<div class="fold">
 
 <header>
   <!-- The mark alone, corner-sized. The full wordmark used to sit here; the
@@ -553,8 +624,11 @@ input, textarea { cursor: text; }
   <span>Your Skool password goes to Skool, <a href="/privacy">never to us</a>.</span>
 </p>
 
+<a class="more" href="#ask">MORE &darr;</a>
+
 <footer>
   <nav>
+    <a href="/faq">FAQ</a> &middot;
     <a href="/privacy">Privacy</a> &middot;
     <a href="/dpa">Processing agreement</a> &middot;
     <a href="/legal">Legal</a> &middot;
@@ -562,6 +636,39 @@ input, textarea { cursor: text; }
   </nav>
   <p class="unofficial">Independent &amp; unofficial, not affiliated with Skool.</p>
 </footer>
+</div>
+
+<!-- Below the fold. A section after the footer is odd markup, but the footer
+     is the hero screen's bottom edge and that screen is measured to the pixel;
+     moving it under this section would change what every visitor sees first. -->
+<section class="ask" id="ask" aria-labelledby="ask-title">
+  <div class="ask-shell">
+    <p class="kicker">ASK IN PLAIN WORDS</p>
+    <h2 id="ask-title">What can you ask it?</h2>
+    <p class="ask-lead">Your AI reads members, posts, comments and DMs
+       together. That answers questions no dashboard has a column for:</p>
+    <ul class="prompts">
+      <li><button type="button" data-state="copy">Who joined this month but never posted?</button></li>
+      <li><button type="button" data-state="copy">Who was active in June but has gone quiet since?</button></li>
+      <li><button type="button" data-state="copy">Read the last 50 posts. What do my members struggle with?</button></li>
+      <li><button type="button" data-state="copy">Summarize my unread DMs, draft replies to the urgent ones.</button></li>
+      <li><button type="button" data-state="copy">Who ranks above me on Discovery, and what do they charge?</button></li>
+      <li><button type="button" data-state="copy">Write my monthly report: growth, top posts, who needs a check-in.</button></li>
+      <li><button type="button" data-state="copy">Draft a welcome post. Show me before it goes live.</button></li>
+    </ul>
+    <p class="ask-note">It sees what your own Skool login sees. Writes are
+       draft first: you read the exact text, you say yes.</p>
+    <a class="cta" href="/auth/login?register=1">Ask your first question</a>
+    <p class="trust">
+      <span>Hosted in Germany</span>
+      <span>Your password goes to Skool, nowhere else</span>
+      <span>Draft first: nothing posts without your yes</span>
+      <span>Open source, read every line</span>
+      <span>Disconnect any time</span>
+    </p>
+    <p class="faqline">More questions? <a href="/faq">Read the FAQ</a>, limits included.</p>
+  </div>
+</section>
 
 <!-- The streamed Skool login, without leaving this page. Same protocol as
      /connect, which stays available as the fallback. -->
@@ -687,6 +794,33 @@ input, textarea { cursor: text; }
       }
     });
   }
+
+  /* -- the example questions: a click copies the question ---------------- */
+  Array.prototype.forEach.call(document.querySelectorAll('.prompts button'), function (b) {
+    b.addEventListener('click', function () {
+      var done = function () {
+        b.setAttribute('data-state', 'copied');
+        b.classList.add('done');
+        setTimeout(function () {
+          b.setAttribute('data-state', 'copy');
+          b.classList.remove('done');
+        }, 2000);
+      };
+      var fallback = function () {
+        var r = document.createRange();
+        r.selectNodeContents(b);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        b.setAttribute('data-state', 'press ctrl+c');
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(b.textContent.trim()).then(done, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
 
   /* -- account button: ask the server who we are --------------------------
      /auth/status is read-only and never errors for anonymous visitors.

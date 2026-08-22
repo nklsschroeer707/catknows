@@ -417,7 +417,7 @@ async def static_page(request):
     """Serve the legal pages by name, extension optional."""
     name = request.path_params["name"]
     # Only the pages we published — never an arbitrary path off disk.
-    allowed = {"privacy", "dpa", "legal", "impressum"}
+    allowed = {"faq", "privacy", "dpa", "legal", "impressum"}
     if name not in allowed:
         return HTMLResponse(_page_error("No such page."), status_code=404)
     f = WEB / f"{name}.html"
