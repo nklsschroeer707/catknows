@@ -33,6 +33,12 @@ Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
 # Playwright downloads browsers per-user by default; pin it somewhere the
 # service user owns and the deploy script can pre-seed.
 Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers
+# Post/comment lockout (2026-08-22 incident): Skool un-lists API-written comments
+# from the thread. draft_only makes create_post/create_comment hand the caller a
+# copy-paste block instead of writing — DMs, edits, deletes stay live. Exempt the
+# test community for the control experiment. Both go in /etc/catknows/env:
+#   CATKNOWS_WRITE_MODE=draft_only
+#   CATKNOWS_WRITE_ALLOW_SLUGS=hoomans-9944
 
 # Secrets (CATKNOWS_COOKIE, later the OAuth issuer/keys) go in this file, not
 # in the unit: `systemctl show` prints Environment= lines to any user.

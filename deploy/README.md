@@ -504,6 +504,25 @@ Off unless you set `CATKNOWS_ALLOW_WRITE=1` in `/etc/catknows/env`. Leave it
 off until you actually want posting from the server — the draft-first confirm
 still applies, but a remote server acting as you deserves the extra lock.
 
+### Post/comment lockout (2026-08-22)
+
+Skool un-lists comments written through its API: the object survives (`GET
+/posts/{id}` → 200) but leaves the thread, measured in two communities under two
+accounts. Until we know the trigger, the hosted server does not post or comment
+through the API. Set in `/etc/catknows/env`:
+
+```
+CATKNOWS_WRITE_MODE=draft_only
+CATKNOWS_WRITE_ALLOW_SLUGS=hoomans-9944
+```
+
+`draft_only` makes `create_post`/`create_comment` return a copy-paste block the
+user pastes into Skool's own editor — nothing is written for them. `send_dm`,
+`edit_*`, `delete_*` and the course tools are unaffected (no un-listing seen
+there). `CATKNOWS_WRITE_ALLOW_SLUGS` is a comma-separated exemption list for the
+control experiment — those communities still write normally. Remove the two
+variables to restore full posting once the trigger is understood.
+
 ## Data protection
 
 The box processes other people's member data (names, emails). It's on German

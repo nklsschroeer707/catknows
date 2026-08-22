@@ -898,6 +898,49 @@ def _csv_arg(value: str) -> list[str]:
 
 if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
+    # Post/comment lockout (2026-08-22 incident). Skool un-lists comments written
+    # through the API after they post — the object survives (GET → 200), it just
+    # leaves the tree. Measured in two communities, two accounts. Until we know
+    # the trigger, the hosted server hands the caller a copy-paste block for posts
+    # and comments instead of writing them; the user pastes it in Skool's own
+    # editor, so no bot-written post/comment reaches Skool. DMs, edits, deletes and
+    # course tools are unaffected — no un-listing seen there.
+    #   CATKNOWS_WRITE_MODE=draft_only   turns the lockout on (set it on hosted).
+    #   CATKNOWS_WRITE_ALLOW_SLUGS=a,b   communities exempt from it, for the
+    #                                    control experiment (e.g. hoomans-9944).
+    _WRITE_DRAFT_ONLY = os.environ.get("CATKNOWS_WRITE_MODE", "") == "draft_only"
+    _WRITE_ALLOW_SLUGS = frozenset(
+        s.strip() for s in os.environ.get("CATKNOWS_WRITE_ALLOW_SLUGS", "").split(",") if s.strip()
+    )
+
+    def _post_write_locked(community_slug: str) -> bool:
+        """True when a post/comment write must fall back to a copy-paste block."""
+        return _WRITE_DRAFT_ONLY and community_slug not in _WRITE_ALLOW_SLUGS
+
+    _COPY_PASTE_REASON = (
+        "Posting and commenting through catknows is paused on the hosted server. "
+        "Skool removes API-written comments from the thread shortly after they post, "
+        "so catknows hands you the finished text to paste into Skool's own editor "
+        "instead. Open the post in Skool, paste, and publish — that is a normal "
+        "human post and is safe. Direct messages still send normally."
+    )
+
+    def _copy_paste(kind: str, community_slug: str, content: str, extra: dict) -> dict:
+        """The hosted fallback: return the text to paste, write nothing."""
+        return {
+            "status": f"NOT {kind} — hosted posting is paused, paste this yourself",
+            "why": _COPY_PASTE_REASON,
+            "community": community_slug,
+            "copy_paste_text": content,
+            "before_you_show_this": _HUMANIZE,
+            "next_step": (
+                "Show the user copy_paste_text and tell them to paste it into the "
+                "Skool editor themselves. Do NOT call again with confirm=true — the "
+                "server will not post it."
+            ),
+            **extra,
+        }
+
     # Every draft that carries prose to a human carries this too. The server
     # cannot rewrite anything itself (no model here), so it asks the client's
     # model to do the pass before the user ever sees the text. Patterns from
@@ -1004,6 +1047,19 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "poll_options": options,
             "notify_members (emails everyone!)": notify_members,
         }
+        if _post_write_locked(community_slug):
+            if options or attachments or video_links:
+                # A poll/attachment/video can't be reproduced by pasting text.
+                return {
+                    "status": "NOT posted — hosted posting is paused",
+                    "why": _COPY_PASTE_REASON,
+                    "note": "This post uses a poll, attachment or video, which a "
+                            "paste can't reproduce. Create it in Skool directly.",
+                    "would_post": draft,
+                }
+            return _copy_paste("posted", community_slug,
+                               f"{title}\n\n{content}" if title else content,
+                               {"title": title})
         if not confirm:
             return _draft("DRAFT — nothing was posted", "would_post", draft)
         client = _get_client()
@@ -1048,6 +1104,18 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "replying_to_comment": parent_comment_id or "(none — top-level comment on the post)",
             "attachments": _attachment_preview(attachments),
         }
+        if _post_write_locked(community_slug):
+            if attachments:
+                return {
+                    "status": "NOT written — hosted posting is paused",
+                    "why": _COPY_PASTE_REASON,
+                    "note": "This comment has an attachment, which a paste can't "
+                            "reproduce. Add it in Skool directly.",
+                    "would_comment": draft,
+                }
+            return _copy_paste("written", community_slug, content,
+                               {"post_id": post_id,
+                                "replying_to_comment": parent_comment_id or "(top-level)"})
         if not confirm:
             return _draft("DRAFT — nothing was written", "would_comment", draft)
         created = _get_client().create_comment(
