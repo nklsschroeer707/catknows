@@ -67,6 +67,20 @@ over `SkoolClient`; don't duplicate client logic in it.
   alone is not something a user can review. `notify_members` (email broadcast)
   is a separate explicit flag. Never weaken this: writes act as the user,
   visible to real members.
+- **`create_post` and `create_comment` carry an anti-schedule warning in their
+  docstring, and their `title` annotation says "paused on hosted, single use
+  only".** Both are load-bearing, and `--self-check` asserts them. Reason: Skool
+  un-lists API-written posts and comments some time after they post (three cases
+  in >100 writes), and the one documented removal followed a task that repeated
+  every two hours — rounds one and two survived, round three did not, over the
+  same server, account and code path. So the suspicion is the repetition, not
+  the channel; the control experiment that would settle it is still open. The
+  docstring is what the calling model reads before it offers to schedule
+  anything, and the title is what the user reads in the client's action list.
+  MCP has **no** "disabled by default" flag — whether an action starts on is the
+  client's decision — so `destructive_hint` (which puts it in the write/delete
+  group a user must approve) plus these strings are all the protocol gives us.
+  The real guard stays server-side: `CATKNOWS_WRITE_MODE=draft_only`.
 - Drafts that carry prose (post, comment, DM, course page) also return
   `before_you_show_this`: a short instruction telling the calling model to
   strip AI tells before the user reads the draft. The server has no model, so
@@ -100,6 +114,8 @@ over `SkoolClient`; don't duplicate client logic in it.
   **Adding a read tool? Add its name to `_READ_ONLY`** — the default is "not
   read-only", so an unlisted tool is treated as a writer (fail closed: an extra
   confirmation prompt, never a silent write). Writes stay in `_DESTRUCTIVE`.
+  `_TITLES` overrides the display name for the two paused tools; leave the rest
+  unset so clients fall back to the tool name.
 - `stdout` is the protocol channel — `login()`'s prints are redirected to stderr.
   Anything a tool prints to stdout would corrupt the stream.
 - **Size cap:** tool results have a max token size. `list_members`/`list_posts`

@@ -1037,6 +1037,14 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         confirm=true after the user explicitly approved that draft.
         notify_members=true EMAILS EVERY MEMBER (Skool broadcast) — set it only if
         the user explicitly asked to email everyone.
+
+        NEVER run this on a schedule or in a loop. Skool removes API-written posts
+        and comments from the thread some time after they post, and the one
+        measured case followed a repeating task: the first two rounds survived,
+        the third was removed. A single post the user asked for is ordinary use;
+        a recurring one is what gets flagged. If the user wants posting as a
+        routine, tell them to run catknows locally instead of asking for a
+        schedule here.
         """
         options = _csv_arg(poll_options)
         if options and not 2 <= len(options) <= 10:
@@ -1103,6 +1111,14 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         Draft-first: with confirm=false (the default) NOTHING is written — you
         get the draft back to show the user. Only call again with confirm=true
         after the user explicitly approved it.
+
+        NEVER run this on a schedule or in a loop. Skool removes API-written
+        comments from the thread some time after they post, and the one measured
+        case followed a repeating task: the first two rounds survived, the third
+        was removed. A single comment the user asked for is ordinary use; a
+        recurring one is what gets flagged. If the user wants commenting as a
+        routine, tell them to run catknows locally instead of asking for a
+        schedule here.
         """
         draft = {
             "community": community_slug,
@@ -1454,6 +1470,17 @@ _DESTRUCTIVE = {
     "publish_course", "move_course_item", "delete_course_item",
 }
 
+# Titles shown in the client's own tool list (Claude's Actions panel, for one).
+# The protocol has no "off by default" flag — whether an action starts enabled
+# is the client's call, and destructive_hint is the only lever we have: it puts
+# these two in the write/delete group the user has to approve on purpose. So the
+# title has to carry the warning, because it is the one string a user reads
+# while deciding. The server-side lockout below is the part that actually holds.
+_TITLES = {
+    "create_post": "Post to a community (paused on hosted, single use only)",
+    "create_comment": "Comment on a post (paused on hosted, single use only)",
+}
+
 
 def _annotate_tools() -> None:
     # mcp._tool_manager is private SDK API — the decorator takes annotations
@@ -1465,6 +1492,7 @@ def _annotate_tools() -> None:
     for tool in mcp._tool_manager.list_tools():
         read_only = tool.name in _READ_ONLY
         tool.annotations = ToolAnnotations(
+            title=_TITLES.get(tool.name),
             read_only_hint=read_only,
             # Only meaningful when read_only is false; writers that merely add
             # (a post, a DM) are not destructive in the "deletes data" sense,
@@ -1590,6 +1618,16 @@ def _self_check() -> None:
     # Registering them here is what lets one --self-check cover both modes.
     if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         assert _DESTRUCTIVE <= set(tools), f"write tools missing from registry: {tools.keys()}"
+        # The two paused tools carry their warning in the title, because that is
+        # the string a user reads in the client's action list while deciding
+        # whether to allow them. Losing it silently would undo the whole point.
+        for name, title in _TITLES.items():
+            assert tools[name].title == title, f"{name}: title is {tools[name].title!r}"
+            assert "paused on hosted" in tools[name].title, name
+        # And the docstring the model reads must keep telling it not to schedule.
+        for name in ("create_post", "create_comment"):
+            doc = mcp._tool_manager.get_tool(name).description or ""
+            assert "NEVER run this on a schedule" in doc, f"{name} lost its schedule warning"
         # The draft must describe the attachments before anything is uploaded,
         # and a bad path must fail at preview time, not mid-post.
         import tempfile

@@ -236,6 +236,40 @@ draft-first (the AI must show you the draft, then call again with
 `confirm=true`), and emailing all members (`notify_members`) is a separate
 explicit switch. Test in a private community first — these post as *you*.
 
+#### One thing to know before you automate posting
+
+Skool sometimes removes posts and comments that were written through the API.
+Not immediately, and not visibly: the object survives (fetching it by id still
+returns it), it just disappears from the thread, and nobody is told. Three cases
+on more than a hundred writes, so it is the exception, not the rule.
+
+What the one documented case looked like: a scheduled task posted a reply every
+two hours. The first two rounds stayed up. The third was removed, and the
+community's Discovery rank dropped. Same server, same account, same code path
+as the two that survived, which is why the current suspicion is the **repetition
+on a fixed interval**, not the fact that a program did the writing. That is a
+suspicion, not a finding: a control experiment (the same text posted by hand,
+locally and hosted) is still running, and until it is done nobody should claim
+to know the trigger.
+
+What follows from it:
+
+- **A post or comment you asked for, one at a time, is ordinary use.** That is
+  what the tools are for.
+- **Do not put them on a schedule or in a loop.** No "comment on every new post",
+  no hourly engagement task. Skool's own policy calls that bot behaviour, and the
+  one measured removal followed exactly that pattern.
+- **On the hosted server (`mcp.catknows.app`) posting and commenting are
+  currently paused**: those two tools hand you the finished text to paste into
+  Skool's editor yourself. Direct messages, edits, deletes and the classroom
+  tools work normally there.
+- **If you want to write regularly, run catknows locally**, the way this section
+  describes. It goes out over your own connection instead of a data centre, and
+  no local removal has been observed. Note the honest limit of that sentence: no
+  one has systematically tested it either, and if the trigger really is the
+  repetition, a local task on a two-hour cycle would look the same to Skool.
+  Local means you carry your own risk knowingly, not that the risk is gone.
+
 ### Running it over HTTP (self-hosting)
 
 Same server, remote transport — for running catknows on your own machine or box
