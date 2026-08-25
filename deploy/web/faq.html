@@ -104,7 +104,11 @@ th { background: #221F1C; color: var(--ink); font-weight: 600; }
 <ul><li>Who joined this month but never posted?</li><li>Who was active in June but has gone quiet since?</li><li>Read the last 50 posts. What do my members actually struggle with?</li><li>Which questions in my community were asked twice but never answered?</li><li>Summarize my unread DMs and draft replies to the urgent ones.</li><li>Which communities rank above mine on Discovery, and what do they charge?</li><li>Write my monthly report: growth, top posts, who needs a check-in.</li></ul>
 <p>Each of these crosses at least two kinds of data. That is the trick: the AI joins what Skool keeps on separate pages.</p>
 <h3>Can it write, too?</h3>
-<p>Yes, when you ask it to. It can draft posts, comments and DMs, and build Classroom courses. Every write is draft first: your AI shows you the exact text, and nothing goes live until you say yes.</p>
+<p>It drafts everything: posts, comments, DMs, even full Classroom courses, and it always shows you the exact text first. Nothing goes live until you say yes.</p>
+<p>On the hosted service, posts and comments currently come back as a ready-to-paste block that you publish yourself in Skool’s editor. DMs and Classroom publish normally, and the free local version writes everything, over your own connection.</p>
+<h3>Why are hosted posts paused?</h3>
+<p>Skool has removed a handful of individual API-written comments from their threads. Not many, and not reliably reproducible, but enough that I would rather pause than have it happen to your community. The pattern that looks most suspicious is repetition on a fixed schedule: a comment posted every two hours for several rounds, rather than a single one.</p>
+<p>So: never put catknows on a schedule or in a loop to post for you, on either version. Ask it for one post when you want one post. If you write regularly and want it published directly, the local version does that, over your own connection and at a risk you take knowingly. I cannot tell you the local path is safe, because nobody has systematically tested it, and if repetition is the trigger, a scheduled task would look the same from your machine.</p>
 <h2>What it can’t do</h2>
 <h3>It only sees what you see</h3>
 <p>catknows works through your own Skool login. Communities you never joined show only what Skool shows everyone: the About page and the Discovery listing. There is no back door, which is the point.</p>

@@ -693,7 +693,7 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
   <p>
     A browser opens <strong>on the server</strong> and is streamed here. You log
     in to Skool inside it: email and password, or Google/Apple. Your
-    password goes to Skool, never to us; we only keep the session cookie the
+    password goes to Skool, nowhere else; what is kept is the session cookie the
     login produces, encrypted.
   </p>
   <p>
