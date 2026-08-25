@@ -249,6 +249,14 @@ h1 em { font-style: normal; color: var(--brand); }
   letter-spacing: 0.18em; color: var(--dim);
 }
 
+/* The hero paragraph. Sits on --ink dropped in weight for the same reason the
+   steps do: over the clip, --dim measures 2.3:1 on the brightest frames. */
+.lede {
+  font-size: clamp(0.92rem, 3.4vw, 1.02rem);
+  line-height: 1.65; color: #CFC8C1;
+  max-width: 54ch; margin: 16px 0 24px;
+}
+
 /* Three numbered lines. The counter draws the numerals, so the markup stays a
    plain <ol> and screen readers announce a real list. */
 .steps {
@@ -371,7 +379,11 @@ footer .unofficial { color: var(--brand); }
 /* Opaque ground: the fixed clip and veil sit at z-index -2/-1, so this simply
    slides over them on scroll. The clip's CSS and loop script stay untouched. */
 .ask { background: var(--bg); padding: 58px 22px 64px; }
-.ask-shell { max-width: 640px; margin: 0 auto; }
+/* 640px was right when this was one column of questions. The proof cards and
+   the two run-it-yourself cards are side-by-side blocks and go thin and tall
+   at that width, so the shell opens up and the prose inside keeps its own
+   measure via max-width on the paragraphs. */
+.ask-shell { max-width: 880px; margin: 0 auto; }
 .ask h2 {
   font-family: var(--serif); font-weight: 900;
   font-size: clamp(1.45rem, 5.4vw, 2.05rem);
@@ -404,6 +416,140 @@ footer .unofficial { color: var(--brand); }
 .prompts button.done::after { color: var(--ok); }
 .prompts button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .ask-note { color: var(--dim); font-size: 0.85rem; margin: 16px 0 22px; max-width: 58ch; }
+/* Below the fold .cta is a button in a wide column, not the single action of a
+   full screen, so it takes its label's width instead of the whole shell. */
+.ask .cta, .connect .cta { display: inline-block; padding: 13px 30px; }
+@media (max-width: 700px) {
+  .ask .cta, .connect .cta { display: block; padding: 13px 22px; }
+}
+
+/* The four big questions. Same copy-on-click button as .prompts, but each one
+   is a whole job, so it runs full width with its result underneath. */
+.jobs { list-style: none; display: grid; gap: 12px; margin: 0 0 34px; }
+.jobs > li {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 4px 4px 12px;
+}
+.jobs button {
+  display: flex; align-items: baseline; gap: 9px; width: 100%;
+  text-align: left; cursor: pointer;
+  background: none; color: var(--ink); border: 0;
+  padding: 11px 13px 8px;
+  font-family: var(--mono); font-size: 0.76rem; line-height: 1.55;
+}
+.jobs button::before { content: ">"; color: var(--coral); font-weight: 600; flex: 0 0 auto; }
+.jobs button::after {
+  content: attr(data-state); margin-left: auto; align-self: flex-start;
+  font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); opacity: 0; transition: opacity 0.2s ease;
+  flex: 0 0 auto;
+}
+.jobs > li:hover { border-color: var(--brand); }
+.jobs > li:hover button::after, .jobs button.done::after { opacity: 1; }
+.jobs button.done::after { color: var(--ok); }
+.jobs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 8px; }
+/* The result, set apart from the question so the two never read as one block. */
+.job-out {
+  color: #CFC8C1; font-size: 0.83rem; line-height: 1.6;
+  margin: 0 13px 0 30px; padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ask-sub {
+  font-family: var(--serif); font-weight: 900;
+  font-size: clamp(1.15rem, 4vw, 1.5rem);
+  letter-spacing: -0.01em; margin: 0 0 14px;
+}
+
+/* -- 3. the proof ---------------------------------------------------------- */
+.proof { background: var(--bg); border-top: 1px solid var(--line); padding: 54px 22px 60px; }
+.proof h2, .connect h2, .ways h2 {
+  font-family: var(--serif); font-weight: 900;
+  font-size: clamp(1.45rem, 5.4vw, 2.05rem);
+  line-height: 1.08; letter-spacing: -0.02em;
+  text-wrap: balance; margin: 8px 0 10px;
+}
+.ask-lead a { color: var(--ink); text-underline-offset: 3px; }
+.ask-lead a:hover { color: var(--brand); }
+.proof-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); }
+.proof-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 15px 16px 16px;
+}
+.proof-tool {
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+}
+/* The number is the point of the card, so it is the only thing set in coral. */
+.proof-num {
+  font-family: var(--serif); font-weight: 900;
+  font-size: clamp(1.6rem, 5.5vw, 2rem); line-height: 1;
+  letter-spacing: -0.02em; color: var(--coral); margin-bottom: 9px;
+}
+.proof-cap { color: #CFC8C1; font-size: 0.8rem; line-height: 1.6; }
+.proof-cap strong { color: var(--ink); font-weight: 600; }
+.proof-cap time { color: var(--ink); white-space: nowrap; }
+.proof-note {
+  color: var(--dim); font-size: 0.8rem; line-height: 1.6;
+  max-width: 62ch; margin: 20px 0 0;
+}
+
+/* -- 4. connect ------------------------------------------------------------ */
+.connect { background: var(--bg); border-top: 1px solid var(--line); padding: 54px 22px 60px; }
+/* Below the fold the steps sit on solid ground, so they take the plain --dim
+   the hero could not use over the video. */
+.steps-connect { color: var(--dim); margin: 18px 0 24px; }
+.pwcard {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; margin-bottom: 24px; max-width: 62ch;
+}
+.pwcard h3 {
+  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--coral); margin-bottom: 11px;
+}
+.pwlist { list-style: none; display: grid; gap: 8px; }
+.pwlist li {
+  color: #CFC8C1; font-size: 0.85rem; line-height: 1.6;
+  padding-left: 20px; position: relative;
+}
+.pwlist li::before {
+  content: ""; position: absolute; left: 2px; top: 0.62em;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--coral);
+}
+.pwlist strong { color: var(--ink); font-weight: 600; }
+
+/* -- 5. two ways to run it ------------------------------------------------- */
+.ways { background: var(--bg); border-top: 1px solid var(--line); padding: 54px 22px 64px; }
+/* stretch: the two cards are a pair, so a shorter one must not look like the
+   lesser option just because its text ran out sooner. */
+.ways-grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; align-items: stretch; }
+.way {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 18px 20px;
+}
+/* No "recommended" badge and no visual winner: the two are a choice, not a
+   ladder. The hosted card is marked only because it is the one this site runs. */
+.way-hosted { border-color: #3A3430; }
+.way h3 {
+  font-family: var(--serif); font-weight: 900; font-size: 1.15rem;
+  letter-spacing: -0.01em; margin-bottom: 4px;
+}
+.way-price {
+  font-family: var(--mono); font-size: 1.02rem; color: var(--coral);
+  margin-bottom: 15px;
+}
+.way-price span { color: var(--muted); font-size: 0.72rem; }
+.way-facts { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; }
+.way-facts dt {
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted); padding-top: 0.25em;
+}
+.way-facts dd { color: #CFC8C1; font-size: 0.84rem; line-height: 1.5; }
+.way-facts a { color: #CFC8C1; text-underline-offset: 3px; }
+.way-facts a:hover { color: var(--ink); }
+.ways-note {
+  color: var(--dim); font-size: 0.82rem; line-height: 1.65;
+  max-width: 62ch; margin: 22px 0 0;
+}
 /* Like .fineprint, minus its scrim: this sits on solid ground. */
 .trust {
   display: flex; flex-wrap: wrap; justify-content: center;
@@ -499,6 +645,14 @@ input, textarea { cursor: text; }
   .social span { display: none; }
   .social svg { width: 17px; height: 17px; flex-basis: 17px; }
   .prompts { grid-template-columns: 1fr; }
+  /* Three proof cards side by side would be ~110px wide on a phone; the
+     numbers are the whole point, so they stack instead of shrinking. */
+  .proof-grid { grid-template-columns: 1fr; }
+  .ways-grid { grid-template-columns: 1fr; }
+}
+/* Tablets: the proof cards still fit two-up before they have to stack. */
+@media (min-width: 701px) and (max-width: 900px) {
+  .proof-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 400px) {
   .shell { padding-left: 18px; padding-right: 18px; }
@@ -538,7 +692,7 @@ input, textarea { cursor: text; }
 
   <nav class="social" aria-label="catknows elsewhere">
     <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener"
-       aria-label="Our Skool community">
+       aria-label="The catknows Skool community">
       <!-- Our own rounded-tile glyph, not Skool's logo: the page states it is
            independent & unofficial, and their mark in our header would read as
            a partnership. Naming them in the label is fine; wearing their mark
@@ -593,24 +747,21 @@ input, textarea { cursor: text; }
 <div class="shell">
 
 <main>
-  <h1>Your Skool data, <em>in your AI.</em></h1>
-  <p class="kicker">FREE. OPEN SOURCE. YOUR DATA.</p>
+  <h1>Ask the AI you already use about your own Skool community, and
+      <em>it actually knows the answer.</em></h1>
 
   <!-- The typed demo is gone: the background clip now shows a real catknows
        conversation, so a second mock chat only competed with it. -->
 
-  <ol class="steps">
-    <li><span>Create an account</span></li>
-    <li><span>Connect Skool</span></li>
-    <li>
-      <span>Add it to your AI</span>
-      <button type="button" class="copy" id="copy-mcp"
-              data-url="https://mcp.catknows.app/mcp">
-        <code>mcp.catknows.app/mcp</code>
-        <span class="copy-state" id="copy-state" aria-live="polite">copy</span>
-      </button>
-    </li>
-  </ol>
+  <p class="lede">What you want to know about your community is never on one
+     screen. It is in the member list, in the posts, in the comments, in your
+     DMs, and catknows lets the AI you already use read all of that in one
+     pass. It runs on your own Skool login, so it sees what you see and not a
+     line more, and anything it writes waits for your yes before it goes out.</p>
+
+  <!-- The three setup steps moved down to section 4 (Connect), where the
+       visitor is actually deciding whether to do them. The hero used to carry
+       them, which spent the first screen on mechanics instead of the promise. -->
 
   <a class="cta" href="/auth/login?register=1">Start Now!</a>
 </main>
@@ -621,7 +772,7 @@ input, textarea { cursor: text; }
      was making the hero block long enough to fight the headline. -->
 <p class="fineprint">
   <span>Hosted in Germany. Your Skool data isn&rsquo;t stored: fetched, answered, gone.</span>
-  <span>Your Skool password goes to Skool, <a href="/privacy">never to us</a>.</span>
+  <span>Your Skool password goes to Skool, <a href="/privacy">nowhere else</a>.</span>
 </p>
 
 <a class="more" href="#ask">MORE &darr;</a>
@@ -644,21 +795,134 @@ input, textarea { cursor: text; }
 <section class="ask" id="ask" aria-labelledby="ask-title">
   <div class="ask-shell">
     <p class="kicker">ASK IN PLAIN WORDS</p>
-    <h2 id="ask-title">What can you ask it?</h2>
-    <p class="ask-lead">Your AI reads members, posts, comments and DMs
-       together. That answers questions no dashboard has a column for:</p>
+    <h2 id="ask-title">What it can work out for you</h2>
+
+    <!-- The four big ones: each is a whole job, so each gets its own card with
+         the result spelled out underneath. Click still copies the question,
+         same handler as the short list below. -->
+    <ol class="jobs">
+      <li>
+        <button type="button" data-state="copy">Read my posts, my comments and my member profiles. What do these specific people actually need next, and write me the three posts that give it to them.</button>
+        <p class="job-out">Three drafts written for the people who are already in your community, not for a general audience.</p>
+      </li>
+      <li>
+        <button type="button" data-state="copy">I want to teach [what you know]. Ask me what you need, then build the whole classroom: modules, lessons, the text inside them. Leave it unpublished so I can look first.</button>
+        <p class="job-out">A complete course sitting unpublished in your classroom, ready for you to read through and change before anyone sees it.</p>
+      </li>
+      <li>
+        <button type="button" data-state="copy">I am number [12] in my category. Take the five above me: what are they doing differently from me, and which of it could I change next week?</button>
+        <p class="job-out">A short list of differences you can act on, sorted by what is actually in your hands.</p>
+      </li>
+      <li>
+        <button type="button" data-state="copy">My customer is [who you sell to]. Which Skool communities are full of them, and which of those would be worth running ads against?</button>
+        <p class="job-out">A ranked list of communities to target, so you buy attention where your buyer already spends it.</p>
+      </li>
+    </ol>
+
+    <h3 class="ask-sub">And the everyday things, every day</h3>
     <ul class="prompts">
       <li><button type="button" data-state="copy">Who joined this month but never posted?</button></li>
-      <li><button type="button" data-state="copy">Who was active in June but has gone quiet since?</button></li>
-      <li><button type="button" data-state="copy">Read the last 50 posts. What do my members struggle with?</button></li>
-      <li><button type="button" data-state="copy">Summarize my unread DMs, draft replies to the urgent ones.</button></li>
-      <li><button type="button" data-state="copy">Who ranks above me on Discovery, and what do they charge?</button></li>
+      <li><button type="button" data-state="copy">Who was active in June and has gone quiet since?</button></li>
+      <li><button type="button" data-state="copy">Who is about to leave, and why do you think so?</button></li>
+      <li><button type="button" data-state="copy">Summarize my unread DMs and draft replies to the ones that cannot wait.</button></li>
+      <li><button type="button" data-state="copy">Who liked my last three posts and is still on the free tier?</button></li>
+      <li><button type="button" data-state="copy">Read the last 50 posts. What do my members actually struggle with?</button></li>
+      <li><button type="button" data-state="copy">Which questions were asked twice and never answered?</button></li>
       <li><button type="button" data-state="copy">Write my monthly report: growth, top posts, who needs a check-in.</button></li>
-      <li><button type="button" data-state="copy">Draft a welcome post. Show me before it goes live.</button></li>
+      <li><button type="button" data-state="copy">Who else is ranking in my category, what do they charge, and what does none of them promise?</button></li>
     </ul>
     <p class="ask-note">It sees what your own Skool login sees. Writes are
        draft first: you read the exact text, you say yes.</p>
     <a class="cta" href="/auth/login?register=1">Ask your first question</a>
+  </div>
+</section>
+
+<!-- 3. The proof. Every number below was pulled with catknows itself, out of
+     catnose, which is my own community — not a customer's. Each block carries
+     the date it was measured, so it ages honestly instead of hardening into a
+     claim. -->
+<section class="proof" id="proof" aria-labelledby="proof-title">
+  <div class="ask-shell">
+    <p class="kicker">MEASURED, NOT CLAIMED</p>
+    <h2 id="proof-title">What it found in my own community</h2>
+    <p class="ask-lead">catknows is built on the community I run myself,
+       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>.
+       These are its own numbers, pulled with the same tools you would be
+       using. Each one carries the day it was read.</p>
+
+    <div class="proof-grid">
+      <article class="proof-card">
+        <p class="proof-tool">get_discovery_rank</p>
+        <p class="proof-num">#11,844</p>
+        <p class="proof-cap">overall on Skool&rsquo;s Discovery, and
+           <strong>#1,544</strong> in the Tech category, read on
+           <time datetime="2026-08-25">25 August 2026</time>. The same query on
+           <time datetime="2026-08-10">10 August 2026</time> read
+           #28,302 overall and #3,409 in Tech.</p>
+      </article>
+
+      <article class="proof-card">
+        <p class="proof-tool">get_admin_metrics</p>
+        <p class="proof-num">18 &rarr; 44</p>
+        <p class="proof-cap">members over the 30 days from
+           <time datetime="2026-07-26">26 July</time> to
+           <time datetime="2026-08-24">24 August 2026</time>, with active
+           members going <strong>8 &rarr; 43</strong>. Read on
+           <time datetime="2026-08-25">25 August 2026</time>.</p>
+      </article>
+
+      <article class="proof-card">
+        <p class="proof-tool">list_members</p>
+        <p class="proof-num">18 of 44</p>
+        <p class="proof-cap">members have never posted, and
+           <strong>4</strong> have been quiet for more than a week. Read on
+           <time datetime="2026-08-25">25 August 2026</time>. Names stay in my
+           community; the count is all that is shown here.</p>
+      </article>
+    </div>
+
+    <p class="proof-note">These are readings from one community, my own. They
+       say what catknows found, not what it caused, and nothing here is a
+       forecast of what your own numbers will do.</p>
+  </div>
+</section>
+
+<!-- 4. Connect. The measured drop-off: 534 visits to this page against 12 to
+     the connect step, and two users who stopped at the Skool password prompt.
+     So the worry gets answered here, where it starts, not on the FAQ page. -->
+<section class="connect" id="connect" aria-labelledby="connect-title">
+  <div class="ask-shell">
+    <p class="kicker">THREE STEPS, ABOUT TWO MINUTES</p>
+    <h2 id="connect-title">Connecting it</h2>
+
+    <ol class="steps steps-connect">
+      <li><span>Create an account</span></li>
+      <li><span>Connect Skool</span></li>
+      <li>
+        <span>Add it to your AI</span>
+        <button type="button" class="copy" id="copy-mcp"
+                data-url="https://mcp.catknows.app/mcp">
+          <code>mcp.catknows.app/mcp</code>
+          <span class="copy-state" id="copy-state" aria-live="polite">copy</span>
+        </button>
+      </li>
+    </ol>
+
+    <!-- Step 2 is where people stop, so it gets answered in full. -->
+    <div class="pwcard">
+      <h3>About step 2, the Skool password</h3>
+      <ul class="pwlist">
+        <li>Your password goes to <strong>Skool</strong> and nowhere else.</li>
+        <li>You type it on <strong>Skool&rsquo;s own login page</strong>, opened
+            in a real browser on the server and streamed to your screen.</li>
+        <li>What is kept is only the <strong>encrypted session</strong> that
+            login produces, never the password itself.</li>
+        <li>You can <strong>delete that session</strong> at any time, from the
+            account menu at the top of this page.</li>
+      </ul>
+    </div>
+
+    <a class="cta" href="/auth/login?register=1">Connect Skool</a>
     <p class="trust">
       <span>Hosted in Germany</span>
       <span>Your password goes to Skool, nowhere else</span>
@@ -666,6 +930,55 @@ input, textarea { cursor: text; }
       <span>Open source, read every line</span>
       <span>Disconnect any time</span>
     </p>
+  </div>
+</section>
+
+<!-- 5. Two honest ways to run it. Not a tier ladder: the free one is the full
+     one. $7 buys the machine it runs on, not more features. -->
+<section class="ways" id="pricing" aria-labelledby="ways-title">
+  <div class="ask-shell">
+    <p class="kicker">TWO WAYS TO RUN IT</p>
+    <h2 id="ways-title">Run it yourself, or let me run it</h2>
+    <p class="ask-lead">Same tool either way. The question is only whose
+       machine it runs on.</p>
+
+    <div class="ways-grid">
+      <article class="way">
+        <h3>On your own machine</h3>
+        <p class="way-price">Free<span>, and staying that way</span></p>
+        <dl class="way-facts">
+          <dt>Runs on</dt>
+          <dd>your computer, your account, your connection</dd>
+          <dt>Limits</dt>
+          <dd>none, everything is on, writing included</dd>
+          <dt>Costs</dt>
+          <dd>a terminal, and your computer has to be running</dd>
+          <dt>For</dt>
+          <dd>anyone who hosts it themselves and wants full control</dd>
+        </dl>
+      </article>
+
+      <article class="way way-hosted">
+        <h3>On my server</h3>
+        <p class="way-price">$7<span> a month, once announced</span></p>
+        <dl class="way-facts">
+          <dt>Runs on</dt>
+          <dd>a server in N&uuml;rnberg, Germany</dd>
+          <dt>Limits</dt>
+          <dd>posts and comments are paused
+              (<a href="/faq">the FAQ says why</a>)</dd>
+          <dt>Costs</dt>
+          <dd>$7, once the price is announced</dd>
+          <dt>For</dt>
+          <dd>anyone who just wants to use it, phone included</dd>
+        </dl>
+      </article>
+    </div>
+
+    <p class="ways-note">Nobody pays anything today: the price is announced,
+       not switched on. Everyone who is here before it starts stays free
+       permanently. And the free way stays the full way, that is a promise,
+       not a trial.</p>
     <p class="faqline">More questions? <a href="/faq">Read the FAQ</a>, limits included.</p>
   </div>
 </section>
@@ -681,8 +994,8 @@ input, textarea { cursor: text; }
     <p class="modal-note">
       A browser opens <strong>on the server</strong> and is streamed here. You log
       in to Skool inside it: email and password, or Google/Apple. Your
-      password goes to Skool, never to us; we keep only the session cookie the
-      login produces, encrypted.
+      password goes to Skool, nowhere else. What is kept is only the session
+      cookie the login produces, encrypted.
     </p>
     <p><button class="acct-btn" id="sstart" type="button">Open the streamed login</button></p>
     <div id="sstage" hidden><img id="sscreen" alt="Skool login, streamed from the server" tabindex="0"></div>
@@ -795,8 +1108,11 @@ input, textarea { cursor: text; }
     });
   }
 
-  /* -- the example questions: a click copies the question ---------------- */
-  Array.prototype.forEach.call(document.querySelectorAll('.prompts button'), function (b) {
+  /* -- the example questions: a click copies the question ----------------
+     Both lists share this: the four job cards and the short everyday list.
+     The ">" and the copy/copied label are ::before/::after, so they are not
+     in textContent and cannot end up on the clipboard. */
+  Array.prototype.forEach.call(document.querySelectorAll('.prompts button, .jobs button'), function (b) {
     b.addEventListener('click', function () {
       var done = function () {
         b.setAttribute('data-state', 'copied');
