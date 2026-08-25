@@ -22,6 +22,8 @@ CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
 from __future__ import annotations
 
 import mimetypes
+import functools
+import inspect
 import os
 import sys
 from contextlib import redirect_stdout
@@ -34,7 +36,7 @@ try:  # MCP SDK 2.x
 except ImportError:  # MCP SDK 1.x called the same thing FastMCP
     from mcp.server.fastmcp import FastMCP as MCPServer
 
-from . import normalize, sessions, vault
+from . import audit, normalize, sessions, vault
 
 
 def _auth_kwargs() -> dict[str, Any]:
@@ -66,6 +68,47 @@ def _auth_kwargs() -> dict[str, Any]:
 
 
 mcp = MCPServer("catknows", **_auth_kwargs())
+
+# The write-audit log (board D8) is written down in http._write_api2, the one
+# place every write passes through. That layer knows the URL and the status but
+# not which tool ran or which community it aimed at, so the tool boundary hands
+# it that context. Wrapping mcp.tool() once covers every tool — including the
+# ones somebody adds later, who would otherwise have to remember to do this.
+# Read tools set the context too and simply never trigger a line; that costs a
+# dict and keeps the rule "no tool is special" true.
+_AUDIT_ARGS = {  # tool argument -> audit field
+    "community_slug": "community",
+    "post_id": "post_id",
+    "comment_id": "comment_id",
+    "item_id": "course_item_id",
+    "course_id": "course_item_id",
+    "channel_id": "dm_channel_id",
+}
+
+
+def _with_audit_context(fn):
+    """Wrap one tool function so its call names itself and its target."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+        bound.apply_defaults()
+        fields = {dest: bound.arguments.get(src, "")
+                  for src, dest in _AUDIT_ARGS.items()}
+        with audit.context(fn.__name__, **fields):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def _audited_tool(*d_args, **d_kwargs):
+    """`mcp.tool()`, plus the audit context around every call."""
+    register = _raw_tool(*d_args, **d_kwargs)
+    return lambda fn: register(_with_audit_context(fn))
+
+
+_raw_tool = mcp.tool
+mcp.tool = _audited_tool
 
 _client = None  # lazy: log in only when the first tool actually needs Skool
 _clients: dict[str, Any] = {}  # per-user clients, keyed by OAuth subject
@@ -921,8 +964,18 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     )
 
     def _post_write_locked(community_slug: str) -> bool:
-        """True when a post/comment write must fall back to a copy-paste block."""
-        return _WRITE_DRAFT_ONLY and community_slug not in _WRITE_ALLOW_SLUGS
+        """True when a post/comment write must fall back to a copy-paste block.
+
+        Logs the refusal on the way out (board D8). A returned block is NOT a
+        write and must never be counted as one, so it gets its own status —
+        but that somebody wanted to post is worth knowing, and this is the one
+        function all three locked paths (paste, poll, attachment) run through.
+        """
+        locked = _WRITE_DRAFT_ONLY and community_slug not in _WRITE_ALLOW_SLUGS
+        if locked:
+            ctx = audit.current_tool()
+            audit.record_blocked(ctx, community_slug, "BLOCKED_draft_only")
+        return locked
 
     _COPY_PASTE_REASON = (
         "Posting and commenting through catknows is paused on the hosted server. "
@@ -1646,6 +1699,34 @@ def _self_check() -> None:
                 pass
     else:
         assert not (_DESTRUCTIVE & set(tools)), "write tools must stay gated"
+
+    # The write-audit log (D8) hangs off the tool wrapper. If a future SDK
+    # bypasses mcp.tool (or somebody registers a tool the raw way), writes still
+    # get logged — but with no tool name and no community, which is most of the
+    # line's value. Catch that here rather than in the incident review.
+    # Wrap without registering: a probe tool in the real catalog would ship to
+    # users and trip the "every tool is documented" check in test_mcp_tools_doc.
+    probe: dict = {}
+
+    def _audit_probe(community_slug: str = "probe-slug", post_id: str = "probe-post") -> dict:
+        probe.update(tool=audit.current_tool(), ctx=dict(audit._CONTEXT.get()))
+        return {}
+
+    wrapped = _with_audit_context(_audit_probe)
+    wrapped()
+    assert probe.get("tool") == "_audit_probe", (
+        f"tool calls no longer carry an audit context (got {probe.get('tool')!r}) — "
+        "the write log would lose the tool name (see catknows/audit.py)"
+    )
+    assert probe["ctx"].get("community") == "probe-slug", probe["ctx"]
+    assert probe["ctx"].get("post_id") == "probe-post", probe["ctx"]
+    # The wrapper must not eat the name or signature the SDK registers a tool by.
+    assert wrapped.__name__ == "_audit_probe", wrapped.__name__
+    assert "community_slug" in inspect.signature(wrapped).parameters, "signature lost"
+    # Every registered tool went through the wrapper, so a raw registration
+    # slipping past it (an SDK that stops calling mcp.tool) shows up here.
+    assert all(t.name != "wrapper" for t in mcp._tool_manager.list_tools()), \
+        "a tool registered under the wrapper's own name — functools.wraps was lost"
 
     # Comma-separated arguments: plain splitting posted a poll option as two
     # options ("Yes, the cat has served me" -> 3 options, still inside the valid

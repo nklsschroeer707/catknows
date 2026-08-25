@@ -33,6 +33,11 @@ Environment=CATKNOWS_PROFILE_DIR=/var/lib/catknows/skool-profile
 # Playwright downloads browsers per-user by default; pin it somewhere the
 # service user owns and the deploy script can pre-seed.
 Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/catknows/browsers
+# Write-audit log (board D8): one line per write we send to Skool, so an
+# un-listed comment can be traced back instead of argued about. Metadata only —
+# no post text, no DM text, response stored as a hash. Retention is 90 days and
+# logrotate is what enforces it (deploy/README.md §11); privacy §2.6 states it.
+Environment=CATKNOWS_AUDIT_LOG=/var/lib/catknows/writes.jsonl
 # Post/comment lockout (2026-08-22 incident): Skool un-lists API-written comments
 # from the thread. draft_only makes create_post/create_comment hand the caller a
 # copy-paste block instead of writing — DMs, edits, deletes stay live. Exempt the

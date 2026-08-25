@@ -523,6 +523,56 @@ there). `CATKNOWS_WRITE_ALLOW_SLUGS` is a comma-separated exemption list for the
 control experiment — those communities still write normally. Remove the two
 variables to restore full posting once the trigger is understood.
 
+### The write-audit log (board D8)
+
+Every write catknows sends to Skool appends one JSON line to
+`CATKNOWS_AUDIT_LOG` (the unit sets `/var/lib/catknows/writes.jsonl`). It is
+written in `http._write_api2`, the single function all three write verbs pass
+through, so no caller can forget it and a write tool added later is covered
+without anyone remembering to wire it up.
+
+It records metadata only: timestamp, tool, community, the ids written to, HTTP
+status, a hash of Skool's response, and the mode. **No post text, no DM text,
+no member data** — see [PRIVACY.md](PRIVACY.md) §2.6. It writes, it never
+steers: no throttle, no queue, and a log that cannot be written drops its line
+to stderr rather than failing the write.
+
+A request that `draft_only` refused is logged too, with status
+`BLOCKED_draft_only` and no response. That is deliberately *not* a write — do
+not count those as posts. It answers a different question: how often people
+want to post while posting is paused.
+
+```bash
+# writes per tool, last 7 days
+jq -r 'select(.ts > (now-7*86400 | todate)) | .tool' /var/lib/catknows/writes.jsonl \
+  | sort | uniq -c | sort -rn
+
+# the un-listing rate the whole log exists for: what did we write, and when
+jq -r 'select(.tool=="create_comment" and .status==200)
+       | [.ts, .community, .created_id] | @tsv' /var/lib/catknows/writes.jsonl
+```
+
+**[PRIVACY.md](PRIVACY.md) §2.6 promises 90 days.** Nothing rotates a plain
+append-only file, so say so to logrotate or the promise is just text:
+
+```bash
+cat >/etc/logrotate.d/catknows-writes <<'EOF'
+# PRIVACY.md §2.6 states write-audit lines are kept 90 days.
+/var/lib/catknows/writes.jsonl {
+    daily
+    rotate 90
+    missingok
+    notifempty
+    copytruncate
+    create 0600 catknows catknows
+}
+EOF
+logrotate -d /etc/logrotate.d/catknows-writes   # dry run, confirm it parses
+```
+
+`copytruncate` on purpose: the server holds the file open per append, so a
+rename-based rotation would leave it writing into the rotated-away inode.
+
 ## Data protection
 
 The box processes other people's member data (names, emails). It's on German

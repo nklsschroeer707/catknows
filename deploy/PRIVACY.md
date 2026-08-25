@@ -119,6 +119,38 @@ for billing, then art. 6(1)(b).
 Kept for **30 days**, then deleted by the journal's retention limit. No profiles
 are built from it and it is not combined with the Skool data in §2.3.
 
+### 2.6 Write-audit log
+
+§2.5 deliberately does not record which tool you called. There is one narrow
+exception, and it applies only to **writing**: when the server posts, edits,
+deletes or messages on your behalf against Skool, it appends one line about that
+write. Reads are never recorded here.
+
+| Data | Why |
+|---|---|
+| Timestamp (UTC) | When the write went out |
+| Which write tool ran | Tells a comment apart from a deletion |
+| The community slug, and the id of the post, comment, course item or DM channel written to | Identifies the object, so a later disappearance can be traced back to the write that made it |
+| HTTP status, or `BLOCKED_draft_only` when posting is paused and nothing was sent | Whether it worked |
+| A short hash of Skool's response, and the id Skool assigned | Recognises the same response again without keeping it |
+| Whether the server ran hosted or local, and the active write mode | Which deployment the write came from |
+
+What this is **not**: the text you posted, the message you sent, or anything
+about the members who see it is **not** written. The response is stored as a
+hash, never as text, and it passes the same credential-scrubbing filter every
+other path uses before it is hashed.
+
+Why it exists: Skool has removed individual comments written through the API
+from their threads after they were posted. Without a record of what was written,
+neither you nor I can tell whether that happened to one of yours. This log is
+what makes the write path auditable instead of anecdotal, and it is also the
+record you can point at if Skool ever asks what this account did.
+
+Legal basis: art. 6(1)(f) — my legitimate interest, and yours, in being able to
+say what was written on your behalf and to detect when Skool silently drops it.
+Kept for **90 days**, longer than the usage records in §2.5 because an un-listing
+has taken weeks to notice.
+
 ## 3. What is *not* done
 
 - No analytics, tracking pixels, or advertising.
@@ -156,6 +188,7 @@ tools.
 | OAuth tokens / sessions | Minutes to days, per token lifetime; then gone |
 | Proxy logs | Until rotated out (see §2.4) |
 | Usage records (§2.5) | 30 days |
+| Write-audit log (§2.6) | 90 days |
 | Failed-login counters | Reset on success, or after 12 hours |
 
 An account that is never confirmed by email is removed after 30 days.
@@ -172,7 +205,9 @@ Two things you can do yourself, immediately:
 - **Delete your Skool session** — call the `forget_skool_session` tool from your
   AI client. It is gone from disk when that returns.
 - **Delete your account** — email me and it is removed, along with your stored
-  session.
+  session. The write-audit lines from §2.6 age out on their own 90-day clock:
+  they are the record of what was written on your behalf, so they are kept for
+  that window even after the account is gone, then deleted with everything else.
 
 For anything else, write to the address in §1. I will answer within one month
 (art. 12(3)). No fee, no reason required, and exercising a right will not get

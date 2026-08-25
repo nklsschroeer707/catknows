@@ -90,6 +90,19 @@ over `SkoolClient`; don't duplicate client logic in it.
   no pass. Build drafts with `_draft(...)` so this stays in one place.
 - Every new tool must be listed in `_READ_ONLY` or `_DESTRUCTIVE` — a tool in
   neither fails the self-check, on purpose.
+- **Every write is logged, and you don't have to do anything for that.**
+  `catknows/audit.py` writes one line per write in `http._write_api2` — the one
+  function `post_api2`/`put_api2`/`delete_api2` all pass through, so the CLI,
+  `pull_to_vault` and doc examples are covered as well as the tools. A new write
+  method needs no logging call. What it *may* need is a line in `_AUDIT_ARGS`
+  (`mcp_server.py`) if it names its target with an argument not already there —
+  that map is how the tool boundary tells the HTTP layer which community and
+  which id a write was aimed at. Board decision D8; `--self-check` asserts the
+  context still reaches tool calls.
+  Two rules that are not style: **no content in the log** (no post text, no DM
+  text, no member data — privacy §2.6 says so in writing), and **the log never
+  steers** — no throttle, no queue, no retry hanging off it. It also must never
+  break a write: `record()` swallows its own errors on purpose.
 - Writes into an **archived** community refuse up front
   (`group_id_for(for_write=True)`). Archived communities stay readable, so
   reads must keep calling it without the flag.
