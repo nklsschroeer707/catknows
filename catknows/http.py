@@ -30,6 +30,8 @@ import time
 from curl_cffi import requests
 from curl_cffi.requests.exceptions import RequestException
 
+from . import audit
+
 SKOOL_BASE = "https://www.skool.com"
 SKOOL_API2 = "https://api2.skool.com"
 
@@ -275,6 +277,13 @@ class SkoolHTTP:
         return self._write_api2("delete", path_and_query, None)
 
     def _write_api2(self, method: str, path_and_query: str, body: dict | None) -> dict:
+        """Every write catknows sends to Skool goes through here.
+
+        Which makes it the one place the write-audit log belongs (board D8):
+        the 13 write tools, the CLI and the doc examples all funnel into these
+        three verbs, so a log here cannot be forgotten by a caller or by the
+        next write method somebody adds. See `catknows/audit.py`.
+        """
         url = f"{SKOOL_API2}{path_and_query}"
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:
@@ -282,20 +291,29 @@ class SkoolHTTP:
         try:
             resp = getattr(self._http, method)(url, **kwargs)
         except RequestException as e:
+            audit.record(method=method, path=path_and_query, status="network_error")
             raise SkoolHTTPError(f"Network error on {url}: {e}") from e
 
         code = resp.status_code
-        if code == 401 or code == 403:
-            raise _auth_rejected(code, url, resp.text)
         if not (200 <= code < 300):
+            # Logged before raising: a rejected write is exactly the kind of
+            # thing we are otherwise left guessing about. No body goes in, it
+            # can echo the content we just tried to send.
+            audit.record(method=method, path=path_and_query, status=code)
+            if code == 401 or code == 403:
+                raise _auth_rejected(code, url, resp.text)
             raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
         self._cache.clear()  # a write invalidates anything we read before it
         if not resp.text.strip():
+            audit.record(method=method, path=path_and_query, status=code, response={})
             return {}
         try:
-            return json.loads(resp.text)
+            data = json.loads(resp.text)
         except json.JSONDecodeError as e:
+            audit.record(method=method, path=path_and_query, status=code, note="bad_json")
             raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {resp.text[:200]}", code) from e
+        audit.record(method=method, path=path_and_query, status=code, response=data)
+        return data
 
     def put_bytes(self, url: str, data: bytes, headers: dict) -> None:
         """PUT raw bytes to a presigned upload URL (docs/API.md §5.3).

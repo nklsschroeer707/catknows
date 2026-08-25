@@ -21,6 +21,8 @@ CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
 
 from __future__ import annotations
 
+import functools
+import inspect
 import mimetypes
 import os
 import sys
@@ -34,9 +36,50 @@ try:  # MCP SDK 2.x
 except ImportError:  # MCP SDK 1.x called the same thing FastMCP
     from mcp.server.fastmcp import FastMCP as MCPServer
 
-from . import normalize, vault
+from . import audit, normalize, vault
 
 mcp = MCPServer("catknows")
+
+# The write-audit log (board D8) is written down in http._write_api2, the one
+# place every write passes through. That layer knows the URL and the status but
+# not which tool ran or which community it aimed at, so the tool boundary hands
+# it that context. Wrapping mcp.tool() once covers every tool — including the
+# ones somebody adds later, who would otherwise have to remember to do this.
+# Read tools set the context too and simply never trigger a line; that costs a
+# dict and keeps the rule "no tool is special" true.
+_AUDIT_ARGS = {  # tool argument -> audit field
+    "community_slug": "community",
+    "post_id": "post_id",
+    "comment_id": "comment_id",
+    "item_id": "course_item_id",
+    "course_id": "course_item_id",
+    "channel_id": "dm_channel_id",
+}
+
+
+def _with_audit_context(fn):
+    """Wrap one tool function so its call names itself and its target."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+        bound.apply_defaults()
+        fields = {dest: bound.arguments.get(src, "")
+                  for src, dest in _AUDIT_ARGS.items()}
+        with audit.context(fn.__name__, **fields):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def _audited_tool(*d_args, **d_kwargs):
+    """`mcp.tool()`, plus the audit context around every call."""
+    register = _raw_tool(*d_args, **d_kwargs)
+    return lambda fn: register(_with_audit_context(fn))
+
+
+_raw_tool = mcp.tool
+mcp.tool = _audited_tool
 
 _client = None  # lazy: log in only when the first tool actually needs Skool
 
