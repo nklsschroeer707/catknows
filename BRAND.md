@@ -21,6 +21,33 @@ About page, package description). Message hierarchy, in this order:
 For non-technical readers, prefer "private" over "open source" and "the AI you
 already use" over "your AI".
 
+## The readability floor
+
+Every first-contact text is written so a third-grader could read it aloud and
+say what it means. The test is Hemingway's, the one Alex Hormozi points at.
+Paste the text into [hemingwayapp.com](https://hemingwayapp.com) and pull the
+grade down to **3**. Not "simple for a founder", grade 3.
+
+How the grade actually comes down:
+
+- **One idea per sentence.** Two ideas means two sentences.
+- **Short words beat exact words** on a first-contact surface: "read" over
+  "retrieve", "ask" over "query", "your login" over "authentication".
+- **No sentence that needs a second read.** If it does, it is two sentences.
+- **Cut every word that carries nothing.** "actually", "simply", "just",
+  "in order to", "the ability to".
+- **Active voice.** Someone does something.
+
+Where the floor applies: landing page, About page, community description,
+FAQ, video scripts, first-contact posts, anything a stranger reads before
+trusting catknows with a Skool login. It does **not** apply to reference docs,
+API.md, AGENTS.md or code: precision wins there, and the reader came prepared.
+
+The floor never buys simplicity with a false promise. A sentence that is
+grade 3 and wrong is worse than one that is grade 6 and true. When plain
+words cannot carry the caveat, keep the caveat and lose the sentence and say
+less, per the last line of this file.
+
 ## Naming
 
 | Name | Use |
