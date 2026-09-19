@@ -12,7 +12,9 @@
    filters — you do the filtering).
 3. Table of matches: Rank · Name (slug) · Members · Price · Category ·
    Why it matches (your one-liner).
-4. End with: "want a full profile of one of these? → community-profile".
+4. End with the two ways on: "want a full profile of one of these? →
+   community-profile. Want to know whether it's actually alive — posts per
+   day, pinned shelf, what's being talked about? → community-pulse."
 
 ## Outputs
 - `latest.md` → `output/`

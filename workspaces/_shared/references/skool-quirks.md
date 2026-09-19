@@ -19,6 +19,19 @@
   2 = level-locked). `hasAccess: 1` describes the COURSE ("open to members"),
   not you — a non-member sees it on courses they cannot read. Locked content
   is simply not available — say so instead of retrying.
+- **The post feed is sorted by last activity, not by date.** A two-year-old
+  thread with a fresh comment sits above today's post. So "the newest 25
+  posts" is really "the 25 most recently *touched* posts" — for anything
+  time-based (posts per day, what happened last month) read `created_at` off
+  each record and count yourself. `last_comment_at` says when the
+  conversation last moved, `pinned` marks the posts the owner parked at the
+  top, `label_id` groups by category (ids only — no names anywhere in the
+  feed). Missing those three fields in a result means the install predates
+  them → `update_catknows`.
+- **Activity is a lower bound, never a total.** One `list_posts` call returns
+  at most 200 posts. If the oldest post you got back is inside your window,
+  the window is full and your per-day number is a floor, not the rate. Say
+  which it is.
 - **Membership matters:** posts and members need you to be a member of the
   community. `get_community_about` and `get_discovery` work from the outside,
   and so does the classroom (list always, course content via the page

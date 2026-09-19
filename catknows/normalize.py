@@ -187,6 +187,13 @@ def post(tree: dict) -> dict:
         "is_toplevel": root_id == "" or root_id == skool_id,
         "comments": int(meta.get("comments", 0) or 0),
         "upvotes": int(meta.get("upvotes", 0) or 0),
+        # Pinned posts ride at the top of page 1 AND again in their feed
+        # position; client.posts dedupes to the top copy, so this flag is the
+        # only thing left saying "the owner put this here on purpose".
+        "pinned": bool(meta.get("pinned") or 0),
+        # Category ("label") id — names live nowhere in the feed, see
+        # docs/API.md §1.2. Same id on every post of that category.
+        "label_id": p.get("labelId", "") or meta.get("labels", ""),
         "poll": poll,
         "attachments": meta.get("attachments", ""),
         "files": _files(meta),
@@ -195,6 +202,12 @@ def post(tree: dict) -> dict:
         "video_ids": [v for v in (meta.get("videoIds")
                                   or meta.get("video_ids") or "").split(",") if v],
         "created_at": _ns_or_iso_to_dt(p.get("createdAt")),
+        # The feed sorts by last activity, not by creation — without these two
+        # a post list can't tell "written today" from "bumped today", which is
+        # exactly the difference between a live community and a parked one.
+        "updated_at": _ns_or_iso_to_dt(p.get("updatedAt")),
+        "last_comment_at": _ns_or_iso_to_dt(meta.get("lastComment")
+                                            or meta.get("last_comment")),
     }
 
 
@@ -538,6 +551,25 @@ if __name__ == "__main__":
     assert post({"post": {"id": "p6", "metadata": {
         "videoIds": "a,b"}}})["video_ids"] == ["a", "b"]
     assert post({"post": {"id": "p5", "metadata": {"videoIds": ""}}})["video_ids"] == []
+
+    # Liveliness fields, trimmed from the live germanskoolers feed (19.09.):
+    # pinned is an INT (1) and only present on pinned posts, lastComment is a
+    # nanosecond number while createdAt/updatedAt next to it are ISO strings.
+    # Reading "pinned" as a bool-only key, or lastComment as seconds, is how a
+    # parked community passes for a busy one.
+    piv = post({"post": {"id": "p4", "createdAt": "2026-07-01T08:41:29.796230Z",
+                         "updatedAt": "2026-09-19T07:26:14.669420Z",
+                         "labelId": "350dfbd2668b42489b4fa1247b12e817",
+                         "metadata": {"title": "Stell dich vor", "pinned": 1,
+                                      "lastComment": 1_789_568_992_999_226_000}}})
+    assert piv["pinned"] is True, piv
+    assert piv["label_id"].startswith("350dfbd2"), piv
+    assert piv["created_at"].month == 7 and piv["updated_at"].month == 9, piv
+    assert piv["last_comment_at"].year == 2026, piv
+    # No pinned key = not pinned, and a post nobody commented on has no last
+    # comment — both must stay falsy instead of raising.
+    plain = post({"post": {"id": "p3", "metadata": {"title": "t"}}})
+    assert plain["pinned"] is False and plain["last_comment_at"] is None, plain
 
     lk = like({"id": 7, "name": "Bo", "firstName": "Bo"}, "p1")  # camelCase liker
     assert lk["user_first_name"] == "Bo" and lk["user_skool_id"] == "7"

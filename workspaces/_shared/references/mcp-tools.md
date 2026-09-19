@@ -10,7 +10,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `login_to_skool` | – | call once if other tools report auth errors |
 | `list_my_communities` | – | every community YOUR account is in: slug, display name, your role (owner/admin/moderator/member), member count. **Start here when the job has no slug yet** — every other tool needs one |
 | `list_members` | slug, limit=25 | name, handle, role, points, level, last-active (most recently active first) |
-| `list_posts` | slug, limit=25 | title, author, likes, comment count, content, **post id** |
+| `list_posts` | slug, limit=25 | title, author, likes, comment count, content, **post id**, plus `pinned`, `created_at`, `last_comment_at`, `updated_at`, `label_id`. Sorted by last activity, NOT by date — count `created_at` yourself for "posts per day" (see skool-quirks.md) |
 | `get_post` | slug, post_name | ONE post incl. file attachments (name, type, download URL) + video ids. The post LIST carries only attachment ids — the downloadable URL exists **only here** |
 | `get_post_comments` | slug, post_id | full nested comment thread (post_id from `list_posts`) |
 | `get_post_likes` | slug, post_id | users who liked the post |

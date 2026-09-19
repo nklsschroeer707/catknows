@@ -10,7 +10,9 @@
    owner, founded if visible), and your honest read — does the pitch feel
    substantial or thin?
 3. Close with: is the logged-in account a member? If yes, name which other
-   workspaces now apply (posts, members, classroom).
+   workspaces now apply (posts, members, classroom) — and that
+   community-pulse answers the one this page cannot: whether the community
+   is alive, measured off its feed rather than off its pitch.
 
 ## Outputs
 - `latest.md` → `output/`

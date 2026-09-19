@@ -81,7 +81,7 @@ top of it. And because it's open source, where catknows goes next is decided by
 the people who use it, not a pricing page.
 
 - 🧠 **Talk to your own data in the AI you already use.** MCP server for Claude, ChatGPT, Notion, Cursor & co. — [plug it in](#plug-it-into-your-ai-mcp).
-- 🤖 **21 ready-made agent jobs.** [`workspaces/`](workspaces/START-HERE.md) — every job is a folder your AI can run: member lists, digests, fan rankings, classroom research, backups, one big report. Acting jobs (posting, DMs, issues) never fire without your explicit approval.
+- 🤖 **22 ready-made agent jobs.** [`workspaces/`](workspaces/START-HERE.md) — every job is a folder your AI can run: member lists, digests, fan rankings, classroom research, backups, one big report. Acting jobs (posting, DMs, issues) never fire without your explicit approval.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
 - ☁️ **Or skip the setup entirely.** [catknows.app](https://catknows.app) is the same bridge, hosted — no Python, no terminal. Free while it's small; the code here stays free forever either way.

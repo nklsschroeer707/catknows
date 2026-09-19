@@ -296,6 +296,13 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
 def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[dict]:
     """List posts of a Skool community (title, author, likes, comment count, content).
 
+    Sorted by LAST ACTIVITY, not by creation date: a post bumped by a new
+    comment comes back above one written today. Each record carries
+    `created_at` (written), `last_comment_at` (conversation last moved),
+    `updated_at`, and `pinned` — pinned posts are the ones the owner parked at
+    the top of the feed. Counting `created_at` per day is how you tell a live
+    community from one that only looks busy.
+
     raw=True returns Skool's unmodified post trees. Keep limit small — raw trees
     are large and can exceed the tool-result size cap.
 

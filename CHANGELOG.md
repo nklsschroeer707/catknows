@@ -9,6 +9,28 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-09-19
+
+### Added
+- **Post lists now say what's pinned and when a thread last moved.** Skool's
+  feed is sorted by last activity, not by date — a two-year-old thread with a
+  fresh comment outranks today's post — and the fields that let you tell those
+  apart were being dropped on the way out. `list_posts` and `get_post` now
+  carry `pinned` (the posts the owner parked at the top of the feed),
+  `last_comment_at` (when the conversation last moved), `updated_at` and
+  `label_id` (the category id posts are grouped by). Without them a list of
+  posts cannot answer "how much is actually being written here per day", which
+  is the difference between a live community and a tidy, parked one.
+- **New read workspace: `community-pulse`.** Point it at a shortlist of
+  communities and it measures each one instead of guessing: posts per day off
+  real creation dates, how much of that is written by ordinary members rather
+  than by staff, how many posts get zero replies, what sits on the pinned
+  shelf, what the busiest threads are about, and what's on the calendar. Ends
+  in a join / watch / drop table. Communities the account cannot read are
+  reported as price-gated or "join to read" — never quietly skipped. Run it
+  twice to get a true delta; the second run compares against the archived
+  snapshot. Start at `workspaces/START-HERE.md`.
+
 ## 2026-08-19
 
 ### Fixed

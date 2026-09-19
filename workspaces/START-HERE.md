@@ -28,6 +28,7 @@ it does, step by step.
 | [read/classroom/classroom-research/](read/classroom/classroom-research/) | What's inside the courses — across communities? |
 | [read/research/discover-communities/](read/research/discover-communities/) | Which Skool communities are out there? |
 | [read/research/community-profile/](read/research/community-profile/) | What is community X about? (no membership needed) |
+| [read/research/community-pulse/](read/research/community-pulse/) | Is it actually alive — and what's going on inside? |
 | [read/research/watch-the-skoolers/](read/research/watch-the-skoolers/) | What's happening in the official Skoolers community? |
 | [read/calendar/whats-coming-up/](read/calendar/whats-coming-up/) | What events are coming up? |
 | [read/admin/health-report/](read/admin/health-report/) | How healthy is my community? (owners only) |

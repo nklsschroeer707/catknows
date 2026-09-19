@@ -170,12 +170,30 @@ Each tree has a `post`:
     "id": "post-id", "name": "Post title / body",
     "postType": "generic", "groupId": "group-uuid",  // ← group UUID lives here!
     "userId": "author-id", "rootId": "",             // "" => top-level post
-    "createdAt": "...",
-    "metadata": { "comments": 12, "upvotes": 30 },
+    "createdAt": "...", "updatedAt": "...",          // ISO here, ns elsewhere
+    "labelId": "label-uuid",                         // category, id only
+    "metadata": {
+      "comments": 12, "upvotes": 30,
+      "pinned": 1,                                   // ⚠ INT, and only present when pinned
+      "lastComment": 1789568992999226000,            // ⚠ NANOSECONDS, absent with 0 comments
+      "labels": "label-uuid"                         // same id as post.labelId
+    },
     "user": { "name": "author-handle", "metadata": {} }
   }
 }
 ```
+
+> **⚠ Sorted by last activity, not by creation.** A post bumped by a new
+> comment outranks one written today, so the feed order says nothing about
+> *when* anything was written — read `createdAt` for that, `lastComment` for
+> when the conversation last moved. The two apart are what separates a live
+> community from a parked one with an old thread still collecting replies.
+>
+> `metadata.pinned` is the only marker of a pinned post that survives the
+> dedupe (the second, in-feed copy is dropped). Non-pinned posts have no
+> `pinned` key at all — test for truthiness, not for presence. Category
+> **names** are nowhere in this payload; `labelId` groups posts, and naming a
+> group means recognizing it from its posts.
 
 **Bootstrapping the group UUID:** you only know the slug, but api2 endpoints
 need the group UUID. It "falls out" of the first posts response as
