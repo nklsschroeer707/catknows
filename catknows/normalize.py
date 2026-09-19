@@ -74,6 +74,56 @@ def _role(raw: str) -> str:
     return _ROLE_NAMES.get(raw, raw)
 
 
+# Skool's revenue badge, the emoji next to an owner's name. Thresholds read
+# off the skoolers leaderboard (docs/API.md §6.3, 2026-09-19); `goat` is the
+# documented top rung, not yet seen in the wild. The number is the floor the
+# badge proves, never the actual revenue — treat it as "at least this much".
+MRR_BADGES = {
+    "clover": ("🍀", 3_000),
+    "liftoff": ("🚀", 10_000),
+    "crown": ("👑", 30_000),
+    "diamond": ("💎", 100_000),
+    "fire": ("♦️", 300_000),
+    "goat": ("🐐", 1_000_000),
+}
+
+
+def mrr_badge(status) -> dict | None:
+    """Turn a raw ``mrr_status``/``mrrStatus`` value into a readable badge.
+
+    Unknown values pass through with no threshold rather than being dropped —
+    Skool adds rungs, and a badge nobody recognizes is still a signal. The
+    separate ``actStatus`` ("hardcore") is NOT revenue; don't route it here.
+    """
+    if not status or not isinstance(status, str):
+        return None
+    emoji, floor = MRR_BADGES.get(status, ("", None))
+    return {"status": status, "emoji": emoji, "mrr_from_usd": floor}
+
+
+def membership_price(m: dict) -> dict | None:
+    """What this member actually pays, from the member block's ``mmbp``.
+
+    A JSON *string* like ``{"currency":"usd","amount":100,
+    "recurring_interval":"month","model":"tiers","tier":"standard"}`` —
+    ``amount`` in CENTS, same as every other Skool price. This is the one
+    place Skool states a person's proven spend instead of a group's list
+    price. Skool sends it on your OWN membership record everywhere; on other
+    members it depends on what your role is allowed to see, so absent means
+    "not shown to you", never "pays nothing".
+    """
+    raw = maybe_json(m.get("mmbp") or m.get("membership_price"))
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return {
+        "amount": raw.get("amount"),          # cents
+        "currency": raw.get("currency", ""),
+        "interval": raw.get("recurring_interval", ""),
+        "model": raw.get("model", ""),
+        "tier": raw.get("tier", ""),
+    }
+
+
 def member(user: dict) -> dict:
     """Flatten one raw ``pageProps.users[]`` object into a member record."""
     m = user.get("member") or {}
@@ -97,6 +147,13 @@ def member(user: dict) -> dict:
         "last_active": _ns_or_iso_to_dt(last_offline),
         "picture_url": meta.get("pictureProfile") or meta.get("picture", ""),
         "bio": meta.get("bio", ""),
+        # Who this member is beyond a handle. `location` is free text people
+        # fill in themselves ("You choose your self worth" is a real value), so
+        # the time zone is the reliable one when the question is geography.
+        "location": meta.get("location", ""),
+        "time_zone": user.get("timeZone") or user.get("time_zone", ""),
+        "mrr_badge": mrr_badge(meta.get("mrrStatus") or meta.get("mrr_status")),
+        "pays": membership_price(m.get("metadata") or {}),
     }
 
 
@@ -280,7 +337,26 @@ def profile(user: dict) -> dict:
         "total_groups": int(pd.get("totalGroups", 0) or 0),
         "groups_member_of": _slugs(pd.get("groupsMemberOf")),
         "groups_created_by_user": _slugs(pd.get("groupsCreatedByUser")),
+        "bio": (user.get("metadata") or {}).get("bio", ""),
+        "location": (user.get("metadata") or {}).get("location", ""),
+        "time_zone": user.get("timeZone") or user.get("time_zone", ""),
+        "mrr_badge": mrr_badge((user.get("metadata") or {}).get("mrrStatus")),
+        "links": _links(user.get("metadata") or {}),
     }
+
+
+# The socials a member filled in themselves. Empty ones are dropped: seven
+# blank keys per person is noise, and "has a website" is the actual signal.
+_LINK_FIELDS = ("Website", "Youtube", "Instagram", "Facebook", "Linkedin", "Twitter")
+
+
+def _links(meta: dict) -> dict:
+    out = {}
+    for field in _LINK_FIELDS:
+        url = meta.get(f"link{field}") or meta.get(f"link_{field.lower()}") or ""
+        if url:
+            out[field.lower()] = url
+    return out
 
 
 def _slugs(groups) -> list[str]:
@@ -435,6 +511,14 @@ SECRET_KEYS = frozenset({
     "aflCode", "afl_code",
     "aflSetup", "afl_setup", "aflSetupStatus", "afl_setup_status",
     "aflUser", "afl_user", "aflPctAtJoin", "afl_pct_at_join",
+    # The MEMBER block spells its billing fields in abbreviations, which is how
+    # they slipped past the list above: `mbme` is billingEmail under another
+    # name and `msbs` a Stripe subscription id (`sub_…`). They ride on your own
+    # membership record in EVERY community you are in — one raw list_members
+    # call on a stranger's community returned both (measured 2026-09-19). The
+    # sibling `mmbp` (what the member pays) stays: a price is not a credential,
+    # and it is the only hard purchasing-power signal Skool hands out.
+    "mbme", "msbs",
     # the whole self-context blob (self.* holds all of the above, plus more)
     "self",
     # Skool's own client-side platform keys leaked via pageProps.env
@@ -525,6 +609,37 @@ if __name__ == "__main__":
     assert pp["poll"] == [{"option": "Ja", "votes": 3},
                           {"option": "Nein", "votes": 1}], pp
     assert post({"post": {"id": "p0", "metadata": {}}})["poll"] is None
+
+    # Purchasing-power fields, trimmed from live payloads (19.09.): the badge
+    # off adcreatorslab's owner, the price off a real membership record. Both
+    # amounts are CENTS; reading mmbp as dollars turns $1/mo into $100/mo.
+    assert mrr_badge("diamond") == {"status": "diamond", "emoji": "💎",
+                                    "mrr_from_usd": 100_000}
+    assert mrr_badge(None) is None and mrr_badge("") is None
+    # A rung Skool adds later must survive as a signal, not vanish.
+    assert mrr_badge("unicorn")["mrr_from_usd"] is None, mrr_badge("unicorn")
+    pay = member({"id": "u5", "metadata": {"location": "Dümmer See"},
+                  "timeZone": "Europe/Berlin",
+                  "member": {"role": "member", "metadata": {
+                      "mmbp": '{"currency":"usd","amount":100,'
+                              '"recurring_interval":"month","model":"tiers",'
+                              '"tier":"standard"}'}}})
+    assert pay["pays"]["amount"] == 100 and pay["pays"]["tier"] == "standard", pay
+    assert pay["time_zone"] == "Europe/Berlin" and pay["location"] == "Dümmer See"
+    assert pay["mrr_badge"] is None, pay
+    # Free community, or a role that isn't shown billing: no price, no crash —
+    # and that is "not shown to you", never "pays nothing".
+    assert member({"id": "u6", "member": {"metadata": {}}})["pays"] is None
+
+    # Own membership records carry billing fields under abbreviated names that
+    # the scrub list missed until 19.09.: mbme IS a billing email, msbs a
+    # Stripe subscription id. They must not survive a raw=True result.
+    leak = scrub({"member": {"metadata": {
+        "mbme": "a@b.com", "msbs": "sub_1TH84QK2xk1aF7Gm",
+        "mmbp": '{"amount":100}', "mbsltv": 600}}})
+    assert "mbme" not in leak["member"]["metadata"], leak
+    assert "msbs" not in leak["member"]["metadata"], leak
+    assert leak["member"]["metadata"]["mmbp"], "the price is data, not a secret"
 
     # Post attachment, trimmed verbatim from the live detail page of
     # catnose/afd79108… (17.08.). The trap: the OUTER key is camelCase

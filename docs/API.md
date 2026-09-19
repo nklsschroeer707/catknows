@@ -1026,6 +1026,24 @@ ship**:
 - `billingEmail`, `payoutAccountId` (Stripe `acct_…`), `billingCycleEnd`
 - `aflCode` / affiliate setup on `self.metadata`
 
+And in **every** `users[].member.metadata` — your own membership record, in
+every community you belong to, not just your own groups — the same class of
+field under abbreviated names (measured 2026-09-19):
+
+| Field | What it is |
+|---|---|
+| `mbme` | member billing email — `billingEmail` under another name |
+| `msbs` | Stripe subscription id (`sub_…`) |
+| `mmbp` | what this member pays: JSON string, `amount` in **cents**, with `model` and `tier` |
+| `mbsltv` | lifetime value, cents |
+| `mbscpe` | current period end, unix seconds |
+| `billingProductId` | the Stripe product behind the membership |
+
+`mbme` and `msbs` are scrubbed (`normalize.SECRET_KEYS`) — one raw member
+list of a community you merely joined returned both. `mmbp` is deliberately
+kept: a price is not a credential, and it is the only place Skool states a
+person's proven spend rather than a group's list price.
+
 These arrive automatically inside otherwise-innocuous page payloads (about,
 members, pending, settings). If you persist raw Skool JSON, **strip
 `self`/`allGroups` first** — treat those payloads as containing credentials.

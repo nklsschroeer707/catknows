@@ -9,14 +9,14 @@ The only way workspaces touch Skool. Never import the Python client directly.
 |---|---|---|
 | `login_to_skool` | – | call once if other tools report auth errors |
 | `list_my_communities` | – | every community YOUR account is in: slug, display name, your role (owner/admin/moderator/member), member count. **Start here when the job has no slug yet** — every other tool needs one |
-| `list_members` | slug, limit=25 | name, handle, role, points, level, last-active (most recently active first) |
+| `list_members` | slug, limit=25 | name, handle, role, points, level, last-active (most recently active first), plus `location`, `time_zone`, `mrr_badge` and `pays` (what that member actually pays, cents — see skool-quirks.md) |
 | `list_posts` | slug, limit=25 | title, author, likes, comment count, content, **post id**, plus `pinned`, `created_at`, `last_comment_at`, `updated_at`, `label_id`. Sorted by last activity, NOT by date — count `created_at` yourself for "posts per day" (see skool-quirks.md) |
 | `get_post` | slug, post_name | ONE post incl. file attachments (name, type, download URL) + video ids. The post LIST carries only attachment ids — the downloadable URL exists **only here** |
 | `get_post_comments` | slug, post_id | full nested comment thread (post_id from `list_posts`) |
 | `get_post_likes` | slug, post_id | users who liked the post |
 | `get_video_transcript` | slug, post_name | spoken transcript of a post's Skool-hosted video(s): full text + timestamped cues. Silent videos return has_transcript=false; embedded YouTube/Loom/Vimeo is NOT covered (see skool-quirks.md) |
-| `get_member_profile` | user_name, slug | bio, socials, stats (user_name = Skool handle) |
-| `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
+| `get_member_profile` | user_name, slug | bio, socials (`links`), `location`, `time_zone`, `mrr_badge`, stats, and `groups_created_by_user` — a member who runs their own communities is a different buyer than one who only joined (user_name = Skool handle) |
+| `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership. Also the money signals: `price`, `free_trial`, `affiliate_percent`, `plan`, the owner's `mrr_badge` (revenue floor) and `ads` (Meta pixel / Conversions / Google Ads / Hyros wired up = they buy traffic) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
 | `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |

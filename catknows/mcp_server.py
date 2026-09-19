@@ -382,6 +382,19 @@ def get_member_profile(user_name: str, community_slug: str, raw: bool = False) -
 def get_community_about(community_slug: str, raw: bool = False) -> dict:
     """Get a community's public About info (description, pricing, size, owner) — works without joining it.
 
+    Also carries the money signals Skool publishes on every About page, which
+    is what makes this readable-from-the-outside tool the place to start a
+    screen: `price` (what a member pays), `free_trial`, `affiliate_percent`,
+    the owner's `mrr_badge` (Skool's revenue emoji — a floor, e.g. 💎 = $100k/mo
+    and up), and `ads` — whether a Meta pixel, Meta Conversions API, Google Ads
+    tag or Hyros is wired up. A community running paid traffic has an ad stack;
+    one that doesn't, doesn't.
+
+    `ads` reports whether each is present, not the tracking ids themselves
+    (raw=True still has those). Price is in cents. A price says what members
+    pay, never how many pay it — total_members counts free members too on
+    freemium and tiers.
+
     Returns a compact summary by default. raw=True returns Skool's full page
     payload, which is very large and may exceed the tool-result size limit.
     """
@@ -401,14 +414,35 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         "plan": md.get("plan"),
         "price": pricing["price"],
         "tiers": pricing["tiers"],
+        "free_trial": bool(md.get("freeTrialEnabled")),
+        "affiliate_percent": md.get("aflPercent"),
         "total_members": md.get("totalMembers"),
         "total_online": md.get("totalOnlineMembers"),
         "total_admins": md.get("totalAdmins"),
         "total_posts": md.get("totalPosts"),
         "num_courses": md.get("numCourses"),
-        "privacy": md.get("privacy"),  # 1=private, 2=public
+        "privacy": md.get("privacy"),  # 0=public, 1=private (docs/API.md §6.3)
         "owner": owner.get("name") if isinstance(owner, dict) else owner,
+        # The owner's revenue badge — a floor they have passed, not a number
+        # they make. Lives inside the owner JSON string, snake_case there.
+        "owner_mrr_badge": normalize.mrr_badge(
+            (owner.get("metadata") or {}).get("mrr_status")
+            if isinstance(owner, dict) else None),
         "created_by": md.get("createdBy"),
+        # Presence, not ids: "do they buy traffic" is the question, and the
+        # pixel/tag values themselves are other people's tracking setup.
+        "ads": {
+            "meta_pixel": bool((data.get("pageProps") or {}).get("pixelId")),
+            "meta_conversions": bool(md.get("pluginMetaConversionsEnabled")),
+            "meta_conversions_status":
+                (data.get("pageProps") or {}).get("metaConversionsStatus"),
+            "google_ads": bool(md.get("pluginGoogleAdsEnabled")
+                               or md.get("googleTagId")),
+            "hyros": bool(md.get("pluginHyrosEnabled")
+                          or md.get("hyrosScriptUrl")),
+            "zapier": bool(md.get("pluginZapierEnabled")),
+            "auto_dm": bool(md.get("pluginAutoDmEnabled")),
+        },
     }
 
 

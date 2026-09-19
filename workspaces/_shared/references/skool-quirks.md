@@ -32,6 +32,39 @@
   at most 200 posts. If the oldest post you got back is inside your window,
   the window is full and your per-day number is a floor, not the rate. Say
   which it is.
+- **Money signals, and what each one proves.** `get_community_about` works
+  from the outside and carries most of them: `price` (what one member pays),
+  `free_trial`, `affiliate_percent`, `plan` (the owner's own Skool bill —
+  `pro` is $99/mo), the owner's `mrr_badge`, and `ads`. Each says something
+  narrow, so don't stretch it:
+  - `price` × `total_members` is **not** revenue. On freemium and tiers the
+    member count includes everyone who paid nothing, `price` is the entry
+    tier, and nobody's churn is in there. State it as a ceiling or not at all.
+  - `mrr_badge` is the **owner's** revenue floor across everything they run
+    (🍀 $3k → 🚀 $10k → 👑 $30k → 💎 $100k → ♦️ $300k → 🐐 $1m), not this
+    community's, and not the members' money. The separate 🔥 (`actStatus`)
+    is activity, not revenue.
+  - `ads` reports whether a Meta pixel, Meta Conversions API, Google Ads tag
+    or Hyros is wired up. That says they **buy traffic and measure it** —
+    Hyros in particular is a paid-media tool nobody installs by accident. It
+    says nothing about how much they spend or whether it works.
+  - A **free** community with a full ad stack is a front end, not a business
+    — the money is behind it. Look for what the pinned posts sell.
+- **What members pay is a different question from what a community costs.**
+  `list_members` carries `pays` per member (cents, with tier and interval) —
+  proven spend, not a list price. Skool sends it on your own membership
+  record everywhere; for other members it depends on what your role may see,
+  so absent means "not shown to you", never "pays nothing". Free community =
+  nobody in it has demonstrated they will pay for anything.
+- **`location` is free text, `time_zone` is not.** Members type whatever they
+  like into location ("You choose your self worth" is a real value). When the
+  question is geography — and purchasing power hypotheses usually are — count
+  `time_zone`, which Skool sets itself, and treat location as colour.
+- **A member who runs their own communities is a different buyer.**
+  `get_member_profile` returns `groups_created_by_user` and `mrr_badge`;
+  owners with revenue badges sitting in someone else's community are the
+  clearest audience-side money signal there is. It costs one call per member,
+  so sample the ten most active, don't walk the whole list.
 - **Membership matters:** posts and members need you to be a member of the
   community. `get_community_about` and `get_discovery` work from the outside,
   and so does the classroom (list always, course content via the page

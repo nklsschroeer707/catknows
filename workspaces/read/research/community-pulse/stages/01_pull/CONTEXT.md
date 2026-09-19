@@ -17,7 +17,10 @@ For every slug you are NOT in, call `get_community_about` and sort it:
 - **paid / one_time / tiers** → the feed stays closed. Record it as
   *no pulse readable — price-gated at <price>*, keep the About facts and the
   calendar, and let stage 02 work with that much. An unreadable community is
-  a documented outcome, not a gap to paper over.
+  a documented outcome, not a gap to paper over. Note that the money block
+  below still works here: price, owner badge and ad stack come off the About
+  page, so a price-gated community still gets a purchasing-power reading —
+  just no feed behind it.
 
 **2. Per readable slug, pull:**
 - `list_posts(slug, limit=50)`. Look at the OLDEST `created_at` you got back:
@@ -29,7 +32,14 @@ For every slug you are NOT in, call `get_community_about` and sort it:
   to tell staff posts from member posts. Grab more only if the community is
   big and the top 25 are all staff.
 - `get_calendar(slug)` — what's scheduled.
-- `get_community_about(slug)` — members, price model, owner, the pitch.
+- `get_community_about(slug)` — members, price model, owner, the pitch, and
+  the money block: `price`, `free_trial`, `affiliate_percent`, `plan`,
+  `owner_mrr_badge`, `ads`. This one works **without membership**, so pull it
+  for every slug on the list, including the ones you cannot read otherwise.
+- For the 5–10 most active non-staff authors of the window:
+  `get_member_profile(handle, slug)` — `groups_created_by_user`, `mrr_badge`,
+  `links`, `location`, `time_zone`. That is the audience side of the money
+  question; sample it, never walk the whole member list for it.
 
 **3. Write one file per community, `<slug>-pulse-data.md`:**
 - **Facts** — members, price model, owner, your role there, pull timestamp.
@@ -43,6 +53,10 @@ For every slug you are NOT in, call `get_community_about` and sort it:
   drop the rest. Bodies are what blows this file up, and stage 02 only needs
   the busy ones.
 - **Events** — upcoming entries from the calendar.
+- **Money** — the About money block as-is; from `list_members`, how many of
+  the pulled members carry a `pays` value and what those amounts are; the
+  sampled profiles (handle · own communities · badge · has website ·
+  time zone). Copy the numbers, don't interpret them — that's stage 02.
 - **Coverage** — window asked for, oldest post actually retrieved, post count
   retrieved, `floor: true/false`.
 

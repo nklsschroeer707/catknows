@@ -8,10 +8,17 @@ questions about each one:
    how fast does anything get a reply — measured, not eyeballed.
 2. **What's going on in there?** The pinned shelf, the top posts of a window,
    the events coming up, the words that keep returning.
+3. **Can this audience pay?** The money signals, gathered into a stated
+   hypothesis with its evidence — never into a number you made up.
 
 A community with admins, moderators and a full classroom can still be a
 graveyard. Member count and staff titles are not a pulse; posts per day by
 people who are not staff is one.
+
+The same goes for money: a big free community is not a rich audience, and a
+high price is not revenue. What you can actually stand on is what people
+demonstrably pay, what the owner has already built, and whether they are
+buying traffic — each with its own weight.
 
 ## Your room
 - You work only inside this folder; the final result is

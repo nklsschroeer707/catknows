@@ -30,6 +30,35 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   reported as price-gated or "join to read" — never quietly skipped. Run it
   twice to get a true delta; the second run compares against the archived
   snapshot. Start at `workspaces/START-HERE.md`.
+- **`get_community_about` now carries the money signals** it always had in the
+  payload and dropped on the way out — and it works without joining anything:
+  what a member pays, whether there's a free trial, the affiliate percentage,
+  the owner's Skool plan, the owner's revenue badge (🍀 $3k → 🚀 $10k → 👑 $30k
+  → 💎 $100k → ♦️ $300k), and `ads`: whether a Meta pixel, Meta Conversions
+  API, Google Ads tag or Hyros is wired up. A community that buys traffic has
+  an ad stack; one that doesn't, doesn't. Reported as present/absent, not as
+  the tracking ids — those stay in `raw=True`. Members gained `location`,
+  `time_zone`, `mrr_badge` and `pays` (what that member actually pays, with
+  tier and interval), profiles gained `links`, `location`, `time_zone` and
+  `mrr_badge`.
+- **`community-pulse` also states a buying-power hypothesis** per community,
+  with every signal graded by what it really proves: demonstrated payments
+  first, the operator's own setup second, the audience's own signals last —
+  and the counter-signals (discount threads, "free alternative?") weighted
+  the same. It closes on what would falsify the hypothesis, and repeats the
+  three things the table cannot say: price × members is not revenue, an ad
+  stack is not a budget, a badge is the owner's floor and not the members'
+  money.
+
+### Fixed
+- **Two billing fields were riding along in raw member lists.** Your own
+  membership record carries them in **every** community you belong to, under
+  abbreviated names the scrub list didn't know: `mbme` (your billing email)
+  and `msbs` (a Stripe subscription id). One `list_members(raw=True)` call on
+  a community you merely joined returned both. They are now stripped like
+  every other credential-class field, and documented in `docs/API.md` §6.6.
+  The sibling `mmbp` — what a member pays — is deliberately kept: a price is
+  not a credential.
 
 ## 2026-08-19
 

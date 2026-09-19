@@ -1,8 +1,9 @@
 # community-pulse — routing
 
-**Purpose:** per community, a measured liveliness reading plus what's
-actually being talked about — so a shortlist can be cut down to the ones
-worth real attention (joining, watching, checking their ads).
+**Purpose:** per community, a measured liveliness reading, what's actually
+being talked about, and a stated purchasing-power hypothesis — so a
+shortlist can be cut down to the ones worth real attention (joining,
+watching, checking their ads).
 **Stages:** `01_pull` → `02_pulse` `[gate]` → `03_write`
 
 ## Load
