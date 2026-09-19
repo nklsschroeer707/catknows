@@ -22,7 +22,8 @@ watching, checking their ads).
 
 ## Where this sits
 `discover-communities` (or any outside screen: ad library, a list someone
-sent you) → **community-pulse** → the few that earn a deeper look.
+sent you) → **community-pulse** → the few that earn a deeper look, and from
+there `creator-trail` for what their owners are doing off-platform.
 
 `community-profile` answers *what a community claims to be*, from the
 outside. This one answers *what it actually does*, from the inside — which

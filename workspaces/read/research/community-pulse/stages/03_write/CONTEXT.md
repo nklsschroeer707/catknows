@@ -27,6 +27,9 @@
    `output/archive/<YYYY-MM-DD>.md` — stage 02 needs it next time to compute
    the true delta.
 7. Vault copy only if asked, per `output-style.md`.
+8. End with the way on: the communities on **worth joining** and **worth
+   watching** are exactly the targets for `creator-trail` — what their owners
+   sell, schedule and publish outside Skool.
 
 ## Outputs
 - `latest.md` → `output/`

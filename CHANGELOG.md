@@ -49,6 +49,22 @@ MCP client — a long-running MCP server keeps old code until reconnected.
   three things the table cannot say: price × members is not revenue, an ad
   stack is not a budget, a badge is the owner's floor and not the members'
   money.
+- **New read workspace: `creator-trail`.** The step after `community-pulse`:
+  take the owners (and the loudest members) of the communities that survived,
+  and follow their public trail *outside* Skool — what they sell right now,
+  what's scheduled, how often they publish and which way that's moving —
+  then cross-check it against what the community shows from the inside. A
+  launch outside next to a parked feed inside is a different bet from both
+  moving together. Their own `links` on the Skool profile are the target
+  list, so nothing is guessed about who to look up.
+
+  It is the first read agent that leaves the platform, so it has two
+  guardrails the others don't need. It stops at a human gate before touching
+  anything off-platform — you approve who gets looked up and which sources.
+  And it reads only what a visitor is served: no logins, no borrowed
+  cookies, no tool posing as an app. A source that wants an account is
+  reported as walled, which is a finding, not a failure. That is LEGAL.md's
+  "a workaround is not a warrant", applied off Skool.
 
 ### Fixed
 - **Two billing fields were riding along in raw member lists.** Your own

@@ -29,6 +29,7 @@ it does, step by step.
 | [read/research/discover-communities/](read/research/discover-communities/) | Which Skool communities are out there? |
 | [read/research/community-profile/](read/research/community-profile/) | What is community X about? (no membership needed) |
 | [read/research/community-pulse/](read/research/community-pulse/) | Is it actually alive — and what's going on inside? |
+| [read/research/creator-trail/](read/research/creator-trail/) | What are the people behind it doing outside Skool? † |
 | [read/research/watch-the-skoolers/](read/research/watch-the-skoolers/) | What's happening in the official Skoolers community? |
 | [read/calendar/whats-coming-up/](read/calendar/whats-coming-up/) | What events are coming up? |
 | [read/admin/health-report/](read/admin/health-report/) | How healthy is my community? (owners only) |
@@ -39,6 +40,11 @@ it does, step by step.
 \* The librarian is the one read/ agent that writes locally — into YOUR
 vault (never to Skool, never outward), and only after you approved its
 filing plan.
+
+† creator-trail is the one read/ agent that looks *outside* Skool. It reads
+what any visitor is served — a website, a YouTube feed, a landing page — and
+stops at every login wall. It asks you first, at a gate, before touching
+anything off-platform.
 
 ## write/ — these act in your name
 
