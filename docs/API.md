@@ -850,7 +850,7 @@ Response: `pageProps.rows[]` — **100 rows**, each a ranked community:
 }
 ```
 
-`pageProps.categories[]` lists the 9 category chips. **`mrr` is in cents** —
+`pageProps.categories[]` lists the 9 category chips. Per-category boards: append `&category={categoryId}` (the UUID, as in §6.2) — 50 rows each, with `categoryRank`. A row's `user.metadata.mrrStatus` carries the owner's badge (table in §6.3). About half of the communities on these boards are **not** in any category's first 150 on `discovery.json` (trending ≠ revenue), so the two boards are complementary sources. **`mrr` is in cents** —
 divide by 100 for dollars. This is the "who earns the most on Skool" table.
 
 > **Access:** `skoolers` is gated. A banned/ineligible account gets a `307`
@@ -874,13 +874,14 @@ GET /_next/data/{buildId}/discovery.json?p={n}     # page 2, 3, …
 - Also present: `sortParam` (default `trending`), `categoryParam`, `priceParam`,
   `languageParam`, `typeParam`.
 
-> **Filtering caveat (verified):** the `discovery.json` data route **ignores**
-> query params — `?c=money`, `?sort=…`, `?price=paid` all return 200 but the
-> same trending list (`categoryParam` stays `null`; `?c=…` even 400s in some
-> builds). Only `?p={n}` pagination is honoured. Skool applies category/sort
-> filtering **client-side** (there's an Algolia `queryID` in the payload), so to
-> filter by category/revenue you pull the pages and sort/group locally on
-> `metadata.totalMembers` / `displayPrice`, or cross-reference §6.1's `mrr`.
+> **Category filter (verified 2026-09-18):** `?c={categoryId}` — the category's
+> UUID from `pageProps.categories[].id` — returns that category's own ranked
+> board, 30 per page, and combines with `?p={n}` (e.g. the first 150 of a
+> category are `?c={id}` plus `&p=2` … `&p=5`). Each community appears in
+> exactly one category (9 × 150 = 1350 distinct slugs). The category **slug**
+> does not work: `?c=money` answers 400, and `?category=…`, `?sort=…`,
+> `?price=…` are ignored (same trending list as page 1). Revenue sorting is not
+> available here — cross-reference §6.1's `mrr` for that. Works without login.
 
 ### 6.3 Scraping any community's public profile — `{slug}/about.json`
 
@@ -896,17 +897,36 @@ GET /_next/data/{buildId}/{slug}/about.json?group={slug}
 | Field | Meaning |
 |---|---|
 | `displayPrice` | `{"currency":"usd","amount":900,"recurring_interval":"month"}` — real price (amount in **cents**) |
-| `membershipModel` | 1 = free, 2 = paid |
+| `membershipModel` | 1 = free, 2 = paid, 3 = freemium, 4 = tiers, 5 = one-time; absent on many free groups. Tiers always carry an entry `displayPrice` — only 1/3/absent join free |
+| `freeTrialEnabled` | 1 when a paid group offers a free trial |
 | `plan` | `basic` ($9/mo tier) or `pro` ($99/mo tier) |
 | `totalMembers`, `totalOnlineMembers`, `totalAdmins`, `totalPosts` | community size & activity |
 | `numCourses`, `numModules`, `totalRules` | classroom & rules footprint |
 | `owner` | `{id, name, metadata.bio}` of the owner — arrives as a JSON **string** (parse it, like `displayPrice`); `createdBy` = creator UUID |
 | `aflPercent` | affiliate commission % |
-| `privacy` | 1 = private, 2 = public |
+| `privacy` | 1 = private, 0 = public (measured 2026-09-18: 77 of 1350 were 0, and their `classroom.json` is readable without membership; private ones redirect to `/about`) |
 | `tabs` | which features are enabled (`classroom`, `calendar`, `audio-chat`, …) |
 | `plugin*Enabled` | active integrations: `pluginHyrosEnabled`, `pluginZapierEnabled`, `pluginGoogleAdsEnabled`, `pluginMetaConversionsEnabled`, `pluginAutoDmEnabled` |
 | `hyrosScriptUrl`, `googleTagId` | the actual tracking IDs the owner wired up |
 | `lpDescription`, `lpAttachmentsData`, `survey` | landing-page copy & join-survey questions |
+
+Outside `metadata`: `pageProps.pixelId` is the owner's **Meta pixel id** (null
+when none is wired up); `metaConversionsStatus` (`success`/`failing`) says
+whether the Conversions API link works. Inside the parsed `owner` string,
+`metadata.mrr_status` is the owner's revenue badge — the emoji Skool shows
+next to their name (thresholds from the skoolers leaderboard, 2026-09-19):
+
+| `mrr_status` | Emoji | MRR from |
+|---|---|---|
+| `clover` | 🍀 | $3k |
+| `liftoff` | 🚀 | $10k |
+| `crown` | 👑 | $30k |
+| `diamond` | 💎 | $100k |
+| `fire` | ♦️ | $300k |
+| `goat` (assumed, not yet seen) | 🐐 | $1m |
+
+The separate 🔥 next to some names is not a revenue badge (`act_status`,
+seen as `hardcore`).
 
 To get the api2 group object too (same data, snake_case + a few extras), take
 `currentGroup.id` and call `GET api2.skool.com/groups/{gid}` (§1.6).
