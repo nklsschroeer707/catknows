@@ -372,6 +372,34 @@ def get_member_profile(user_name: str, community_slug: str, raw: bool = False) -
 
 
 @mcp.tool()
+def get_follows(user_name: str, direction: str = "followers", limit: int = 200) -> dict:
+    """Who follows a Skool user (direction="followers") or whom they follow ("following").
+
+    user_name is the Skool handle (skool.com/@handle), your own or anyone's —
+    the lists are on every profile. Each person comes back with name, bio,
+    location and you_follow (whether YOU follow them — on your own followers
+    list that means "follows back").
+
+    One call returns at most 200 people. total is Skool's own count; if it's
+    larger than the list, the tail has {"limit_capped": true, ...}. If Skool
+    stopped serving pages early, "incomplete" is true — don't treat that list
+    as everyone. On very large profiles Skool re-serves page 1 for every page,
+    so only the first 30 are reachable there.
+    """
+    limit, capped = _cap(limit, False)
+    data = _get_client().follows(user_name, direction, limit=limit)
+    people = [normalize.follow(e, direction) for e in data["entries"]]
+    out: dict = {"user_name": user_name, "direction": direction,
+                 "total": data["total"], "returned": len(people),
+                 "incomplete": data["incomplete"], "people": people}
+    if capped and data["total"] > len(people):
+        # _cap's note points at list_members filters; there are none here.
+        out["limit_capped"] = {**capped, "note": f"First {len(people)} of "
+                               f"{data['total']} only — the tool caps one call at 200."}
+    return out
+
+
+@mcp.tool()
 def get_community_about(community_slug: str, raw: bool = False) -> dict:
     """Get a community's public About info (description, pricing, size, owner) — works without joining it.
 
@@ -840,6 +868,10 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         Leave parent_comment_id empty to comment on the post itself; set it to
         a comment's id (from get_post_comments) to reply beneath that comment.
         post_id is always the post the thread belongs to, even for a reply.
+        Skool threads are only two levels deep: a reply to a REPLY is posted
+        under its top-level comment with an @-mention of the person first (what
+        Skool's own UI does — hung under the reply, Skool deletes it). The
+        draft shows when that happens.
         attachments is a comma-separated list of LOCAL FILE PATHS, uploaded only
         when confirm=true.
 
@@ -847,13 +879,23 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         get the draft back to show the user. Only call again with confirm=true
         after the user explicitly approved it.
         """
+        from .client import with_mention
+
+        # Only a reply needs Skool to look up where it may hang.
+        target = (_get_client().reply_target(community_slug, post_id, parent_comment_id)
+                  if parent_comment_id else {"flattened": False, "mention": ""})
         draft = {
             "community": community_slug,
             "post_id": post_id,
-            "content": content,
+            "content": with_mention(target["mention"], content),
             "replying_to_comment": parent_comment_id or "(none — top-level comment on the post)",
             "attachments": _attachment_preview(attachments),
         }
+        if target["flattened"]:
+            draft["threading"] = (
+                f"{parent_comment_id} is a reply, and Skool threads are two levels "
+                f"deep — this goes under its top-level comment {target['parent_id']} "
+                "with an @-mention, like Skool's own reply button does.")
         if not confirm:
             return _draft("DRAFT — nothing was written", "would_comment", draft)
         created = _get_client().create_comment(
@@ -1172,7 +1214,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
 _READ_ONLY = {
     "list_members", "list_posts", "get_post_comments", "get_post_likes",
-    "get_member_profile", "get_community_about", "get_discovery",
+    "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
     "get_post", "get_video_transcript",

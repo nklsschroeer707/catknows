@@ -273,6 +273,38 @@ fallback `pageProps.renderData.user`):
 }
 ```
 
+### 1.3a Followers / following — Next.js shape
+
+```
+GET /_next/data/{buildId}/@{userName}.json?t=followers&group=@{userName}[&p=N]
+GET /_next/data/{buildId}/@{userName}.json?t=following&group=@{userName}[&p=N]
+```
+
+The profile page's two list tabs (`skool.com/@handle?t=followers`). Visible
+on every profile, no community needed. Payload sits under
+`pageProps.renderData.user.profileData` (also mirrored in `currentUser`):
+`tabName`, `page`, `itemsPerPage` (30), `totalFollowers`, `totalFollowing`, and
+
+```jsonc
+"follows": { "list": [ { "src": {user}, "dst": {user}, "following": false } ] },
+"followStats": [ false, ... ]          // one per entry, same order
+```
+
+- **Direction:** on `followers`, `src` is the follower and `dst` the profile
+  owner; on `following`, `src` is the owner and `dst` the followed user.
+- **`following`** is the *viewer's* relation to that person (does the
+  logged-in user follow them), i.e. the Follow button's state.
+- **Pagination:** `&p=N`, 30 per page. Past the last page `follows.list` is
+  `null`. Measured 2026-09-21 on @niklas: 110 followers = pages 30/30/30/20,
+  page 5 `null`; 2 following on one page, page 2 `null`.
+- **Re-served page 1 on big profiles:** same day on @sam (778,891 followers)
+  pages 2 and 3 came back byte-identical to page 1 — the members-list
+  degradation (§1.1) again. `follows()` dedupes and flags `incomplete`; only
+  the first 30 of such a list are reachable this way.
+- **Secrets:** the owner's side is their full user object. On your own profile
+  that includes `email` and `metadata.payoutAccountId` (§6.6). Surface only the
+  far side (`normalize.follow`); never return entries raw.
+
 ### 1.4 Comments — api2 shape (snake_case, cursor-paginated)
 
 ```
@@ -308,7 +340,8 @@ under each node's `children`.
 ```
 
 **Parenting:** a first-layer comment's parent is the post itself (`root_id`); a
-nested reply's parent is the comment it hangs under.
+reply's parent is the top-level comment it hangs under. Skool shows two
+levels only — writing a third gets the comment deleted (§5.8).
 
 ### 1.5 Likes (upvoters) — api2 shape (mixed case)
 
@@ -758,6 +791,16 @@ POST https://api2.skool.com/posts?follow=false
   "metadata": { "title": "", "content": "reply text" }
 }
 ```
+
+**Two levels only.** `parent_id` must be the post or a *top-level* comment.
+A comment hung under a reply is created, counted and searchable, then shows
+as "Comment was deleted" (Dan's local write test, 2026-09-15: 5/5 replies
+under top-level comments survived, 2/2 under replies died; the same texts
+posted by hand stayed). Skool's own UI never sends that — replying to a reply
+posts under the top-level comment with an @-mention of the person.
+`create_comment()` does the same via `reply_target()`; `GET /posts/{replyId}`
+gives the reply's `parent_id` (its top-level comment), the name comes from the
+comment tree.
 
 `content` supports Skool's markdown-ish syntax; an @-mention is
 `[@Display Name](obj://user/{userId})`. Response is the created comment
