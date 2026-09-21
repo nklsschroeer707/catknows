@@ -270,6 +270,29 @@ def profile(user: dict) -> dict:
     }
 
 
+def follow(entry: dict, direction: str) -> dict:
+    """Flatten one ``follows.list[]`` entry to the person on the far side.
+
+    A followers entry is ``{src: follower, dst: profile owner}``, a following
+    entry the reverse. Only the far side is returned: the owner's side is their
+    full user object, and on your own profile that includes your email and
+    payout id. ``you_follow`` is the viewer's relation to that person — the
+    same flag the Follow button on the list reads.
+    """
+    other = entry.get("src" if direction == "followers" else "dst") or {}
+    meta = other.get("metadata") or {}
+    return {
+        "skool_id": other.get("id", ""),
+        "name": other.get("name", ""),
+        "first_name": other.get("firstName", ""),
+        "last_name": other.get("lastName", ""),
+        "bio": meta.get("bio", ""),
+        "location": meta.get("location", ""),
+        "picture_url": meta.get("pictureProfile", ""),
+        "you_follow": bool(entry.get("following")),
+    }
+
+
 def _slugs(groups) -> list[str]:
     """Normalize a groups array to a plain list of slugs.
 
@@ -482,6 +505,15 @@ if __name__ == "__main__":
     assert adm["role"] == "admin", adm
     prof = profile({"id": "u4", "profileData": {"member": {"role": "group-moderator"}}})
     assert prof["role"] == "moderator", prof
+
+    # follows: the far side only — the owner's side carries their email.
+    me = {"id": "me", "name": "owner", "email": "owner@x", "metadata": {"payoutAccountId": "acct"}}
+    fan = {"id": "f1", "name": "fan", "firstName": "F", "metadata": {"bio": "hi"}}
+    fr = follow({"src": fan, "dst": me, "following": False}, "followers")
+    assert fr["name"] == "fan" and fr["bio"] == "hi" and not fr["you_follow"], fr
+    fg = follow({"src": me, "dst": fan, "following": True}, "following")
+    assert fg["name"] == "fan" and fg["you_follow"], fg
+    assert "owner@x" not in str(fr) + str(fg) and "acct" not in str(fr) + str(fg)
 
     # DM message: body, sender and attachments all sit in metadata, and the
     # attachment id is a comma-joined string like a post's — not an array.

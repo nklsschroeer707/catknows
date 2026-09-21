@@ -383,6 +383,51 @@ class SkoolClient:
             user = _dig(data, "pageProps", "renderData", "user")
         return user if (user and user.get("id")) else None
 
+    def follows(self, user_name: str, direction: str = "followers", *,
+                limit: int = 0) -> dict:
+        """Who follows ``user_name`` / whom they follow (docs/API.md §1.3a).
+
+        ``direction`` is ``followers`` or ``following`` — the profile page's
+        ``?t=`` tab. Pages are 30 entries, walked with ``&p=N``; past the last
+        page ``follows.list`` comes back ``null``. Returns
+        ``{"total", "entries", "incomplete"}`` with the raw ``{src, dst,
+        following}`` entries. Each entry carries the profile owner's full user
+        object on one side — with their email and payout id when that's you —
+        so callers must only surface the *other* side (`normalize.follow`).
+        ``limit`` stops the walk once that many entries are in (0 = all).
+        """
+        if direction not in ("followers", "following"):
+            raise ValueError("direction must be 'followers' or 'following'")
+        self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
+        total_key = "totalFollowers" if direction == "followers" else "totalFollowing"
+        entries: list[dict] = []
+        seen: set = set()
+        total = 0
+        page = 1
+        while True:
+            if page > 1:
+                time.sleep(_INTER_PAGE_DELAY_S)
+            q = f"/@{user_name}.json?t={direction}&group=@{user_name}"
+            if page > 1:
+                q += f"&p={page}"
+            data = self.http.get_next(q, "")
+            pd = _dig(data, "pageProps", "renderData", "user", "profileData") or {}
+            if page == 1:
+                total = int(pd.get(total_key) or 0)
+            batch = (pd.get("follows") or {}).get("list") or []
+            # Deduped like members(): a re-served page must not pad the list.
+            fresh = [e for e in batch if _follow_key(e) not in seen]
+            seen.update(_follow_key(e) for e in fresh)
+            entries.extend(fresh)
+            if not fresh or len(entries) >= total or (limit and len(entries) >= limit):
+                break
+            page += 1
+        if limit:
+            entries = entries[:limit]
+        # Same guard as members(): a walk that stops short must say so.
+        return {"total": total, "entries": entries,
+                "incomplete": len(entries) < min(total, limit or total)}
+
     # -- comments --------------------------------------------------------------
 
     def comments(self, post_skool_id: str, group_skool_id: str) -> dict:
@@ -915,11 +960,14 @@ class SkoolClient:
 
         A comment IS a post with ``post_type: "comment"`` — same endpoint as
         `create_post`. ``root_id`` is always the post; ``parent_id`` is the
-        comment being replied to, or the post itself for a top-level comment.
-        `attachments` is a comma-joined list of file ids from `upload_file`.
-        Returns the created comment object.
+        top-level comment being replied to, or the post itself for a top-level
+        comment. A reply to a *reply* is re-hung under its top-level comment
+        with an @-mention first, the way Skool's own UI does it — see
+        :meth:`reply_target`. `attachments` is a comma-joined list of file ids
+        from `upload_file`. Returns the created comment object.
         """
-        metadata: dict = {"title": "", "content": content}
+        target = self.reply_target(community_slug, post_id, parent_comment_id)
+        metadata: dict = {"title": "", "content": with_mention(target["mention"], content)}
         if attachments:
             metadata["attachments"] = attachments
         return self.http.post_api2(
@@ -928,10 +976,38 @@ class SkoolClient:
                 "post_type": "comment",
                 "group_id": self.group_id_for(community_slug, for_write=True),
                 "root_id": post_id,
-                "parent_id": parent_comment_id or post_id,
+                "parent_id": target["parent_id"],
                 "metadata": metadata,
             },
         )
+
+    def reply_target(self, community_slug: str, post_id: str,
+                     parent_comment_id: str) -> dict:
+        """Where a reply may hang: ``{parent_id, flattened, mention}``.
+
+        Skool threads are two levels deep — comments, and one flat column of
+        replies under each. A comment whose ``parent_id`` is itself a reply
+        gets created, counted and indexed, then shows as "Comment was deleted"
+        (Dan's write test 2026-09-15: all 5 replies under top-level comments
+        survived, both replies under replies died; the same texts posted by
+        hand under the top-level comment stayed). Skool's own UI never sends
+        that: replying to a reply posts under the top-level comment and opens
+        with an @-mention of the person. We do the same. ``mention`` is the
+        prefix to put before the text ("" when nothing was re-hung).
+        """
+        if not parent_comment_id or parent_comment_id == post_id:
+            return {"parent_id": post_id, "flattened": False, "mention": ""}
+        target = self.post_by_id(parent_comment_id) or {}
+        top = target.get("parent_id") or post_id
+        if top == post_id:  # already a top-level comment
+            return {"parent_id": parent_comment_id, "flattened": False, "mention": ""}
+        tree = self.comments(post_id, self.group_id_for(community_slug))
+        user = _find_comment_user(tree, parent_comment_id)
+        name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x) \
+            or user.get("name", "")
+        uid = user.get("id") or target.get("user_id", "")
+        mention = f"[@{name}](obj://user/{uid}) " if (name and uid) else ""
+        return {"parent_id": top, "flattened": True, "mention": mention}
 
     def post_by_id(self, post_id: str) -> dict:
         """One post or comment by its id: ``GET api2 /posts/{id}``.
@@ -1094,6 +1170,28 @@ def _vtt_cues(vtt: str) -> list[dict]:
             elif line != "WEBVTT":
                 cur["text"] = f"{cur['text']} {line}".strip()
     return [c for c in cues if c["text"]]
+
+
+def with_mention(mention: str, content: str) -> str:
+    """Prefix ``mention`` unless the text already mentions that user."""
+    ref = mention[mention.find("(") + 1:mention.find(")")] if mention else ""
+    return content if (not mention or ref in content) else mention + content
+
+
+def _find_comment_user(tree: dict, comment_id: str) -> dict:
+    """The author object of one comment anywhere in a `comments()` tree."""
+    stack = list((tree.get("post_tree") or {}).get("children") or [])
+    while stack:
+        node = stack.pop()
+        post = node.get("post") or {}
+        if post.get("id") == comment_id:
+            return post.get("user") or {}
+        stack.extend(node.get("children") or [])
+    return {}
+
+
+def _follow_key(entry: dict) -> tuple:
+    return ((entry.get("src") or {}).get("id"), (entry.get("dst") or {}).get("id"))
 
 
 def _dig(obj, *keys):

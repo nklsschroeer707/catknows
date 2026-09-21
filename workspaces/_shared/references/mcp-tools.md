@@ -16,6 +16,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_post_likes` | slug, post_id | users who liked the post |
 | `get_video_transcript` | slug, post_name | spoken transcript of a post's Skool-hosted video(s): full text + timestamped cues. Silent videos return has_transcript=false; embedded YouTube/Loom/Vimeo is NOT covered (see skool-quirks.md) |
 | `get_member_profile` | user_name, slug | bio, socials, stats (user_name = Skool handle) |
+| `get_follows` | user_name, direction=followers\|following, limit=200 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
 | `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
