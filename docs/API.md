@@ -293,6 +293,24 @@ fallback `pageProps.renderData.user`):
 }
 ```
 
+### 1.3b A member's posts in one community — same route, paged
+
+```
+GET /_next/data/{buildId}/@{userName}.json?g={slug}&group=@{userName}[&p={page}]
+```
+
+With `g={slug}` the profile's `pageProps.postTrees[]` is scoped to that
+community and pages with `&p=N` (10 per page; `total`, `page`, `perPage`=30
+as sent, `hasMore` always `false` — walk until an empty page). It lists every
+post the member takes part in: their own **and** others' posts they commented
+on or are @mentioned in. Measured 2026-09-22 on cat-knows-1423 for @niklas:
+77 entries (= the search hit count for "niklas"), 46 with `post.userId` = his
+id, which is exactly his 46 posts in the full feed. Filter on `post.userId`
+to get "posts X created". `members.json`/the feed have no author parameter.
+
+Implemented as `SkoolClient.posts_by()` / `list_posts(author=…)`;
+`SkoolClient.resolve_member()` turns a display name into the handle via §1.8.
+
 ### 1.3a Followers / following — Next.js shape
 
 ```

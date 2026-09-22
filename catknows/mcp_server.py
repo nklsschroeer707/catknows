@@ -297,8 +297,14 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
 @mcp.tool()
 def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
                sort: str = "activity", unread_only: bool = False,
-               category: str = "") -> list[dict]:
+               category: str = "", author: str = "") -> list[dict]:
     """List posts of a Skool community (title, author, likes, comment count, content, category).
+
+    author: only posts this member CREATED in the community — their @handle
+    ("niklas") or full name ("Niklas Schröer"). Complete, not a name search:
+    search_community("Niklas") also returns others' posts that mention them.
+    With author set, sort/unread_only/category don't apply; order is Skool's
+    (most recent activity first). An ambiguous name errors with the handles.
 
     Let Skool filter instead of reading everything — it's cheaper:
     - sort: "activity" (default, new comments bubble up), "new" (newest posts),
@@ -317,9 +323,15 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
     """
     effective, capped = _cap(limit, raw)
     client = _get_client()
-    category_id = client.resolve_category(community_slug, category) if category else ""
-    trees = client.posts(community_slug, limit=effective, sort=sort,
-                         unread_only=unread_only, category_id=category_id)
+    if author:
+        if unread_only or category or sort != "activity":
+            raise ValueError("author can't be combined with sort, unread_only or category")
+        handle = client.resolve_member(community_slug, author)["name"]
+        trees = client.posts_by(community_slug, handle, limit=effective)
+    else:
+        category_id = client.resolve_category(community_slug, category) if category else ""
+        trees = client.posts(community_slug, limit=effective, sort=sort,
+                             unread_only=unread_only, category_id=category_id)
     if raw:
         out = _safe_raw(trees)
     else:
@@ -343,7 +355,8 @@ def search_community(community_slug: str, query: str, kind: str = "posts",
     matching, you get only the hits. kind="posts": 10 posts per page (same
     fields as list_posts); kind="members": people whose name or bio matches
     (same fields as list_members, plus member_id). `pages` says how far
-    `page` can go for posts.
+    `page` can go for posts. A name matches anywhere, @mentions in comments
+    included — for "all posts by X" use list_posts(author=...) instead.
     """
     client = _get_client()
     pp = client.search(community_slug, query, kind=kind, page=page)
