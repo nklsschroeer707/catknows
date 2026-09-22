@@ -12,6 +12,12 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **Drafts in your own voice.** Point `CATKNOWS_VOICE_FILE` at a short
+  Markdown file describing how you write (language, length, emojis, words
+  you'd never use). Every post, comment, DM and edit draft then carries it,
+  and your AI is told to run its humanizer pass with it before showing you
+  the text. If the file goes missing, the draft says so instead of quietly
+  writing in a generic voice. Leave it unset and nothing changes.
 - **`get_revenue_leaderboard`: who earns the most on Skool.** The leaderboard
   in the Skoolers community, top 100 overall or the top 50 of a category you
   name ("hobbies", "tech"). Each row has the community, its owner with their
