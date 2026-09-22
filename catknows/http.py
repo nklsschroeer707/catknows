@@ -64,15 +64,17 @@ CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
 _CACHE_MAX_ENTRIES = 128
 _NEVER_CACHE = ("/self/chat-channels", "/self/notifications")
 
-# Minimum gap between two writes to Skool, process-wide (decision Niklas
+# Minimum gap between two writes to Skool, per Skool account (decision Niklas
 # 2026-09-22, replaces the old "no throttle" rule D5). A fixed value, no
-# jitter: this is tempo hygiene, not disguise. Module-level, so it holds for
-# every client in the process (the CLI, a script next to the MCP server, a
-# re-login that replaces the client), not just one instance.
+# jitter: this is tempo hygiene, not disguise. Module-level and keyed by the
+# account's auth token, so it holds for every client of that account in the
+# process (a re-login, a WAF refresh that rebuilds the client, a script next
+# to the MCP server) — while a hosted server's other users keep their own pace.
 # CATKNOWS_WRITE_GAP_S overrides (seconds).
 WRITE_GAP_S = 15.0
-_write_lock = threading.Lock()
-_last_write_at: float | None = None
+_write_locks: dict[str, threading.Lock] = {}
+_write_locks_guard = threading.Lock()
+_last_write_at: dict[str, float] = {}
 _clock = time.monotonic   # swapped out by test_write_gap.py
 _sleep = time.sleep
 
@@ -323,16 +325,20 @@ class SkoolHTTP:
         next write method somebody adds. See `catknows/audit.py`.
 
         For the same reason the write gap lives here: at least `WRITE_GAP_S`
-        between two writes, failed ones included, since Skool saw them too.
+        between two writes of the same account, failed ones included, since
+        Skool saw them too.
         """
-        global _last_write_at
         url = f"{SKOOL_API2}{path_and_query}"
+        account = self.session.auth_token or self.session.cookie_header
+        with _write_locks_guard:
+            lock = _write_locks.setdefault(account, threading.Lock())
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:
             kwargs["json"] = body
-        with _write_lock:
-            if _last_write_at is not None:
-                wait = _last_write_at + _write_gap_s() - _clock()
+        with lock:
+            last = _last_write_at.get(account)
+            if last is not None:
+                wait = last + _write_gap_s() - _clock()
                 if wait > 0:
                     _sleep(wait)
             try:
@@ -341,7 +347,7 @@ class SkoolHTTP:
                 audit.record(method=method, path=path_and_query, status="network_error")
                 raise SkoolHTTPError(f"Network error on {url}: {e}") from e
             finally:
-                _last_write_at = _clock()
+                _last_write_at[account] = _clock()
 
         code = resp.status_code
         if not (200 <= code < 300):
