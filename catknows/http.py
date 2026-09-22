@@ -25,6 +25,7 @@ import json
 import os
 import random
 import re
+import threading
 import time
 
 from curl_cffi import requests
@@ -45,6 +46,26 @@ RETRY_202_DELAY_S = 2
 CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
 _CACHE_MAX_ENTRIES = 128
 _NEVER_CACHE = ("/self/chat-channels",)
+
+# Minimum gap between two writes to Skool, process-wide (decision Niklas
+# 2026-09-22, replaces the old "no throttle" rule D5). A fixed value, no
+# jitter: this is tempo hygiene, not disguise. Module-level, so it holds for
+# every client in the process (the CLI, a script next to the MCP server, a
+# re-login that replaces the client), not just one instance.
+# CATKNOWS_WRITE_GAP_S overrides (seconds).
+WRITE_GAP_S = 15.0
+_write_lock = threading.Lock()
+_last_write_at: float | None = None
+_clock = time.monotonic   # swapped out by test_write_gap.py
+_sleep = time.sleep
+
+
+def _write_gap_s() -> float:
+    try:
+        return max(0.0, float(os.environ.get("CATKNOWS_WRITE_GAP_S", WRITE_GAP_S)))
+    except ValueError:
+        return WRITE_GAP_S
+
 
 # One browser profile is picked per client session (not per request), matching
 # what a real browser looks like. Each pairs a UA with the sec-ch-ua headers
@@ -283,16 +304,27 @@ class SkoolHTTP:
         the 13 write tools, the CLI and the doc examples all funnel into these
         three verbs, so a log here cannot be forgotten by a caller or by the
         next write method somebody adds. See `catknows/audit.py`.
+
+        For the same reason the write gap lives here: at least `WRITE_GAP_S`
+        between two writes, failed ones included, since Skool saw them too.
         """
+        global _last_write_at
         url = f"{SKOOL_API2}{path_and_query}"
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:
             kwargs["json"] = body
-        try:
-            resp = getattr(self._http, method)(url, **kwargs)
-        except RequestException as e:
-            audit.record(method=method, path=path_and_query, status="network_error")
-            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+        with _write_lock:
+            if _last_write_at is not None:
+                wait = _last_write_at + _write_gap_s() - _clock()
+                if wait > 0:
+                    _sleep(wait)
+            try:
+                resp = getattr(self._http, method)(url, **kwargs)
+            except RequestException as e:
+                audit.record(method=method, path=path_and_query, status="network_error")
+                raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+            finally:
+                _last_write_at = _clock()
 
         code = resp.status_code
         if not (200 <= code < 300):

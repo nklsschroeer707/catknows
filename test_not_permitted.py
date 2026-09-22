@@ -14,7 +14,12 @@ wrong advice twice before this was told apart.
 Run: python test_not_permitted.py    (no network, no pytest)
 """
 
+import os
+
 from catknows.http import SkoolHTTP, SkoolHTTPError
+
+# Not a test of the write gap (test_write_gap.py is); keep this one instant.
+os.environ["CATKNOWS_WRITE_GAP_S"] = "0"
 
 URL = "https://api2.skool.com/courses/abc?withChildren=true"
 

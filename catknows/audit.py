@@ -8,8 +8,11 @@ write path was anecdote. This turns "three cases out of maybe a hundred
 writes" into a real rate, and it is what the control experiment gets evaluated
 against.
 
-It writes, it does not steer. No throttle, no queue, no rate limit (D5). A
-failure to log must never fail a write, so `record` swallows its own errors.
+It writes, it does not steer: no queue, no retry, nothing hangs off the log.
+A failure to log must never fail a write, so `record` swallows its own errors.
+The old rule D5 "no throttle" is replaced (decision Niklas 2026-09-22): there
+is now a fixed minimum gap between writes, but it lives in
+`http._write_api2`, not here, so the log stays a record and never a control.
 
 What must NEVER be in here (E4): post text, DM text, member data. Only
 technical metadata about our own writes. The response is stored as a hash, not
