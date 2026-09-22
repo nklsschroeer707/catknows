@@ -1181,11 +1181,22 @@ normal user object whose `member` block is the application:
 question/type/answer the applicant submitted. This lets you screen requests
 programmatically (e.g. auto-flag `highRiskScore`, check a survey answer).
 
-> **Approving/rejecting** a request is a **write** action (`POST` to an api2
-> `members`/`requests` endpoint). It wasn't captured here, so it's intentionally
-> not documented — grab it from your own Network tab when you accept a member,
-> the same way §5 was sourced. Reading the queue (above) is enough to *detect*
-> pending members and drive an alert/automation.
+**Approving / declining** (read from Skool's pending-page code 2026-09-22,
+not yet watched on the wire — the queue was empty):
+
+```
+POST https://api2.skool.com/members/{member.id}/role
+{"new": "member"}      # Approve
+{"new": "declined"}    # Decline
+```
+
+`member.id` is the membership id from the queue entry, not the user id. The
+constants come from the same module that defines `group-admin`,
+`group-moderator`, `pending`, `banned`, `payment-pending`. **This endpoint sets
+any member's role**, so only ever send it for an id that is in the queue at
+that moment; `review_join_request` re-reads the queue and refuses otherwise.
+Implemented as `SkoolClient.join_requests()` / `decide_join_request()` and the
+`list_join_requests` / `review_join_request` MCP tools.
 
 ### 6.6 ⚠️ Sensitive fields in your OWN account payloads
 

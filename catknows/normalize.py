@@ -202,6 +202,37 @@ def post(tree: dict) -> dict:
     }
 
 
+def join_request(user: dict) -> dict:
+    """Flatten one pending user from ``-/pending.json`` (docs/API.md §6.5).
+
+    The application is the ``member`` block: ``member.id`` is what approving
+    or declining needs, ``metadata.survey`` a JSON string with the answered
+    join questions, ``highRiskScore`` Skool's own spam flag.
+    """
+    m = user.get("member") or {}
+    md = m.get("metadata") or {}
+    try:
+        answers = (json.loads(md.get("survey") or "{}") or {}).get("survey") or []
+    except (TypeError, ValueError):
+        answers = []
+    return {
+        "member_id": m.get("id", ""),
+        "user_id": user.get("id", ""),
+        "name": user.get("name", ""),
+        "first_name": user.get("firstName", ""),
+        "last_name": user.get("lastName", ""),
+        "bio": (user.get("metadata") or {}).get("bio", ""),
+        "requested_at": _ns_or_iso_to_dt(md.get("requestedAt")),
+        "location": md.get("requestLocation", ""),
+        "risk_flag": bool(md.get("highRiskScore")),
+        "num_requests": md.get("numRequests"),
+        "source": md.get("attrSrcComp", ""),
+        "email_answer": m.get("searchAnswer", ""),
+        "answers": [{"question": a.get("question", ""), "type": a.get("type", ""),
+                     "answer": a.get("answer", "")} for a in answers if isinstance(a, dict)],
+    }
+
+
 def search_member(hit: dict) -> dict:
     """Flatten one member hit from ``/-/search.json?t=members``.
 

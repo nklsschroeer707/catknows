@@ -12,6 +12,12 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **Join requests: read, search, approve or decline.** `list_join_requests`
+  shows who is waiting, with their answers to your join questions, where they
+  found you and Skool's own spam flag, and can search names and answers.
+  `review_join_request` approves or declines one person, draft-first like
+  every other write. It refuses anyone who is not in the queue right now,
+  because the same Skool call can change an existing member's role.
 - **`get_growth`: your community's dashboard numbers.** Visitors, signups and
   conversion rate for the last 30 days, where signups come from (Skool
   network, affiliates, direct), signups per day and members per month since
