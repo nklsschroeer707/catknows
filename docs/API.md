@@ -460,6 +460,77 @@ and the filter facets (`annual/monthly/trials/free/levels/courses`).
 
 ---
 
+### 1.7 Notifications (the bell) — api2 shape
+
+```
+GET https://api2.skool.com/self/notifications?limit=30&type=all
+GET https://api2.skool.com/self/notifications?limit=30&type=group&group={gid}
+    optional: &category={mentions|comments|following|requests|new_posts|recordings}
+              &cursor={cursor from the previous page, URL-encoded}
+```
+
+Exactly what the website sends when the bell opens (captured 2026-09-22 from
+the `_app` bundle, `listNotificationMessages({limit:30, type, groupID,
+category})`). `limit` above 30 → `400 invalid limit` (50 measured); an unknown
+category → `400 invalid category: …`. `type=group` + `group={gid}` is the
+website's "this community only" toggle.
+
+```jsonc
+{
+  "messages": [{
+    "id": "91239a16…", "action": "mention-comment", "unread": false,
+    "created_at": "2026-09-22T07:23:09.38925Z", "updated_at": "…",
+    "user_id": "<you>", "group_id": "<gid>",
+    "metadata": {
+      "data": "{…}"          // a JSON STRING — everything useful is in here
+    }
+  }],
+  "has_more": true,
+  "cursor": ":<id>:0:2026-09-14T16:58:41.863364Z",
+  "type": "all"
+}
+```
+
+Parsed `metadata.data`: `action`, `text` (Skool's own caption: "mentioned you
+in reply", "(broadcast) new post", "commented on your post", …),
+`display_name` + `src_user_id` (who; for `membership-request` the display
+name is the literal "New membership request!" and there is no user),
+`content` (the text, full length), `group_id`, `group_display_name`,
+`group_logo/color/initials`, `image_url`, `link_href` (Next route pattern),
+`link_as` (the real path, `/{slug}/{post-name}?p={first 8 of the id}`),
+`post_id`, `root_post_id`, sometimes `preview_image_url`,
+`src_user_act_status`, `src_user_mrr_status`, `follow`.
+
+- **`post_id` is the object, `root_post_id` the post.** For a comment or a
+  mention in a reply they differ: `post_id` is the comment, `root_post_id` the
+  post it hangs under. For a post notification they are equal.
+- **The community slug is only in `link_as`.** The display name is not a
+  slug (hoomans' slug is `the-skool-memes-4437`), and the payload carries
+  `group_id` but no name.
+- Actions seen on 30 live entries: `admin-post` (broadcast), `mention-comment`,
+  `membership-request` (link to `/{slug}/-/pending`, no post),
+  `new-post-user-following`, `comment`, `mention`.
+
+**Reading does not mark anything read.** The website marks read with separate
+POSTs: `POST /messages` (the "mark all read" button, body `{cmd: "read", all,
+group_id, category}`), `POST /messages/{id}/read` (clicking one entry, body
+`{created_at}`),
+`POST /messages/{id}/unread`, and `POST /self/sync-unread-notification-count`.
+The unread count sits on `/self` as `metadata.notifs` (with `unread_chats`).
+Measured 22.09.: `notifs` was 0 before and after the GET, so the GET was not
+tested against an unread entry — the claim rests on the website's code, which
+only ever marks read through those POSTs.
+
+Implemented as `SkoolClient.notifications()` / the `get_notifications` MCP tool
+(`normalize.notification` flattens and builds `target` for `get_post` /
+`get_post_comments`). Never cached: "what just happened?" has to be live.
+
+A live push channel exists too: `wss://groups-ps.skool.com/ws`, subscribed with
+`sub:usp:{uid},cun:{uid},uspc:{uid},ganp:{uid},alss:{gid},gnp:{gid},gps:{gid},pup:{gid}:{postId},…`.
+Not used — a poll of the GET on demand is all "what happened?" needs.
+
+---
+
 ## 2. Timestamp & casing quirks (read before you parse)
 
 These bite everyone. The client's `normalize.py` centralizes them.

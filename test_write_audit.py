@@ -17,6 +17,9 @@ from pathlib import Path
 from catknows import audit
 from catknows.http import SkoolHTTP, SkoolHTTPError
 
+# Not a test of the write gap (test_write_gap.py is); keep this one instant.
+os.environ["CATKNOWS_WRITE_GAP_S"] = "0"
+
 
 class _Resp:
     def __init__(self, code, text):

@@ -12,7 +12,8 @@ silently. Set CATKNOWS_COOKIE to a raw Cookie header to skip the browser
 entirely (headless machines), or CATKNOWS_PROFILE_DIR to move the profile.
 
 Speed knobs: reads are cached in-process for CATKNOWS_CACHE_TTL seconds
-(default 600, 0 disables; chat channels never cached, writes clear it), and
+(default 600, 0 disables; chat channels and notifications never cached,
+writes clear it), and
 CATKNOWS_PAGE_DELAY tunes the politeness pause between paginated requests
 (default 0.8 s — lowering it is your 403 risk).
 
@@ -814,6 +815,35 @@ def read_dms(channel_id: str, count: int = 30, raw: bool = False) -> dict:
 
 
 @mcp.tool()
+def get_notifications(limit: int = 30, category: str = "", community_slug: str = "",
+                      cursor: str = "") -> dict:
+    """Your Skool notifications (the bell), newest first — "what just happened?".
+
+    Each one: kind (mention-comment, comment, admin-post = broadcast,
+    new-post-user-following, membership-request, ...), who, when, community
+    (slug) and a text preview. `target` says what it points at: read the post
+    with get_post(community, target.post_name), the thread with
+    get_post_comments(community, target.post_id); target.comment_id is the
+    comment inside that thread (empty when the notification is about the post).
+
+    Reading does NOT mark anything as read. limit is 1..30 (Skool's own cap);
+    pass the returned cursor to go further back. category narrows to one of
+    mentions, comments, following, requests, new_posts, recordings;
+    community_slug to one community.
+    """
+    data = _get_client().notifications(limit=limit, category=category,
+                                       community_slug=community_slug, cursor=cursor)
+    items = [_jsonable(normalize.notification(m)) for m in data.get("messages") or []]
+    return {
+        "count": len(items),
+        "unread": sum(1 for n in items if n["unread"]),
+        "has_more": bool(data.get("has_more")),
+        "cursor": data.get("cursor") or "",
+        "notifications": items,
+    }
+
+
+@mcp.tool()
 def list_my_communities(raw: bool = False) -> list[dict]:
     """List every Skool community YOUR account is in, with your role (owner/admin/moderator/member).
 
@@ -1555,7 +1585,7 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript",
+    "get_post", "get_video_transcript", "get_notifications",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {

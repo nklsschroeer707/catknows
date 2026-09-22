@@ -101,8 +101,16 @@ over `SkoolClient`; don't duplicate client logic in it.
   context still reaches tool calls.
   Two rules that are not style: **no content in the log** (no post text, no DM
   text, no member data — privacy §2.6 says so in writing), and **the log never
-  steers** — no throttle, no queue, no retry hanging off it. It also must never
-  break a write: `record()` swallows its own errors on purpose.
+  steers** — no queue, no retry hanging off it. It also must never break a
+  write: `record()` swallows its own errors on purpose.
+- **At least 15 s between two writes, process-wide** (decision Niklas
+  2026-09-22, replaces the old rule D5 "no throttle"). Enforced in the same
+  `http._write_api2`, so every write path waits, failed writes count as sent.
+  Fixed value, no jitter, no randomness: tempo hygiene, not disguise.
+  `CATKNOWS_WRITE_GAP_S` overrides. Reads are never delayed by it.
+  `test_write_gap.py` checks it offline. Don't add random pauses, fake
+  fingerprints or anything else that hides automation — what protects the
+  account is one approved write at a time, not looking human.
 - Writes into an **archived** community refuse up front
   (`group_id_for(for_write=True)`). Archived communities stay readable, so
   reads must keep calling it without the flag.

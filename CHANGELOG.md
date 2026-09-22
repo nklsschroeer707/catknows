@@ -9,6 +9,25 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-09-22
+
+### Added
+- **`get_notifications`: your Skool bell, readable.** Ask "what just
+  happened?" and the AI gets the same list the bell shows: who did what, when,
+  in which community, with a short preview. Every entry says what it points
+  at, so the AI can open the post or the comment thread right away. Reading
+  it does not mark anything as read. Filters: one community, or one of
+  Skool's tabs (mentions, comments, following, requests, new posts,
+  recordings). Measured against Skool's own website on 22.09.
+
+### Changed
+- **Writes are now at least 15 seconds apart.** Two posts, comments, DMs or
+  edits sent back to back wait for each other, across every tool in the same
+  running server. It is a fixed pause, not a random one: the point is a calm
+  pace, not hiding that a tool is posting. Reading is never slowed down.
+  Override with `CATKNOWS_WRITE_GAP_S` (seconds). Replaces the old "no
+  throttle" rule; decision Niklas, 22.09.
+
 ## 2026-08-19
 
 ### Fixed
