@@ -15,11 +15,15 @@ Run: python test_not_permitted.py    (no network, no pytest)
 """
 
 import os
+import tempfile
 
 from catknows.http import SkoolHTTP, SkoolHTTPError
 
 # Not a test of the write gap (test_write_gap.py is); keep this one instant.
 os.environ["CATKNOWS_WRITE_GAP_S"] = "0"
+# The fake write path still logs; keep it out of the real ~/.catknows/writes.jsonl,
+# where a fake 401 would read as a write we actually sent.
+os.environ["CATKNOWS_AUDIT_LOG"] = os.path.join(tempfile.mkdtemp(), "writes.jsonl")
 
 URL = "https://api2.skool.com/courses/abc?withChildren=true"
 
