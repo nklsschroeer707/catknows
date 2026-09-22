@@ -347,6 +347,73 @@ class SkoolClient:
             time.sleep(_INTER_PAGE_DELAY_S)
         return out
 
+    def resolve_member(self, community_slug: str, who: str) -> dict:
+        """A handle ("niklas") or display name ("Niklas Schröer") -> the raw user.
+
+        A handle is tried first on the profile route (exact, one request).
+        Anything else goes through the member search; a single hit, or the
+        one hit whose full name matches exactly, wins. Several candidates
+        raise with their handles, so the caller can pick instead of guessing.
+        """
+        who = who.strip().lstrip("@")
+        if not who:
+            raise ValueError("author must not be empty")
+        if " " not in who:
+            user = self.profile(who, community_slug)
+            if user:
+                return user
+        hits = [h.get("user") or {} for h in
+                (self.search(community_slug, who, kind="members").get("members") or [])]
+        hits = [u for u in hits if u.get("id")]
+        want = _plain(who)
+        exact = [u for u in hits if want in (
+            _plain(f"{u.get('firstName', '')} {u.get('lastName', '')}"),
+            _plain(u.get("name", "")))]
+        if len(exact) == 1:
+            return exact[0]
+        if len(hits) == 1:
+            return hits[0]
+        if not hits:
+            raise ValueError(f"no member '{who}' in {community_slug}")
+        names = ", ".join(f"{u.get('firstName', '')} {u.get('lastName', '')} (@{u.get('name')})"
+                          for u in (exact or hits)[:10])
+        raise ValueError(f"'{who}' matches several members of {community_slug}: "
+                         f"{names} — pass the @handle")
+
+    def posts_by(self, community_slug: str, user_name: str, *,
+                 limit: int | None = None) -> list[dict]:
+        """Top-level posts one member CREATED in one community (raw post trees).
+
+        Reads the member's profile scoped to the community (docs/API.md §1.3b):
+        ``@{handle}.json?g={slug}`` pages through every post the member takes
+        part in there — their own, plus others' posts they commented on or are
+        @mentioned in (measured 2026-09-22: 77 entries, 46 own = all 46 in the
+        feed). Only the member's own posts are kept. Skool's ``hasMore`` is
+        always false here, so the walk runs until an empty or repeated page.
+        """
+        user = self.profile(user_name, community_slug)
+        if not user:
+            raise ValueError(f"no member @{user_name} in {community_slug}")
+        uid = user["id"]
+        out: list[dict] = []
+        seen: set[str] = set()
+        page = 1
+        while True:
+            q = (f"/@{user_name}.json?g={community_slug}&group=@{user_name}"
+                 + (f"&p={page}" if page > 1 else ""))
+            trees = _dig(self.http.get_next(q, community_slug),
+                         "pageProps", "postTrees") or []
+            fresh = [t for t in trees if (t.get("post") or {}).get("id") not in seen]
+            seen.update((t.get("post") or {}).get("id") for t in fresh)
+            out.extend(t for t in fresh if (t.get("post") or {}).get("userId") == uid)
+            if limit is not None and len(out) >= limit:
+                return out[:limit]
+            if not trees or not fresh:
+                break
+            page += 1
+            time.sleep(_INTER_PAGE_DELAY_S)
+        return out
+
     def post_categories(self, community_slug: str) -> list[dict]:
         """The feed's categories (Skool calls them labels): id, name, post count.
 

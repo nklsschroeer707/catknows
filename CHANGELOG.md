@@ -12,6 +12,12 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **All posts by one member.** `list_posts` takes `author`: a Skool handle
+  or a full name ("Niklas Schröer"), and returns every post that person
+  created in the community, and only those. Searching for the name finds
+  more, because it also matches other people's posts where the person is
+  @mentioned or commented. If a name fits several members, you get their
+  handles to pick from. Asked for by Kamil.
 - **Drafts in your own voice.** Point `CATKNOWS_VOICE_FILE` at a short
   Markdown file describing how you write (language, length, emojis, words
   you'd never use). Every post, comment, DM and edit draft then carries it,
