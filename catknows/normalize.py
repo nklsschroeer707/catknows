@@ -233,6 +233,40 @@ def join_request(user: dict) -> dict:
     }
 
 
+# Owner revenue badges on the skoolers board (docs/API.md §6.3).
+MRR_BADGES = {
+    "clover": ("🍀", "$3k+"),
+    "liftoff": ("🚀", "$10k+"),
+    "crown": ("👑", "$30k+"),
+    "diamond": ("💎", "$100k+"),
+    "fire": ("♦️", "$300k+"),
+    "goat": ("🐐", "$1m+"),
+}
+
+
+def revenue_row(row: dict) -> dict:
+    """Flatten one skoolers "games" row (docs/API.md §6.1). MRR in whole dollars."""
+    user = row.get("user") or {}
+    group = row.get("group") or {}
+    status = (user.get("metadata") or {}).get("mrrStatus") or ""
+    emoji, floor = MRR_BADGES.get(status, ("", ""))
+    slug = group.get("name", "")
+    return {
+        "global_rank": row.get("globalRank"),
+        "category_rank": row.get("categoryRank"),
+        "category": row.get("category", ""),
+        "community": slug,
+        "community_name": (group.get("metadata") or {}).get("displayName", ""),
+        "owner": f"{user.get('firstName', '')} {user.get('lastName', '')}".strip(),
+        "owner_handle": user.get("name", ""),
+        "owner_badge": f"{emoji} {status} ({floor})" if emoji else status,
+        "mrr_usd": round((row.get("mrr") or 0) / 100),
+        "mrr_growth_usd": round((row.get("mrrGrowth") or 0) / 100),
+        "traffic": row.get("traffic"),
+        "url": f"https://www.skool.com/{slug}" if slug else "",
+    }
+
+
 def search_member(hit: dict) -> dict:
     """Flatten one member hit from ``/-/search.json?t=members``.
 

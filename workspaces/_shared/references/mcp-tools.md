@@ -20,6 +20,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_follows` | user_name, direction=followers\|following, limit=200 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
+| `get_revenue_leaderboard` | category="", limit=100 | Skool's top-earning communities (the Skoolers "games" board): top 100 overall or top 50 of a category (name like "hobbies"). Global + category rank, community, owner with revenue badge, `mrr_usd`, `mrr_growth_usd`, traffic. Nothing beyond those |
 | `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |
 | `get_course_tree` | course_id, community_slug="" | one course's full structure: folders + pages with ids, titles, order, draft state. `course_id` from `get_classroom`. Page bodies live here, not in the course list; child order = display order. **Pass `community_slug` for a community you have not joined** — Skool's API refuses those, and only the classroom page shows what the community publishes (see skool-quirks.md) |

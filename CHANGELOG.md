@@ -12,6 +12,10 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **`get_revenue_leaderboard`: who earns the most on Skool.** The leaderboard
+  in the Skoolers community, top 100 overall or the top 50 of a category you
+  name ("hobbies", "tech"). Each row has the community, its owner with their
+  revenue badge, monthly revenue and its growth in dollars, and traffic.
 - **Join requests: read, search, approve or decline.** `list_join_requests`
   shows who is waiting, with their answers to your join questions, where they
   found you and Skool's own spam flag, and can search names and answers.

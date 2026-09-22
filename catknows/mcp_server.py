@@ -607,6 +607,42 @@ def list_join_requests(community_slug: str, query: str = "", page: int = 1) -> d
 
 
 @mcp.tool()
+def get_revenue_leaderboard(category: str = "", limit: int = 100) -> dict:
+    """Skool's top-earning communities — the "games" leaderboard in the Skoolers community.
+
+    Overall: the top 100 across Skool. category (name like "hobbies" or
+    "tech", or its id) gives that category's top 50. Nothing beyond that
+    exists. Each row: global and category rank, community (slug + name),
+    owner with revenue badge (🍀 $3k … 🐐 $1m), mrr_usd and mrr_growth_usd
+    (monthly, whole dollars), traffic. Needs an account that owns a
+    community (Skoolers is gated).
+    """
+    from .client import _plain
+
+    client = _get_client()
+    category_id, name = "", ""
+    if category:
+        cats = client.revenue_leaderboard().get("categories") or []
+        want = _plain(category)
+        hit = next((c for c in cats if category == c.get("id")
+                    or want == _plain(c.get("name", ""))), None)
+        if hit is None:
+            raise ValueError(f"no category '{category}'; there are: "
+                             + ", ".join(c.get("name", "") for c in cats))
+        category_id, name = hit["id"], hit.get("name", "")
+    pp = client.revenue_leaderboard(category_id=category_id)
+    rows = pp.get("rows") or []
+    limit = max(1, min(int(limit), 100))
+    return {
+        "category": name or "all categories",
+        "available": len(rows),
+        "count": min(limit, len(rows)),
+        "categories": [c.get("name", "") for c in pp.get("categories") or []],
+        "rows": [normalize.revenue_row(r) for r in rows[:limit]],
+    }
+
+
+@mcp.tool()
 def get_calendar(community_slug: str, cal_date: int = 0, raw: bool = False) -> dict:
     """Get the community calendar: a compact list of events (title, start/end, description, location).
 
@@ -1388,7 +1424,7 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests",
+    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {

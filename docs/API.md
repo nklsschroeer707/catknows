@@ -1041,7 +1041,14 @@ Response: `pageProps.rows[]` — **100 rows**, each a ranked community:
 ```
 
 `pageProps.categories[]` lists the 9 category chips. Per-category boards: append `&category={categoryId}` (the UUID, as in §6.2) — 50 rows each, with `categoryRank`. A row's `user.metadata.mrrStatus` carries the owner's badge (table in §6.3). About half of the communities on these boards are **not** in any category's first 150 on `discovery.json` (trending ≠ revenue), so the two boards are complementary sources. **`mrr` is in cents** —
-divide by 100 for dollars. This is the "who earns the most on Skool" table.
+divide by 100 for dollars (it arrives as a float). This is the "who earns the most on Skool" table.
+
+Re-measured 2026-09-22: `&p=2` is ignored (page 1 again), so 100 overall / 50 per
+category is everything there is. `categories[]` entries are `{id, name}`, e.g.
+`8a7678583d3246a1a1a0a4a994321146` = 🎨 Hobbies. A row's `user.metadata` holds only
+`mrrStatus`, `actStatus`, `pictureBubble`; `group.metadata` only `displayName`, `logoUrl`.
+Implemented as `SkoolClient.revenue_leaderboard()` / the `get_revenue_leaderboard`
+MCP tool (category by name, `normalize.revenue_row` for dollars and badge).
 
 > **Access:** `skoolers` is gated. A banned/ineligible account gets a `307`
 > redirect (`__N_REDIRECT` → `/skoolers/about`) on every members-only route
@@ -1113,7 +1120,7 @@ next to their name (thresholds from the skoolers leaderboard, 2026-09-19):
 | `crown` | 👑 | $30k |
 | `diamond` | 💎 | $100k |
 | `fire` | ♦️ | $300k |
-| `goat` (assumed, not yet seen) | 🐐 | $1m |
+| `goat` (seen 2026-09-22, rank 1 at ~$1.03m) | 🐐 | $1m |
 
 The separate 🔥 next to some names is not a revenue badge (`act_status`,
 seen as `hardcore`).

@@ -602,6 +602,19 @@ class SkoolClient:
                 row["rank"] = (page - 1) * 30 + i + 1
         return pp
 
+    def revenue_leaderboard(self, *, category_id: str = "") -> dict:
+        """Skool's top-earning communities, raw ``pageProps`` (docs/API.md §6.1).
+
+        The skoolers "games" tab: ``rows[]`` (100 overall, 50 per category)
+        and ``categories[]`` (``id``, ``name``). There is no second page. The
+        viewer must be eligible for skoolers (own a community) or Skool
+        redirects to the about page.
+        """
+        q = "/skoolers/-/games.json?group=skoolers"
+        if category_id:
+            q += f"&category={category_id}"
+        return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
+
     def discovery_rank(self, group_skool_id: str) -> dict:
         """Your own community's discovery standing (owner-only, docs/API.md §1.7).
 
