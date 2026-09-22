@@ -40,10 +40,12 @@
   `get_discovery_rank` returns the true overall rank (can be 20000+) plus
   the category rank; Skool's Entdecken settings UI shows the *category*
   rank, so don't mix the two. Foreign communities: board only (401).
-- **Admin dashboard ≠ admin API:** `get_admin_metrics` covers member growth,
-  active members and the activity series only. Visitors, conversion rate,
-  signup sources, MRR and churn/retention exist only in Skool's dashboard UI
-  — say "not available via catknows" instead of guessing.
+- **Two tools for the admin dashboard:** `get_admin_metrics` covers member
+  growth, active members and the activity series. `get_growth` has the rest
+  of the dashboard: visitors, signups, conversion rate, new MRR, signup
+  sources, signups per day, members per month, and on request retention and
+  MRR charts. Both owner/admin only. Skool offers only "last 30 days" — for
+  a longer view read `trends/growth.jsonl` in the vault, if the snapshot runs.
 - **Be polite:** the client already paces paginated pulls (~0.8 s/page). Big
   pulls (all members + all comments) take minutes — that's normal, don't
   parallelize harder to "fix" it.

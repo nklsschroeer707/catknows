@@ -31,6 +31,8 @@ from .http import SkoolHTTP, SkoolHTTPError
 # you carry the 403/ban risk yourself.
 _INTER_PAGE_DELAY_S = float(os.environ.get("CATKNOWS_PAGE_DELAY", "0.8"))
 _COMMENT_PAGE_LIMIT = 25
+_WAIT_TRIES = 10     # dashboard analytics: ask /wait at most this often ...
+_WAIT_POLL_S = 1.0   # ... this far apart (the website gives up after 10 s)
 _MAX_COMMENT_PAGES = 400  # safety cap: 400 * 25 = 10k comments per post
 
 
@@ -620,6 +622,49 @@ class SkoolClient:
         return self.http.get_api2(
             f"/groups/{group_skool_id}/admin-metrics?range={range_}&amt=monthly"
         )
+
+    # The admin dashboard's charts (docs/API.md §1.9), owner/admin only.
+    ANALYTICS_CHARTS = ("signups_by_source", "signups_by_day", "members",
+                        "retention_members", "retention_cohorts",
+                        "mrr", "mrr_cashflow", "mrr_unit")
+
+    def _analytics(self, path: str) -> dict:
+        """One dashboard number, through Skool's wait-token dance.
+
+        First answer is ``{"token": t}``; ``/wait?token=t`` says
+        ``in-progress`` or ``completed``; the same GET plus ``&token=t`` then
+        carries ``{"data": ...}``. The website gives up after 10 s; so do we,
+        asking once a second (a fixed pace, like everything else here).
+        """
+        first = self.http.get_api2(path) or {}
+        token = first.get("token")
+        if not token:
+            return first.get("data") or {}
+        for _ in range(_WAIT_TRIES):
+            state = self.http.get_api2_text(f"/wait?token={token}")
+            if state == "completed":
+                break
+            if state != "in-progress":
+                raise RuntimeError(f"Skool's wait for {path} ended in {state!r}")
+            time.sleep(_WAIT_POLL_S)
+        else:
+            raise RuntimeError(f"Skool's wait for {path} did not complete in time")
+        sep = "&" if "?" in path else "?"
+        return (self.http.get_api2(f"{path}{sep}token={token}") or {}).get("data") or {}
+
+    def growth_overview(self, group_skool_id: str) -> dict:
+        """The dashboard's last-30-days tiles: ``num_visitors``, ``num_signups``,
+        ``new_mrr`` (growth overview) plus ``num_members`` (overview)."""
+        base = f"/groups/{group_skool_id}"
+        return {**self._analytics(f"{base}/analytics-growth-overview-v2"),
+                **self._analytics(f"{base}/analytics-overview-v2")}
+
+    def analytics_chart(self, group_skool_id: str, chart: str) -> list[dict]:
+        """One dashboard chart's ``items`` (see ``ANALYTICS_CHARTS``)."""
+        if chart not in self.ANALYTICS_CHARTS:
+            raise ValueError(f"chart must be one of {', '.join(self.ANALYTICS_CHARTS)}")
+        data = self._analytics(f"/groups/{group_skool_id}/analytics-v2?chart={chart}")
+        return (data.get("chart_data") or {}).get("items") or []
 
     def calendar(self, community_slug: str, cal_date: int = 0) -> dict:
         """Calendar/events (raw ``pageProps``). ``cal_date`` = unix ts for a

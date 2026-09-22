@@ -573,6 +573,40 @@ record, plus `member_id`).
 
 ---
 
+### 1.9 Admin dashboard analytics (wait-token) — api2 shape, owner/admin
+
+The Dashboard tab of a community's settings (captured 2026-09-22):
+
+```
+GET /groups/{gid}/analytics-growth-overview-v2   -> {num_visitors, num_signups, new_mrr}
+GET /groups/{gid}/analytics-overview-v2          -> {num_members}
+GET /groups/{gid}/analytics-v2?chart={chart}     -> {chart_data: {items: [...]}}
+```
+
+Charts: `signups_by_source` (`attribution` skool | affiliate | direct,
+`total`, `percent`), `signups_by_day` (`date`, `num_signups`), `members`
+(monthly since founding: `new`, `existing`, `churned` as a negative number,
+`total`), `retention_members` (`upgrade`, `downgrade`, `churn`,
+`reactivation`, `retention_rate`), `retention_cohorts`, `mrr`,
+`mrr_cashflow`, `mrr_unit`. The tiles cover the last 30 days; the website
+offers no other range.
+
+**None of these answers with data at first.** Each takes three requests:
+
+1. `GET …` → `{"token": "<hex>"}`
+2. `GET /wait?token=<hex>` → **plain text**, not JSON: `in-progress` or
+   `completed` (the website also listens on the websocket topic
+   `wat:{userId}:{token}` and gives up after 10 s)
+3. `GET …&token=<hex>` (or `?token=` without a query) → `{"data": {...}}`
+
+A cached step 1 would replay a used token, so none of it may be cached.
+Engagement and retention percentages on the dashboard tiles are not in these
+payloads. Implemented as `SkoolClient.growth_overview()` /
+`analytics_chart()` (`_analytics()` does the dance), the `get_growth` MCP
+tool, and `snapshot --growth SLUG` → `<vault>/trends/growth.jsonl`.
+
+---
+
 ## 2. Timestamp & casing quirks (read before you parse)
 
 These bite everyone. The client's `normalize.py` centralizes them.

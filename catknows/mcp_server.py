@@ -540,6 +540,39 @@ def get_admin_metrics(community_slug: str, range: str = "30d") -> dict:
 
 
 @mcp.tool()
+def get_growth(community_slug: str,
+               charts: str = "signups_by_source,signups_by_day,members") -> dict:
+    """Growth of a community you own, as on its admin dashboard — last 30 days.
+
+    Visitors (people who viewed the about page), signups, conversion_rate
+    (signups / visitors), new MRR and member count, plus charts:
+    signups_by_source (Skool network / affiliate / direct), signups_by_day,
+    members (per month since founding: new, existing, churned, total).
+    Also available: retention_members, retention_cohorts, mrr, mrr_cashflow,
+    mrr_unit — name them comma-separated in `charts`, "" for the tiles only.
+    Skool shows only the last 30 days; the daily history lives in the vault
+    (trends/growth.jsonl) if the snapshot job runs.
+    """
+    client = _get_client()
+    gid = client.group_id_for(community_slug)
+    tiles = client.growth_overview(gid)
+    visitors, signups = tiles.get("num_visitors"), tiles.get("num_signups")
+    out = {
+        "community": community_slug,
+        "period": "last 30 days",
+        "members": tiles.get("num_members"),
+        "visitors": visitors,
+        "signups": signups,
+        "conversion_rate": round(signups / visitors, 3) if visitors and signups is not None else None,
+        "new_mrr": tiles.get("new_mrr"),
+        "charts": {},
+    }
+    for chart in [c.strip() for c in charts.split(",") if c.strip()]:
+        out["charts"][chart] = client.analytics_chart(gid, chart)
+    return out
+
+
+@mcp.tool()
 def get_calendar(community_slug: str, cal_date: int = 0, raw: bool = False) -> dict:
     """Get the community calendar: a compact list of events (title, start/end, description, location).
 
@@ -1295,7 +1328,7 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript", "get_notifications", "search_community",
+    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
