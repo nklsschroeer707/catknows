@@ -74,6 +74,12 @@ over `SkoolClient`; don't duplicate client logic in it.
   of AI writing" via [humanizer](https://github.com/blader/humanizer) (MIT).
   Settings-only drafts (a privacy flag, a move, a delete) skip it — no prose,
   no pass. Build drafts with `_draft(...)` so this stays in one place.
+- `CATKNOWS_VOICE_FILE` (optional) points at a Markdown voice guide of the
+  account owner. Every prose draft then also carries `write_as_the_user`:
+  the guide (frontmatter stripped, read fresh per draft) and the order to run
+  a humanizer skill with it as the writing sample. A configured file that
+  can't be read says STOP in the draft instead of falling back silently.
+  Unset = no change. `test_voice_guide.py`.
 - Every new tool must be listed in `_READ_ONLY` or `_DESTRUCTIVE` — a tool in
   neither fails the self-check, on purpose.
 - **Every write is logged, and you don't have to do anything for that.**

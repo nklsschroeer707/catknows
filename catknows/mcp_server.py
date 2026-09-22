@@ -943,7 +943,45 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         }
         if prose:
             out["before_you_show_this"] = _HUMANIZE
+            voice = _voice()
+            if voice:
+                out["write_as_the_user"] = voice
         return out
+
+    def _voice() -> dict | None:
+        """The account owner's voice guide for prose drafts, if one is configured.
+
+        CATKNOWS_VOICE_FILE names a Markdown file describing how the person
+        behind the Skool account writes (length, language, emojis, words they
+        never use). Read fresh on every draft, so an edit to the guide takes
+        effect without a restart. A configured file that can't be read is
+        reported in the draft: a silent fallback would post in a voice the user
+        explicitly asked us not to use.
+        """
+        path = os.environ.get("CATKNOWS_VOICE_FILE", "").strip()
+        if not path:
+            return None
+        try:
+            text = Path(path).expanduser().read_text(encoding="utf-8")
+        except OSError as e:
+            return {"instruction": (
+                f"The user's voice guide ({path}) could not be read: {e}. STOP: "
+                "tell the user, and do not write this text without the guide.")}
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            text = parts[2] if len(parts) == 3 else text
+        return {
+            "instruction": (
+                "This text goes out under the user's own name, so it must read as "
+                "if they wrote it. First run the humanizer skill on it if you have "
+                "one (embedded mode), using voice_guide as the writing sample; "
+                "without that skill, apply before_you_show_this. Then rewrite the "
+                "draft to match voice_guide: language, length, openings, emojis, "
+                "punctuation, words. Keep every fact. Show the user the final "
+                "text exactly as it will be sent, and send only that text."
+            ),
+            "voice_guide": text.strip(),
+        }
 
     def _attachment_preview(paths: str) -> list[dict]:
         """Describe local files for the draft, without uploading anything yet.
