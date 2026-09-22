@@ -202,6 +202,71 @@ def post(tree: dict) -> dict:
     }
 
 
+def join_request(user: dict) -> dict:
+    """Flatten one pending user from ``-/pending.json`` (docs/API.md §6.5).
+
+    The application is the ``member`` block: ``member.id`` is what approving
+    or declining needs, ``metadata.survey`` a JSON string with the answered
+    join questions, ``highRiskScore`` Skool's own spam flag.
+    """
+    m = user.get("member") or {}
+    md = m.get("metadata") or {}
+    try:
+        answers = (json.loads(md.get("survey") or "{}") or {}).get("survey") or []
+    except (TypeError, ValueError):
+        answers = []
+    return {
+        "member_id": m.get("id", ""),
+        "user_id": user.get("id", ""),
+        "name": user.get("name", ""),
+        "first_name": user.get("firstName", ""),
+        "last_name": user.get("lastName", ""),
+        "bio": (user.get("metadata") or {}).get("bio", ""),
+        "requested_at": _ns_or_iso_to_dt(md.get("requestedAt")),
+        "location": md.get("requestLocation", ""),
+        "risk_flag": bool(md.get("highRiskScore")),
+        "num_requests": md.get("numRequests"),
+        "source": md.get("attrSrcComp", ""),
+        "email_answer": m.get("searchAnswer", ""),
+        "answers": [{"question": a.get("question", ""), "type": a.get("type", ""),
+                     "answer": a.get("answer", "")} for a in answers if isinstance(a, dict)],
+    }
+
+
+# Owner revenue badges on the skoolers board (docs/API.md §6.3).
+MRR_BADGES = {
+    "clover": ("🍀", "$3k+"),
+    "liftoff": ("🚀", "$10k+"),
+    "crown": ("👑", "$30k+"),
+    "diamond": ("💎", "$100k+"),
+    "fire": ("♦️", "$300k+"),
+    "goat": ("🐐", "$1m+"),
+}
+
+
+def revenue_row(row: dict) -> dict:
+    """Flatten one skoolers "games" row (docs/API.md §6.1). MRR in whole dollars."""
+    user = row.get("user") or {}
+    group = row.get("group") or {}
+    status = (user.get("metadata") or {}).get("mrrStatus") or ""
+    emoji, floor = MRR_BADGES.get(status, ("", ""))
+    slug = group.get("name", "")
+    return {
+        "global_rank": row.get("globalRank"),
+        "category_rank": row.get("categoryRank"),
+        "category": row.get("category", ""),
+        "community": slug,
+        "community_name": (group.get("metadata") or {}).get("displayName", ""),
+        "owner": f"{user.get('firstName', '')} {user.get('lastName', '')}".strip(),
+        "owner_handle": user.get("name", ""),
+        "owner_badge": f"{emoji} {status} ({floor})" if emoji else status,
+        "mrr_usd": round((row.get("mrr") or 0) / 100),
+        "mrr_growth_usd": round((row.get("mrrGrowth") or 0) / 100),
+        "traffic": row.get("traffic"),
+        "url": f"https://www.skool.com/{slug}" if slug else "",
+    }
+
+
 def search_member(hit: dict) -> dict:
     """Flatten one member hit from ``/-/search.json?t=members``.
 

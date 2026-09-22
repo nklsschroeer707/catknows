@@ -602,6 +602,19 @@ class SkoolClient:
                 row["rank"] = (page - 1) * 30 + i + 1
         return pp
 
+    def revenue_leaderboard(self, *, category_id: str = "") -> dict:
+        """Skool's top-earning communities, raw ``pageProps`` (docs/API.md §6.1).
+
+        The skoolers "games" tab: ``rows[]`` (100 overall, 50 per category)
+        and ``categories[]`` (``id``, ``name``). There is no second page. The
+        viewer must be eligible for skoolers (own a community) or Skool
+        redirects to the about page.
+        """
+        q = "/skoolers/-/games.json?group=skoolers"
+        if category_id:
+            q += f"&category={category_id}"
+        return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
+
     def discovery_rank(self, group_skool_id: str) -> dict:
         """Your own community's discovery standing (owner-only, docs/API.md §1.7).
 
@@ -622,6 +635,35 @@ class SkoolClient:
         return self.http.get_api2(
             f"/groups/{group_skool_id}/admin-metrics?range={range_}&amt=monthly"
         )
+
+    # -- join requests (admin/moderator) -------------------------------------
+
+    # The pending page's two buttons -> the role Skool sets (docs/API.md §6.5).
+    JOIN_DECISIONS = {"approve": "member", "decline": "declined"}
+
+    def join_requests(self, community_slug: str, *, page: int = 1) -> dict:
+        """One page (30) of the join queue, raw ``pageProps`` (docs/API.md §6.5).
+
+        ``users[]`` are pending users; the application sits in ``member``
+        (``member.id`` is what a decision needs). ``total``/``totalPages``
+        count the whole queue. Owner/moderator only.
+        """
+        q = f"/{community_slug}/-/pending.json?group={community_slug}"
+        if page > 1:
+            q += f"&p={page}"
+        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
+
+    def decide_join_request(self, member_id: str, decision: str) -> dict:
+        """Approve or decline one request, as the pending page's buttons do.
+
+        ``POST /members/{member_id}/role`` with ``{"new": "member"}`` or
+        ``{"new": "declined"}``. That endpoint sets ANY member's role, so
+        callers must check the id is in the queue first (the MCP tool does).
+        """
+        if decision not in self.JOIN_DECISIONS:
+            raise ValueError("decision must be 'approve' or 'decline'")
+        return self.http.post_api2(f"/members/{member_id}/role",
+                                   {"new": self.JOIN_DECISIONS[decision]})
 
     # The admin dashboard's charts (docs/API.md §1.9), owner/admin only.
     ANALYTICS_CHARTS = ("signups_by_source", "signups_by_day", "members",

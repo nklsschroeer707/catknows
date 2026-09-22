@@ -118,7 +118,7 @@ def record(*, method: str, path: str, status, response=None, **extra) -> None:
             "mode": mode(),
             "write_mode": write_mode(),
         }
-        for key in ("post_id", "comment_id", "course_item_id", "dm_channel_id"):
+        for key in ("post_id", "comment_id", "course_item_id", "dm_channel_id", "member_id"):
             if ctx.get(key):
                 line[key] = ctx[key]
         line.update({k: v for k, v in extra.items() if v not in ("", None)})

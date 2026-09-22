@@ -84,6 +84,7 @@ _AUDIT_ARGS = {  # tool argument -> audit field
     "item_id": "course_item_id",
     "course_id": "course_item_id",
     "channel_id": "dm_channel_id",
+    "member_id": "member_id",
 }
 
 
@@ -765,6 +766,75 @@ def get_growth(community_slug: str,
     for chart in [c.strip() for c in charts.split(",") if c.strip()]:
         out["charts"][chart] = client.analytics_chart(gid, chart)
     return out
+
+
+def _join_queue(community_slug: str, *, max_pages: int = 10) -> list[dict]:
+    """The whole join queue, flattened (at most ``max_pages`` × 30)."""
+    client = _get_client()
+    out: list[dict] = []
+    for page in range(1, max_pages + 1):
+        pp = client.join_requests(community_slug, page=page)
+        users = pp.get("users") or []
+        out.extend(_jsonable(normalize.join_request(u)) for u in users)
+        if not users or page >= int(pp.get("totalPages") or 1):
+            break
+    return out
+
+
+@mcp.tool()
+def list_join_requests(community_slug: str, query: str = "", page: int = 1) -> dict:
+    """Pending join requests of a community you own or moderate.
+
+    Each: name, bio, when, where from (location), how they found you
+    (source), Skool's spam flag (risk_flag), and every answered join question.
+    member_id is what review_join_request needs. query narrows to requests
+    whose name, bio or answers contain it (case-insensitive). 30 per page.
+    """
+    pp = _get_client().join_requests(community_slug, page=page)
+    reqs = [_jsonable(normalize.join_request(u)) for u in pp.get("users") or []]
+    if query:
+        q = query.lower()
+        reqs = [r for r in reqs if q in " ".join(
+            [r["name"], r["first_name"], r["last_name"], r["bio"], r["email_answer"]]
+            + [str(a["answer"]) for a in r["answers"]]).lower()]
+    return {"community": community_slug, "total": pp.get("total"), "page": page,
+            "pages": pp.get("totalPages"), "count": len(reqs), "requests": reqs}
+
+
+@mcp.tool()
+def get_revenue_leaderboard(category: str = "", limit: int = 100) -> dict:
+    """Skool's top-earning communities — the "games" leaderboard in the Skoolers community.
+
+    Overall: the top 100 across Skool. category (name like "hobbies" or
+    "tech", or its id) gives that category's top 50. Nothing beyond that
+    exists. Each row: global and category rank, community (slug + name),
+    owner with revenue badge (🍀 $3k … 🐐 $1m), mrr_usd and mrr_growth_usd
+    (monthly, whole dollars), traffic. Needs an account that owns a
+    community (Skoolers is gated).
+    """
+    from .client import _plain
+
+    client = _get_client()
+    category_id, name = "", ""
+    if category:
+        cats = client.revenue_leaderboard().get("categories") or []
+        want = _plain(category)
+        hit = next((c for c in cats if category == c.get("id")
+                    or want == _plain(c.get("name", ""))), None)
+        if hit is None:
+            raise ValueError(f"no category '{category}'; there are: "
+                             + ", ".join(c.get("name", "") for c in cats))
+        category_id, name = hit["id"], hit.get("name", "")
+    pp = client.revenue_leaderboard(category_id=category_id)
+    rows = pp.get("rows") or []
+    limit = max(1, min(int(limit), 100))
+    return {
+        "category": name or "all categories",
+        "available": len(rows),
+        "count": min(limit, len(rows)),
+        "categories": [c.get("name", "") for c in pp.get("categories") or []],
+        "rows": [normalize.revenue_row(r) for r in rows[:limit]],
+    }
 
 
 @mcp.tool()
@@ -1458,6 +1528,32 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         return {"status": "deleted", "comment_id": comment_id}
 
     @mcp.tool()
+    def review_join_request(community_slug: str, member_id: str, decision: str,
+                            confirm: bool = False) -> dict:
+        """Approve or decline ONE pending join request (member_id from list_join_requests).
+
+        decision is "approve" or "decline". Draft-first: confirm=false shows
+        who the request is from and changes nothing. Only call again with
+        confirm=true after the user decided on this person. Ids that are not
+        in the join queue right now are refused: the same Skool call would
+        change an existing member's role.
+        """
+        if decision not in ("approve", "decline"):
+            return {"status": "REFUSED — decision must be 'approve' or 'decline'"}
+        match = next((r for r in _join_queue(community_slug)
+                      if r["member_id"] == member_id), None)
+        if match is None:
+            return {"status": "REFUSED — this member_id is not in the join queue of "
+                              f"{community_slug}; nothing was changed. Re-read "
+                              "list_join_requests; it may have been handled already."}
+        if not confirm:
+            return _draft("DRAFT — nothing was changed", f"would_{decision}",
+                          match, prose=False)
+        _get_client().decide_join_request(member_id, decision)
+        return {"status": "approved" if decision == "approve" else "declined",
+                "member_id": member_id, "name": match["name"]}
+
+    @mcp.tool()
     def send_dm(
         channel_id: str, content: str, attachments: str = "", confirm: bool = False
     ) -> dict:
@@ -1666,14 +1762,14 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth",
+    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
     "create_post", "create_comment", "send_dm",
     "edit_post", "edit_comment", "delete_post", "delete_comment",
     "create_course", "create_course_item", "update_course_item",
-    "publish_course", "move_course_item", "delete_course_item",
+    "publish_course", "move_course_item", "delete_course_item", "review_join_request",
 }
 
 # Titles shown in the client's own tool list (Claude's Actions panel, for one).

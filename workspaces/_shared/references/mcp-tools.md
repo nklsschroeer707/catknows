@@ -20,11 +20,13 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_follows` | user_name, direction=followers\|following, limit=200 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
+| `get_revenue_leaderboard` | category="", limit=100 | Skool's top-earning communities (the Skoolers "games" board): top 100 overall or top 50 of a category (name like "hobbies"). Global + category rank, community, owner with revenue badge, `mrr_usd`, `mrr_growth_usd`, traffic. Nothing beyond those |
 | `get_discovery_rank` | slug | YOUR community's true overall + category rank (owner only, works beyond top 1000) |
 | `get_classroom` | slug | compact course list: title, description, module count, access (no module detail — see skool-quirks.md) |
 | `get_course_tree` | course_id, community_slug="" | one course's full structure: folders + pages with ids, titles, order, draft state. `course_id` from `get_classroom`. Page bodies live here, not in the course list; child order = display order. **Pass `community_slug` for a community you have not joined** — Skool's API refuses those, and only the classroom page shows what the community publishes (see skool-quirks.md) |
 | `get_calendar` | slug, cal_date=0 | events; cal_date = unix ts for a future month |
 | `get_admin_metrics` | slug, range="30d" | growth/engagement (members, active, activity series) — owner/admin only; visitors/conversion/sources are in `get_growth` |
+| `list_join_requests` | slug, query="", page=1 | pending join requests (owner/moderator): name, bio, when, location, source, Skool's `risk_flag`, every answered join question, `member_id`. `query` searches names and answers |
 | `get_growth` | slug, charts="signups_by_source,signups_by_day,members" | the admin dashboard, last 30 days: visitors, signups, `conversion_rate`, new MRR, member count + charts (sources, per day, members per month; also retention_members, retention_cohorts, mrr, mrr_cashflow, mrr_unit). Owner/admin only |
 | `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread (limit above 30 is refused) |
 | `read_dms` | channel_id, count=30 | full message history of one channel, oldest→newest: who wrote what, when, plus attachment file names + urls. Pages back through the whole conversation — Skool caps a single read at 50, this walks past it |
@@ -38,7 +40,7 @@ until a new one is stored. It does not exist in a local install.
 
 ## Write tools (exist only when the server runs with CATKNOWS_ALLOW_WRITE=1)
 
-`create_post`, `create_comment`, `send_dm` — all draft-first: the first call
+`create_post`, `create_comment`, `send_dm`, `review_join_request` (approve/decline one `member_id` from `list_join_requests`) — all draft-first: the first call
 returns a preview, nothing is sent until called again with `confirm=true` after
 the human approved the exact text. Never set `notify_members` (it emails
 everyone) unless the human explicitly asked for that.
