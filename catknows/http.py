@@ -58,11 +58,12 @@ RETRY_WAF_DELAY_S = 30
 
 # Successful GETs are cached in-process so repeated research doesn't re-hit
 # Skool. CATKNOWS_CACHE_TTL (seconds) overrides; 0 disables. Chat channels and
-# notifications are never cached ("what just happened?" must be live), and any
-# write clears the cache.
+# notifications are never cached ("what just happened?" must be live), nor
+# the dashboard analytics: their first answer is a one-shot wait token, and a
+# cached token would be replayed. Any write clears the cache.
 CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
 _CACHE_MAX_ENTRIES = 128
-_NEVER_CACHE = ("/self/chat-channels", "/self/notifications")
+_NEVER_CACHE = ("/self/chat-channels", "/self/notifications", "/analytics-")
 
 # Minimum gap between two writes to Skool, per Skool account (decision Niklas
 # 2026-09-22, replaces the old "no throttle" rule D5). A fixed value, no
@@ -274,6 +275,24 @@ class SkoolHTTP:
         """
         url = f"{SKOOL_API2}{path_and_query}"
         return self._get_with_retry(url, self._api2_headers())
+
+    def get_api2_text(self, path_and_query: str) -> str:
+        """GET an api2 endpoint that answers plain text, not JSON.
+
+        Only ``/wait?token=`` does, as far as measured: ``in-progress`` or
+        ``completed`` (docs/API.md §1.9). Never cached, no retry.
+        """
+        url = f"{SKOOL_API2}{path_and_query}"
+        try:
+            resp = self._http.get(url, headers=self._api2_headers(), timeout=FETCH_TIMEOUT_S)
+        except RequestException as e:
+            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+        if resp.status_code in (401, 403):
+            raise _auth_rejected(resp.status_code, url, resp.text)
+        if not (200 <= resp.status_code < 300):
+            raise SkoolHTTPError(f"HTTP {resp.status_code} on {url}: {resp.text[:300]}",
+                                 resp.status_code)
+        return resp.text.strip().strip('"')
 
     def get_mux(self, url: str) -> str:
         """GET a signed Mux playback URL and return its body as TEXT.

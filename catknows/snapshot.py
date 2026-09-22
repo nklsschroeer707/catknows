@@ -1,13 +1,15 @@
 """Append-only trend snapshots: numbers today, growth curves tomorrow.
 
     python -m catknows.snapshot --vault ./vault skoolers my-community --discovery
-    python -m catknows.snapshot --vault ./vault --rank my-community
+    python -m catknows.snapshot --vault ./vault --rank my-community --growth my-community
 
 Per community slug, appends one JSON line (date + the public About numbers)
 to `<vault>/trends/<slug>.jsonl`. With --discovery, also snapshots page 1 of
 Skool's ranked board into `<vault>/trends/discovery.jsonl`. With --rank SLUG
 (owner-only), appends that community's overall + category discovery rank to
 `<vault>/trends/rank.jsonl` — the series that shows a penalty or a recovery.
+With --growth SLUG (owner-only), appends the dashboard's last-30-days
+visitors, signups, conversion and signup sources to `<vault>/trends/growth.jsonl`.
 
 No AI involved and strictly headless: safe to run from a scheduler. If the
 persisted login has expired it exits with code 2 instead of opening a
@@ -87,6 +89,31 @@ def _rank_row(client: SkoolClient, slug: str) -> dict:
     }
 
 
+def _growth_row(client: SkoolClient, slug: str) -> dict:
+    """The dashboard's last-30-days tiles plus signup sources (owner only).
+
+    Skool shows these only as "last 30 days"; one row a day is what turns
+    them into a history. Same guard as the others: no visitors = broken read.
+    """
+    gid = client.group_id_for(slug)
+    tiles = client.growth_overview(gid)
+    if tiles.get("num_visitors") is None:
+        raise RuntimeError("empty growth payload (no visitors) — not the owner, or session expired")
+    visitors, signups = tiles.get("num_visitors"), tiles.get("num_signups")
+    sources = {i.get("attribution"): i.get("total")
+               for i in client.analytics_chart(gid, "signups_by_source")}
+    return {
+        "slug": slug,
+        "period": "last_30_days",
+        "members": tiles.get("num_members"),
+        "visitors": visitors,
+        "signups": signups,
+        "conversion_rate": round(signups / visitors, 3) if visitors and signups is not None else None,
+        "new_mrr": tiles.get("new_mrr"),
+        "sources": sources,
+    }
+
+
 def _append(path: Path, line: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -104,10 +131,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Also snapshot page 1 of the discovery board.")
     parser.add_argument("--rank", nargs="*", default=[], metavar="SLUG",
                         help="Also log the discovery rank of these communities you own.")
+    parser.add_argument("--growth", nargs="*", default=[], metavar="SLUG",
+                        help="Also log the dashboard's 30-day growth of these communities you own.")
     args = parser.parse_args(argv)
 
-    if not args.slugs and not args.discovery and not args.rank:
-        parser.error("nothing to do: pass slugs, --discovery and/or --rank SLUG")
+    if not args.slugs and not args.discovery and not args.rank and not args.growth:
+        parser.error("nothing to do: pass slugs, --discovery, --rank SLUG and/or --growth SLUG")
 
     try:
         session = login(profile_dir=_profile_dir(), headless=True, timeout_ms=30_000)
@@ -155,9 +184,19 @@ def main(argv: list[str] | None = None) -> int:
         # Category names carry emoji; a cp1252 console must not kill the run.
         print(f"rank {slug}: overall=#{line['rank']} category=#{line['category_rank']}")
 
+    for slug in args.growth:
+        try:
+            line = {"date": now, **_growth_row(client, slug)}
+        except Exception as e:
+            print(f"!! growth {slug}: {e}", file=sys.stderr)
+            failed += 1
+            continue
+        _append(trends / "growth.jsonl", line)
+        print(f"growth {slug}: visitors={line['visitors']} signups={line['signups']}")
+
     # Exit non-zero if nothing was collected, so the scheduler shows a failed run
     # instead of a green tick on a snapshot that silently gathered nothing.
-    jobs = len(args.slugs) + int(args.discovery) + len(args.rank)
+    jobs = len(args.slugs) + int(args.discovery) + len(args.rank) + len(args.growth)
     return 1 if failed and failed == jobs else 0
 
 

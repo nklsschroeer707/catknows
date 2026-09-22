@@ -12,6 +12,13 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **`get_growth`: your community's dashboard numbers.** Visitors, signups and
+  conversion rate for the last 30 days, where signups come from (Skool
+  network, affiliates, direct), signups per day and members per month since
+  you started, the same figures as the Dashboard tab in your community
+  settings. Retention and MRR charts on request. Owner/admin only. The
+  snapshot job can write them down daily (`--growth SLUG`), because Skool
+  itself only ever shows the last 30 days.
 - **Let Skool do the filtering: sorted, unread and per-category posts.**
   `list_posts` now takes `sort` (latest activity, newest, or top of the
   day/week/month/year/all time), `unread_only` (just the posts you haven't
