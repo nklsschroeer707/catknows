@@ -48,12 +48,16 @@ class _FakeHTTP:
     post = put = delete = _any
 
 
+def _session(token):
+    return type("S", (), {"cookie_header": "c-" + token, "auth_token": token, "waf_token": "w"})()
+
+
 def _setup(code=200):
     clock = _Clock()
     http_mod._clock, http_mod._sleep = clock.monotonic, clock.sleep
-    http_mod._last_write_at = None
+    http_mod._last_write_at.clear()
     h = SkoolHTTP.__new__(SkoolHTTP)
-    h.session = type("S", (), {"cookie_header": "c", "auth_token": "t", "waf_token": "w"})()
+    h.session = _session("t")
     h._cache = {}
     h._profile = {"ua": "ua", "lang": "en", "sec_ch_ua": "", "platform": ""}
     h._http = _FakeHTTP(clock, code)
@@ -106,7 +110,19 @@ def test_a_failed_write_still_counts_as_sent():
         assert clock.slept == [15], clock.slept
 
 
-def test_the_gap_is_process_wide_not_per_client():
+def test_two_accounts_do_not_wait_for_each_other():
+    """Hosted serves many Skool accounts in one process; each keeps its own pace."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _quiet_log(tmp)
+        h1, clock = _setup()
+        h1.post_api2("/posts", {})
+        h2 = SkoolHTTP.__new__(SkoolHTTP)
+        h2.__dict__.update({**h1.__dict__, "_http": _FakeHTTP(clock), "session": _session("other")})
+        h2.post_api2("/posts", {})
+        assert clock.slept == [], "another account's write must not delay this one"
+
+
+def test_the_gap_is_per_account_not_per_client():
     """A second client in the same process (re-login, a script) waits too."""
     with tempfile.TemporaryDirectory() as tmp:
         _quiet_log(tmp)

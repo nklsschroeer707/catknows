@@ -90,9 +90,10 @@ over `SkoolClient`; don't duplicate client logic in it.
   privacy policy, so a content field added here would make a public document
   untrue), and **the log never steers** — no queue, no retry hanging off it.
   It also must never break a write: `record()` swallows its own errors on purpose.
-- **At least 15 s between two writes, process-wide** (decision Niklas
+- **At least 15 s between two writes of the same Skool account** (decision Niklas
   2026-09-22, replaces the old rule D5 "no throttle"). Enforced in the same
   `http._write_api2`, so every write path waits, failed writes count as sent.
+  Keyed by the account's token: a hosted server's users don't wait on each other.
   Fixed value, no jitter, no randomness: tempo hygiene, not disguise.
   `CATKNOWS_WRITE_GAP_S` overrides. Reads are never delayed by it.
   `test_write_gap.py` checks it offline. Don't add random pauses, fake
