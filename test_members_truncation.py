@@ -348,8 +348,11 @@ def test_mcp_tool_flags_our_own_cap():
         def members(self, slug, **kwargs):
             return MemberList([{"id": f"u{i}"} for i in range(kwargs["limit"])])
 
-        def posts(self, slug, limit):
+        def posts(self, slug, limit, **filters):
             return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(limit)]
+
+        def post_categories(self, slug):
+            return []
 
     real = m._get_client
     m._get_client = lambda: FakeClient()
@@ -374,7 +377,10 @@ def test_no_cap_marker_when_nothing_was_cut():
         def members(self, slug, **kwargs):
             return MemberList(P1[:10])
 
-        def posts(self, slug, limit):
+        def post_categories(self, slug):
+            return []
+
+        def posts(self, slug, limit, **filters):
             return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(10)]
 
     real = m._get_client
@@ -398,7 +404,10 @@ def test_cap_marker_still_fires_on_a_real_cut():
         def members(self, slug, **kwargs):
             return MemberList([{"id": f"u{i}"} for i in range(200)])
 
-        def posts(self, slug, limit):
+        def post_categories(self, slug):
+            return []
+
+        def posts(self, slug, limit, **filters):
             return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(200)]
 
     real = m._get_client

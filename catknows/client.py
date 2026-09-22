@@ -79,6 +79,24 @@ class MemberList(list):
         return max(0, self.total_members - len(self))
 
 
+# The feed's sort menu -> Skool's ``s=`` value. "activity" is Skool's default
+# (newest-cm, posts with new comments bubble up) and sends no parameter.
+POST_SORTS = {
+    "activity": None,
+    "new": "newest",
+    "top_day": "best-1d",
+    "top_week": "best-1w",
+    "top_month": "best-1m",
+    "top_year": "best-1y",
+    "top_all": "best",
+}
+
+
+def _plain(name: str) -> str:
+    """A category name without emoji, spacing or case: "📮 Feedback" -> "feedback"."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
 _MEMBER_SORTS = {
     "newest": "-memberapprovedat",
     "last_active": "-memberlastoffline",
@@ -269,7 +287,8 @@ class SkoolClient:
     # -- posts -----------------------------------------------------------------
 
     def posts(self, community_slug: str, *, all_pages: bool = True,
-              limit: int | None = None) -> list[dict]:
+              limit: int | None = None, sort: str = "activity",
+              unread_only: bool = False, category_id: str = "") -> list[dict]:
         """All top-level posts of a community (raw ``pageProps.postTrees[]``).
 
         Each tree has a ``post`` object (id, name, postType, groupId, userId,
@@ -283,12 +302,27 @@ class SkoolClient:
 
         ``limit`` stops paginating once that many unique posts are collected —
         callers that only need the first N shouldn't pay for the full walk.
+
+        Skool sorts and filters server-side, the same switches as the feed's
+        sort menu (docs/API.md §1.2): ``sort`` is one of ``POST_SORTS``,
+        ``unread_only`` is the "Unread" tab (Skool pairs it with "newest",
+        whatever else is asked), ``category_id`` a label id from
+        :meth:`post_categories`. Every page carries the same filters.
         """
+        if sort not in POST_SORTS:
+            raise ValueError(f"sort must be one of {', '.join(POST_SORTS)}")
+        filters = ""
+        if unread_only:
+            filters += "&s=newest&fl=unr"
+        elif POST_SORTS[sort]:
+            filters += f"&s={POST_SORTS[sort]}"
+        if category_id:
+            filters += f"&c={category_id}"
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
         while True:
-            q = (f"/{community_slug}.json?group={community_slug}"
+            q = (f"/{community_slug}.json?group={community_slug}{filters}"
                  + (f"&p={page}" if page > 1 else ""))
             data = self.http.get_next(q, community_slug)
             trees = _dig(data, "pageProps", "postTrees") or []
@@ -310,6 +344,49 @@ class SkoolClient:
             page += 1
             time.sleep(_INTER_PAGE_DELAY_S)
         return out
+
+    def post_categories(self, community_slug: str) -> list[dict]:
+        """The feed's categories (Skool calls them labels): id, name, post count.
+
+        Read from the feed's first page, the same URL an unfiltered
+        :meth:`posts` call fetches first, so it is usually a cache hit.
+        """
+        data = self.http.get_next(f"/{community_slug}.json?group={community_slug}",
+                                  community_slug)
+        labels = _dig(data, "pageProps", "currentGroup", "labels") or []
+        return [{"id": lb.get("id", ""),
+                 "name": (lb.get("metadata") or {}).get("displayName", ""),
+                 "posts": (lb.get("metadata") or {}).get("posts")} for lb in labels]
+
+    def resolve_category(self, community_slug: str, category: str) -> str:
+        """A category name ("feedback", "📮 Feedback") or label id -> the label id."""
+        cats = self.post_categories(community_slug)
+        want = _plain(category)
+        for cat in cats:
+            if category == cat["id"] or (want and want == _plain(cat["name"])):
+                return cat["id"]
+        names = ", ".join(c["name"] for c in cats) or "none"
+        raise ValueError(f"no category '{category}' in {community_slug}; it has: {names}")
+
+    def search(self, community_slug: str, query: str, *, kind: str = "posts",
+               page: int = 1) -> dict:
+        """Skool's own community search (docs/API.md §1.8), raw ``pageProps``.
+
+        ``kind`` is ``posts`` (``postTrees``, 10 per page, ``totalPosts`` /
+        ``totalPostPages``) or ``members`` (``members``, ``totalMembers``).
+        Member hits are *membership* objects with the person under ``user`` —
+        flatten them with ``normalize.search_member``. Note ``members.json``
+        ignores a ``q``: searching members only works here.
+        """
+        if not query.strip():
+            raise ValueError("query must not be empty")
+        if kind not in ("posts", "members"):
+            raise ValueError("kind must be 'posts' or 'members'")
+        if page < 1:
+            raise ValueError("page starts at 1")
+        q = (f"/{community_slug}/-/search.json?q={quote(query, safe='')}"
+             f"&t={kind}&group={community_slug}" + (f"&p={page}" if page > 1 else ""))
+        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
 
     def post_detail(self, community_slug: str, post_name: str) -> dict:
         """One post's own page (raw ``pageProps``), by its URL slug.
