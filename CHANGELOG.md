@@ -11,6 +11,15 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-09-22
 
+### Added
+- **`get_notifications`: your Skool bell, readable.** Ask "what just
+  happened?" and the AI gets the same list the bell shows: who did what, when,
+  in which community, with a short preview. Every entry says what it points
+  at, so the AI can open the post or the comment thread right away. Reading
+  it does not mark anything as read. Filters: one community, or one of
+  Skool's tabs (mentions, comments, following, requests, new posts,
+  recordings). Measured against Skool's own website on 22.09.
+
 ### Changed
 - **Writes are now at least 15 seconds apart.** Two posts, comments, DMs or
   edits sent back to back wait for each other, across every tool in the same

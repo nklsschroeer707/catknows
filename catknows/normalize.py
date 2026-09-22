@@ -293,6 +293,54 @@ def follow(entry: dict, direction: str) -> dict:
     }
 
 
+_PREVIEW_CHARS = 280
+
+
+def notification(msg: dict) -> dict:
+    """Flatten one ``/self/notifications`` message (docs/API.md §1.7).
+
+    The useful part is a JSON *string* in ``metadata.data``. ``post_id`` there
+    is the object the notification is about — the comment for a mention in a
+    reply — and ``root_post_id`` the post it hangs under, so a comment is the
+    case where the two differ. The community slug is NOT in the payload: it is
+    the first segment of ``link_as`` (the display name is not a slug, and
+    hoomans' slug is ``the-skool-memes-4437``). ``target`` is shaped so it goes
+    straight into get_post (community + post_name) and get_post_comments
+    (community + post_id).
+    """
+    try:
+        data = json.loads((msg.get("metadata") or {}).get("data") or "{}")
+    except (TypeError, ValueError):
+        data = {}
+    link = data.get("link_as") or ""
+    parts = link.split("?", 1)[0].strip("/").split("/")
+    root = data.get("root_post_id") or ""
+    obj = data.get("post_id") or ""
+    content = (data.get("content") or "").strip()
+    if len(content) > _PREVIEW_CHARS:
+        content = content[:_PREVIEW_CHARS].rstrip() + "…"
+    return {
+        "id": msg.get("id", ""),
+        "kind": msg.get("action") or data.get("action", ""),
+        "what": data.get("text", ""),
+        "who": data.get("display_name", ""),
+        "who_id": data.get("src_user_id", ""),
+        "when": _ns_or_iso_to_dt(msg.get("created_at")),
+        "unread": bool(msg.get("unread")),
+        "community": parts[0] if parts and parts[0] else "",
+        "community_name": data.get("group_display_name", ""),
+        "preview": content,
+        "target": {
+            "post_id": root,
+            "comment_id": obj if obj and obj != root else "",
+            # Only a post link has a second segment that is a post; /-/pending
+            # and friends are pages, not posts.
+            "post_name": parts[1] if root and len(parts) > 1 and parts[1] != "-" else "",
+            "url": f"https://www.skool.com{link}" if link else "",
+        },
+    }
+
+
 def _slugs(groups) -> list[str]:
     """Normalize a groups array to a plain list of slugs.
 

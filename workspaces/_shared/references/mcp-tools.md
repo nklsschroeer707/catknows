@@ -26,6 +26,7 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_admin_metrics` | slug, range="30d" | growth/engagement (members, active, activity series) — owner/admin only; no visitors/conversion/MRR (see skool-quirks.md) |
 | `list_chat_channels` | offset, limit=30 | your DM channels: participants, last message, unread (limit above 30 is refused) |
 | `read_dms` | channel_id, count=30 | full message history of one channel, oldest→newest: who wrote what, when, plus attachment file names + urls. Pages back through the whole conversation — Skool caps a single read at 50, this walks past it |
+| `get_notifications` | limit=30, category="", community_slug="", cursor="" | your bell, newest first: kind, who, when, community slug, text preview, `target` (post_id, comment_id, post_name, url). **"What just happened?" starts here**, then read each target with `get_post` / `get_post_comments`. Does not mark anything read. limit max 30, older via `cursor`; category = mentions\|comments\|following\|requests\|new_posts\|recordings |
 | `pull_to_vault` | slug, vault_dir, include_comments | full community → Obsidian Markdown vault |
 | `update_catknows` | confirm=false | update the local install from GitHub — draft-first: without confirm it only reports what's new; after an update the human must reconnect their AI client |
 

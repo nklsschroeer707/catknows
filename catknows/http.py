@@ -41,11 +41,12 @@ MAX_RETRIES_202 = 3          # Skool ISR returns 202 while a page is still build
 RETRY_202_DELAY_S = 2
 
 # Successful GETs are cached in-process so repeated research doesn't re-hit
-# Skool. CATKNOWS_CACHE_TTL (seconds) overrides; 0 disables. Chat channels are
-# never cached (unread state must be live), and any write clears the cache.
+# Skool. CATKNOWS_CACHE_TTL (seconds) overrides; 0 disables. Chat channels and
+# notifications are never cached ("what just happened?" must be live), and any
+# write clears the cache.
 CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
 _CACHE_MAX_ENTRIES = 128
-_NEVER_CACHE = ("/self/chat-channels",)
+_NEVER_CACHE = ("/self/chat-channels", "/self/notifications")
 
 # Minimum gap between two writes to Skool, process-wide (decision Niklas
 # 2026-09-22, replaces the old "no throttle" rule D5). A fixed value, no

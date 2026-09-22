@@ -21,6 +21,7 @@ import pathlib
 import re
 import time
 from typing import Iterator
+from urllib.parse import quote
 
 from .auth import Session
 from .http import SkoolHTTP, SkoolHTTPError
@@ -754,6 +755,38 @@ class SkoolClient:
         """
         q = f"?client_id={client_id}" if client_id else ""
         self.http.delete_api2(f"/courses/{unit_id}{q}")
+
+    # -- notifications ---------------------------------------------------------
+
+    # The website's filter tabs; anything else Skool answers 400 "invalid category".
+    NOTIFICATION_CATEGORIES = ("mentions", "comments", "following", "requests",
+                               "new_posts", "recordings")
+
+    def notifications(self, *, limit: int = 30, category: str = "",
+                      community_slug: str = "", cursor: str = "") -> dict:
+        """Your notifications, newest first (docs/API.md §1.7) — the bell's list.
+
+        The same GET the website sends when the bell opens. It does not mark
+        anything read: Skool does that with separate POSTs (``/messages``,
+        ``/messages/{id}/read``) that this never sends. ``limit`` above 30 is
+        refused by Skool ("invalid limit"); page on with the returned
+        ``cursor``. ``community_slug`` narrows to one community.
+        Returns ``{messages, has_more, cursor, type}`` raw.
+        """
+        if not 1 <= limit <= 30:
+            raise ValueError("limit must be 1..30 (Skool refuses more); page with cursor")
+        if category and category not in self.NOTIFICATION_CATEGORIES:
+            raise ValueError(f"category must be one of {', '.join(self.NOTIFICATION_CATEGORIES)}")
+        q = f"/self/notifications?limit={limit}"
+        if community_slug:
+            q += f"&type=group&group={self.group_id_for(community_slug)}"
+        else:
+            q += "&type=all"
+        if category:
+            q += f"&category={category}"
+        if cursor:
+            q += f"&cursor={quote(cursor, safe='')}"
+        return self.http.get_api2(q)
 
     # -- chat ------------------------------------------------------------------
 
