@@ -12,6 +12,14 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 ## 2026-09-22
 
 ### Added
+- **Let Skool do the filtering: sorted, unread and per-category posts.**
+  `list_posts` now takes `sort` (latest activity, newest, or top of the
+  day/week/month/year/all time), `unread_only` (just the posts you haven't
+  opened) and `category` by its name, like "feedback". Each post also says
+  its category and whether it has new comments. Asking for "what's unread"
+  now fetches those two posts instead of the whole feed.
+- **`search_community`: Skool's own search, for posts and members.** Find
+  posts about a topic or a member by name without listing everything first.
 - **`get_notifications`: your Skool bell, readable.** Ask "what just
   happened?" and the AI gets the same list the bell shows: who did what, when,
   in which community, with a short preview. Every entry says what it points

@@ -296,8 +296,11 @@ def test_mcp_tool_flags_our_own_cap():
         def members(self, slug, **kwargs):
             return MemberList([{"id": f"u{i}"} for i in range(kwargs["limit"])])
 
-        def posts(self, slug, limit):
+        def posts(self, slug, limit, **filters):
             return [{"post": {"id": f"p{i}", "metadata": {}}} for i in range(limit)]
+
+        def post_categories(self, slug):
+            return []
 
     real = m._get_client
     m._get_client = lambda: FakeClient()

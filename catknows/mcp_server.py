@@ -294,22 +294,70 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
 
 
 @mcp.tool()
-def list_posts(community_slug: str, limit: int = 25, raw: bool = False) -> list[dict]:
-    """List posts of a Skool community (title, author, likes, comment count, content).
+def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
+               sort: str = "activity", unread_only: bool = False,
+               category: str = "") -> list[dict]:
+    """List posts of a Skool community (title, author, likes, comment count, content, category).
+
+    Let Skool filter instead of reading everything — it's cheaper:
+    - sort: "activity" (default, new comments bubble up), "new" (newest posts),
+      "top_day" / "top_week" / "top_month" / "top_year" / "top_all" (most liked).
+    - unread_only=true: only posts YOU haven't opened yet (Skool's "Unread" tab).
+    - category: a feed category by name ("feedback") or id; an unknown name
+      errors with the list of existing ones.
+    Each post says `category` and `has_new_comments` (Skool's "new comment" badge).
 
     raw=True returns Skool's unmodified post trees. Keep limit small — raw trees
     are large and can exceed the tool-result size cap.
 
     One call returns at most 200 posts (30 with raw=True), whatever limit says.
     Ask for more and the last list entry is {"limit_capped": true, ...} — the
-    list is the newest 200, not the whole community.
+    list is the first 200 in that order, not the whole community.
     """
     effective, capped = _cap(limit, raw)
-    trees = _get_client().posts(community_slug, limit=effective)
-    out = _safe_raw(trees) if raw else [_jsonable(normalize.post(t)) for t in trees]
+    client = _get_client()
+    category_id = client.resolve_category(community_slug, category) if category else ""
+    trees = client.posts(community_slug, limit=effective, sort=sort,
+                         unread_only=unread_only, category_id=category_id)
+    if raw:
+        out = _safe_raw(trees)
+    else:
+        names = {c["id"]: c["name"] for c in client.post_categories(community_slug)}
+        out = []
+        for t in trees:
+            rec = _jsonable(normalize.post(t))
+            rec["category"] = names.get(rec["category_id"], "")
+            out.append(rec)
     if capped:
         out = [*out, capped]
     return out
+
+
+@mcp.tool()
+def search_community(community_slug: str, query: str, kind: str = "posts",
+                     page: int = 1) -> dict:
+    """Search one community with Skool's own search — posts or members.
+
+    Use this instead of listing everything and reading it: Skool does the
+    matching, you get only the hits. kind="posts": 10 posts per page (same
+    fields as list_posts); kind="members": people whose name or bio matches
+    (same fields as list_members, plus member_id). `pages` says how far
+    `page` can go for posts.
+    """
+    client = _get_client()
+    pp = client.search(community_slug, query, kind=kind, page=page)
+    if kind == "members":
+        hits = [_jsonable(normalize.search_member(m)) for m in pp.get("members") or []]
+        return {"query": query, "kind": kind, "total": pp.get("totalMembers"),
+                "page": page, "results": hits}
+    names = {c["id"]: c["name"] for c in client.post_categories(community_slug)}
+    hits = []
+    for t in pp.get("postTrees") or []:
+        rec = _jsonable(normalize.post(t))
+        rec["category"] = names.get(rec["category_id"], "")
+        hits.append(rec)
+    return {"query": query, "kind": kind, "total": pp.get("totalPosts"),
+            "page": page, "pages": pp.get("totalPostPages"), "results": hits}
 
 
 @mcp.tool()
@@ -1247,7 +1295,7 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript", "get_notifications",
+    "get_post", "get_video_transcript", "get_notifications", "search_community",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {

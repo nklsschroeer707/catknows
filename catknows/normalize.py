@@ -195,7 +195,24 @@ def post(tree: dict) -> dict:
         "video_ids": [v for v in (meta.get("videoIds")
                                   or meta.get("video_ids") or "").split(",") if v],
         "created_at": _ns_or_iso_to_dt(p.get("createdAt")),
+        # The feed's category (Skool: label). Name via SkoolClient.post_categories.
+        "category_id": p.get("labelId") or meta.get("labels") or "",
+        # Skool's own "New comment" badge for the logged-in viewer.
+        "has_new_comments": bool(meta.get("hasNewComments")),
     }
+
+
+def search_member(hit: dict) -> dict:
+    """Flatten one member hit from ``/-/search.json?t=members``.
+
+    Unlike ``members.json`` (a user with ``member`` inside), a search hit is
+    the membership with the person under ``user``. Turned inside out here so
+    it comes out exactly like a ``list_members`` record, plus ``member_id`` —
+    the membership id that acting on a member (approve, role) needs.
+    """
+    user = dict(hit.get("user") or {})
+    user["member"] = {"role": hit.get("role", ""), "groupId": hit.get("groupId", "")}
+    return {**member(user), "member_id": hit.get("id", "")}
 
 
 def comments(merged: dict) -> list[dict]:

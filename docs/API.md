@@ -181,6 +181,26 @@ Each tree has a `post`:
 need the group UUID. It "falls out" of the first posts response as
 `post.groupId` — one posts fetch bootstraps it.
 
+**Sort and filter server-side** (the feed's sort menu and category chips,
+measured 2026-09-22 on an own community; every page carries the same params):
+
+| Param | Values | Website label |
+|---|---|---|
+| `s` | *(absent)* = `newest-cm` | Default: last activity |
+| `s` | `newest` | New |
+| `s` | `best-1d`, `best-1w`, `best-1m`, `best-1y`, `best` | Top: day, week, month, year, all time |
+| `fl` | `unr`, together with `s=newest` | Unread (posts the viewer hasn't opened) |
+| `c` | label id | a category chip |
+
+`pageProps` echoes them as `sortType`, `filter`, `category`, and carries
+`total` for the filtered view (unread: 2 of 80). Categories are
+`currentGroup.labels[]` (`id`, `metadata.displayName`, `metadata.posts`,
+`metadata.defaultSort`); a post names its own in `labelId` and
+`metadata.labels`. `metadata.hasNewComments` is the viewer's "New comment"
+badge. Implemented as `posts(sort=, unread_only=, category_id=)`,
+`post_categories()`, `resolve_category()`; the `list_posts` tool takes the
+category by name.
+
 ### 1.2b One post's own page — attachments and video (Next.js shape)
 
 ```
@@ -528,6 +548,28 @@ Implemented as `SkoolClient.notifications()` / the `get_notifications` MCP tool
 A live push channel exists too: `wss://groups-ps.skool.com/ws`, subscribed with
 `sub:usp:{uid},cun:{uid},uspc:{uid},ganp:{uid},alss:{gid},gnp:{gid},gps:{gid},pup:{gid}:{postId},…`.
 Not used — a poll of the GET on demand is all "what happened?" needs.
+
+---
+
+### 1.8 Search (posts and members) — Next.js shape
+
+```
+GET /_next/data/{buildId}/{slug}/-/search.json?q={query}&t=posts&group={slug}[&p={page}]
+GET /_next/data/{buildId}/{slug}/-/search.json?q={query}&t=members&group={slug}
+```
+
+The search box inside a community (measured 2026-09-22). `t=posts`:
+`pageProps.postTrees[]` (same trees as the feed, 10 per page), `totalPosts`,
+`totalPostPages`, `page`; page on with `&p=N`. `t=members`:
+`pageProps.members[]`, `totalMembers`. **A member hit is the membership**
+(`id` = member id, `role`, `groupId`, `approvedAt`, `lastOffline`, `metadata`)
+with the person under `user` — the reverse nesting of `members.json`.
+`members.json` itself ignores a `q` parameter: this is the only member search.
+`settings.secondaryMenusItems` carries the hit count per tab.
+
+Implemented as `SkoolClient.search()` / the `search_community` MCP tool
+(`normalize.search_member` turns a member hit back into a `list_members`
+record, plus `member_id`).
 
 ---
 
