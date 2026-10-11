@@ -233,10 +233,13 @@ class SkoolHTTP:
         # emits the same stub shape for ANY server-side redirect though — the
         # membership gate always bounces to the about page, while navigation
         # redirects (classroom course -> first lesson ?md=...) point deeper
-        # into the route and must pass through untouched.
+        # into the route and must pass through untouched. Since 2026-10 the
+        # stub also carries Sentry's tracing keys; demanding the bare two-key
+        # shape let every gated page through as empty (test_member_gate.py).
         pp = data.get("pageProps") if isinstance(data, dict) else None
         if (isinstance(pp, dict) and "__N_REDIRECT" in pp
-                and set(pp) <= {"__N_REDIRECT", "__N_REDIRECT_STATUS"}):
+                and {k for k in pp if not k.startswith("_sentry")}
+                <= {"__N_REDIRECT", "__N_REDIRECT_STATUS"}):
             target = str(pp.get("__N_REDIRECT") or "")
             if target.split("?", 1)[0].rstrip("/").endswith("/about"):
                 where = f"'{community_slug}'" if community_slug else "this community"
