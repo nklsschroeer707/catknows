@@ -9,6 +9,18 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-10-11
+
+### Fixed
+- **200 is a batch, not the end of the list.** `list_members`, `list_posts`
+  (also with `author`) and `get_follows` still return at most 200 records per
+  call, but they now take `offset`, and when more are there the
+  `limit_capped` entry says `next_offset`. Call again with that offset for the
+  next 200, until no marker comes back. A member with 300 posts or 210
+  followers is now readable in full. `get_follows` reads everyone by default
+  (it stopped at 200 before, without saying so). The marker only appears when
+  something was actually held back. Reported by Dan.
+
 ## 2026-09-22
 
 ### Added
