@@ -11,7 +11,21 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-10-11
 
+### Added
+- **`get_leaderboard`: a community's leaderboard.** The same view as the
+  Leaderboards page: the top 10 for all time, the last 30 days or the last
+  7 days (`period`), with rank, name, points and level. Also your own rank,
+  your level and how many points you still need for the next one, plus the
+  community's level names, the share of members on each level and what a
+  level unlocks. Skool shows only the top 10, so that is all there is.
+  Owners and admins have no rank on the board. Asked for by Dan.
+
 ### Fixed
+- **"No access" is reported again for private communities.** Skool
+  changed the page it sends when you're not a member, and catknows had
+  stopped recognising it: members, posts and other members-only reads
+  of a private community you haven't joined came back empty instead of
+  saying you have no access. They say so again.
 - **200 is a batch, not the end of the list.** `list_members`, `list_posts`
   (also with `author`) and `get_follows` still return at most 200 records per
   call, but they now take `offset`, and when more are there the

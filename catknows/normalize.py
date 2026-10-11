@@ -267,6 +267,65 @@ def revenue_row(row: dict) -> dict:
     }
 
 
+# get_leaderboard's period -> the board and the viewer's entry in pageProps.
+LEADERBOARD_PERIODS = {
+    "all": ("allTime", "selfAllTime"),
+    "30d": ("past30Days", "self30Days"),
+    "7d": ("past7Days", "self7Days"),
+}
+
+
+def leaderboard(pp: dict, period: str = "all") -> dict:
+    """Flatten a community's leaderboards page for one period (docs/API.md §1.10).
+
+    ``points`` on rows and on ``me`` are the points earned in that period;
+    ``total_points``/``level`` are the viewer's standing overall, from
+    ``self.metadata.spData`` (there even when Skool doesn't rank the viewer).
+    Only the listed fields leave here: the raw rows carry whole profiles and
+    the viewer's own row carries payout and affiliate ids.
+    """
+    board_key, self_key = LEADERBOARD_PERIODS[period]
+    board = pp.get(board_key) or {}
+    rows = []
+    for r in board.get("users") or []:
+        u = r.get("user") or {}
+        rows.append({
+            "rank": r.get("rank"),
+            "handle": u.get("name", ""),
+            "name": f"{u.get('firstName', '')} {u.get('lastName', '')}".strip(),
+            "points": r.get("points"),
+            "level": int(_sp_data(u.get("metadata") or {}).get("lv", 0) or 0),
+        })
+
+    mine = pp.get(self_key) or {}
+    sp = _sp_data(((pp.get("self") or {}).get("metadata")) or {})
+    level = int(sp.get("lv", 0) or 0)
+    # Level 9 is the top; Skool still sends a pnl for it, which means nothing.
+    nxt = sp.get("pnl") if 0 < level < 9 else None
+    total = sp.get("pts")
+    me = {
+        "rank": mine.get("rank"),
+        "points": mine.get("points"),
+        "level": level or None,
+        "total_points": total,
+        "next_level_at": nxt,
+        "points_to_next_level": max(nxt - total, 0) if nxt is not None and total is not None else None,
+    }
+    if not mine:
+        me["note"] = ("not ranked on this board: Skool leaves owners and admins off, "
+                      "and members without points in this period")
+
+    levels = [{
+        "level": lv.get("number"),
+        "name": lv.get("title") or lv.get("name") or f"Level {lv.get('number')}",
+        "percent_of_members": lv.get("percentOfMembers"),
+        "unlocks": [a.get("name", "") for a in lv.get("actions") or []],
+    } for lv in pp.get("groupLevels") or []]
+
+    return {"period": period, "updated_at": board.get("updatedAt"),
+            "rows": rows, "me": me, "levels": levels}
+
+
 def search_member(hit: dict) -> dict:
     """Flatten one member hit from ``/-/search.json?t=members``.
 
@@ -635,6 +694,13 @@ if __name__ == "__main__":
     assert adm["role"] == "admin", adm
     prof = profile({"id": "u4", "profileData": {"member": {"role": "group-moderator"}}})
     assert prof["role"] == "moderator", prof
+
+    # leaderboard: flat rows, the viewer's payout id never comes along.
+    lb = leaderboard({"allTime": {"users": [{"rank": 1, "points": 9, "user": {
+        "name": "a", "metadata": {"spData": '{"lv":2}'}}}]},
+        "self": {"metadata": {"payoutAccountId": "acct", "spData": '{"pts":7,"lv":2,"pnl":20}'}}})
+    assert lb["rows"][0]["level"] == 2 and lb["me"]["points_to_next_level"] == 13, lb
+    assert "acct" not in json.dumps(lb), "leaderboard leaked the payout id"
 
     # follows: the far side only — the owner's side carries their email.
     me = {"id": "me", "name": "owner", "email": "owner@x", "metadata": {"payoutAccountId": "acct"}}

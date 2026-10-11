@@ -682,6 +682,20 @@ class SkoolClient:
             q += f"&category={category_id}"
         return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
 
+    def leaderboards(self, community_slug: str) -> dict:
+        """A community's leaderboards page, raw ``pageProps`` (docs/API.md §1.10).
+
+        One request holds all three boards (``allTime``, ``past30Days``,
+        ``past7Days``, the top 10 each; the page loads no more), the viewer's
+        own rank per board (``selfAllTime``/``self30Days``/``self7Days``, null
+        when unranked) and ``groupLevels``. Members-only. Every row carries the
+        full user object and the viewer's own carries credential-class fields:
+        flatten with :func:`normalize.leaderboard`, never return it raw.
+        """
+        return (self.http.get_next(
+            f"/{community_slug}/-/leaderboards.json?group={community_slug}", community_slug
+        ) or {}).get("pageProps") or {}
+
     def discovery_rank(self, group_skool_id: str) -> dict:
         """Your own community's discovery standing (owner-only, docs/API.md §1.7).
 
