@@ -163,9 +163,42 @@ async def login(request):
     return RedirectResponse(f"{_oidc(endpoint)}?{q}", status_code=302)
 
 
+RETRY_COOKIE = "catknows_relogin"
+
+
+def _login_finished_elsewhere(request):
+    """Keycloak's authentication_expired: this login was finished in another tab.
+
+    Typical right after confirming the email (Chris Fueger, 2026-10-08): the
+    link's tab signs in, the original tab restarts the same login and Keycloak
+    sends it back with error=temporarily_unavailable. The account is fine, so
+    an error page is the wrong answer. Go home if this browser is signed in,
+    otherwise run one fresh login (Keycloak's own session usually signs the
+    user straight in). A second expiry in a row gets a page with a sign-in
+    link instead of another redirect, so this can never loop. The state stays
+    in _pending: the tab that won may still need it.
+    """
+    if _current(request) is not None:
+        return RedirectResponse("/", status_code=302)
+    if request.cookies.get(RETRY_COOKIE):
+        return HTMLResponse(_SHELL.format(
+            title="Almost there", script="",
+            body='<h1>Your account is ready</h1><div class="card">'
+                 '<p>Your email is confirmed. The sign-in finished in another '
+                 'tab, so this one timed out. Nothing is wrong with your '
+                 'account.</p><p><a href="/auth/login">Sign in</a></p></div>',
+        ))
+    resp = RedirectResponse("/auth/login", status_code=302)
+    resp.set_cookie(RETRY_COOKIE, "1", max_age=120, httponly=True, samesite="lax",
+                    secure=not _base_url().startswith("http://localhost"), path="/")
+    return resp
+
+
 async def callback(request):
     """Exchange the code for tokens, verify the id_token, set the cookie."""
     if err := request.query_params.get("error"):
+        if request.query_params.get("error_description") == "authentication_expired":
+            return _login_finished_elsewhere(request)
         return HTMLResponse(_page_error(f"Keycloak said: {err}"), status_code=400)
 
     state = request.query_params.get("state", "")
