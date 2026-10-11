@@ -623,6 +623,52 @@ payloads. Implemented as `SkoolClient.growth_overview()` /
 `analytics_chart()` (`_analytics()` does the dance), the `get_growth` MCP
 tool, and `snapshot --growth SLUG` → `<vault>/trends/growth.jsonl`.
 
+### 1.10 Leaderboards — Next.js shape
+
+The Leaderboards tab (measured 2026-10-11 in a community the account owns and
+in `skoolers`, where it is a plain member):
+
+```
+GET /_next/data/{buildId}/{slug}/-/leaderboards.json?group={slug}
+```
+
+One request carries everything the page shows. `pageProps`:
+
+| Field | Shape |
+|---|---|
+| `allTime`, `past30Days`, `past7Days` | `{type: "all"\|"30d"\|"7d", offset: 0, limit: 10, updatedAt, users[]}` |
+| `users[]` | `{userId, rank, points, updatedAt, user}` — `points` are earned **in that period**; `user` is the full user object, level in `user.metadata.spData` |
+| `selfAllTime`, `self30Days`, `self7Days` | `{userId, rank, points, updatedAt, user}` or **null** |
+| `self.metadata.spData` | the viewer's overall standing: `{"pts", "lv", "pcl", "pnl", "role"}` — `pcl`/`pnl` are the point thresholds of the current and next level |
+| `groupLevels` | `[{number: 1..9, name: "Level N", title, percentOfMembers, actions?}]` |
+| `leaderboardsDateQuery`, `leaderboardsCategoryQuery` | `"YYYYMM"`, `""` — only used by the affiliate/MRR variants (`?ld=`, `?lc=`, `?mrr=`) |
+
+Quirks:
+
+- **Top 10 per board, nothing more.** `limit: 10`, and the page has no
+  "load more"; members see exactly these ten. There is no further page to
+  fetch, and per the access policy none is looked for.
+- **`self*` is null** when Skool doesn't rank the viewer: owners and admins
+  are left off the boards (measured: the owner with 1,620 points has no
+  rank while #1 has 328), and so is a member without points in that period
+  (`self7Days` null in skoolers). The level in `self.metadata.spData` is
+  there either way.
+- **Custom level names are in `title`**; `name` is always `"Level N"`.
+  `actions` lists what a level unlocks (`members_post`, `members_chat`).
+  The same list sits in `currentGroup.metadata.levels` as a JSON string
+  with `percent_of_members`.
+- **Access:** a private community bounces non-members to `/about` (the
+  usual members-only stub, §0, now with Sentry keys beside it). A public
+  one serves the full board to any logged-in account, as the website does;
+  `self*` is then null.
+- Level 9 is the top. Skool still sends a `pnl` for it (133015), which
+  points nowhere.
+- **Sensitive:** the viewer's own `self*.user` is the full own user object,
+  incl. `payoutAccountId` and `aflCode` (§6.6). Flatten, never pass on raw.
+
+Implemented as `SkoolClient.leaderboards()`, `normalize.leaderboard()` and the
+`get_leaderboard` MCP tool (`period="all"|"30d"|"7d"`).
+
 ---
 
 ## 2. Timestamp & casing quirks (read before you parse)

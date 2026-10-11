@@ -677,6 +677,24 @@ def list_join_requests(community_slug: str, query: str = "", page: int = 1) -> d
 
 
 @mcp.tool()
+def get_leaderboard(community_slug: str, period: str = "all") -> dict:
+    """A community's leaderboard, as on its Leaderboards page: who has the most points.
+
+    period: "all" (all-time), "30d" or "7d". Skool shows the top 10 per
+    period and no more. Each row: rank, handle, name, points in that period,
+    level. me: your rank and points in the period (null when Skool doesn't
+    rank you, e.g. as owner or admin), your level, total points and how many
+    points until the next level. levels: the community's level names with
+    the share of members on each and what a level unlocks. Private
+    communities: members only. Public ones show their board to anyone.
+    """
+    if period not in normalize.LEADERBOARD_PERIODS:
+        raise ValueError(f"period must be one of: {', '.join(normalize.LEADERBOARD_PERIODS)}")
+    out = normalize.leaderboard(_get_client().leaderboards(community_slug), period)
+    return {"community": community_slug, "shown": "top 10 (all Skool shows)", **out}
+
+
+@mcp.tool()
 def get_revenue_leaderboard(category: str = "", limit: int = 100) -> dict:
     """Skool's top-earning communities — the "games" leaderboard in the Skoolers community.
 
@@ -1532,7 +1550,7 @@ _READ_ONLY = {
     "get_member_profile", "get_follows", "get_community_about", "get_discovery",
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
-    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard",
+    "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard", "get_leaderboard",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
