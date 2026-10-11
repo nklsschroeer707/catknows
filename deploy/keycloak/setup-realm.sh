@@ -247,6 +247,7 @@ echo "      - Max Clients: keep a ceiling"
 # current as the last person who checked, so diff it against the live list
 # before trusting it. Reconciled 2026-08-17: the two entries missing here were
 # anthropic.com and *.anthropic.com, added below, so both sides now say 36.
+# 2026-10-11: + anysphere.cursor-mcp (Cursor), both sides now say 37.
 #
 #   docker compose exec -T db psql -U keycloak -d keycloak -t -A -c \
 #     "SELECT cc.value FROM component c JOIN component_config cc ON cc.component_id=c.id
@@ -255,7 +256,7 @@ echo "      - Max Clients: keep a ceiling"
 #   claude.ai *.claude.ai claude.com *.claude.com anthropic.com *.anthropic.com
 #   chatgpt.com *.chatgpt.com openai.com *.openai.com
 #   googleusercontent.com *.googleusercontent.com *.google.com gemini.google.com
-#   cursor.sh *.cursor.sh cursor.com *.cursor.com
+#   cursor.sh *.cursor.sh cursor.com *.cursor.com anysphere.cursor-mcp
 #   notion.so *.notion.so notion.com *.notion.com
 #   windsurf.com *.windsurf.com codeium.com *.codeium.com
 #   perplexity.ai *.perplexity.ai mistral.ai *.mistral.ai
@@ -270,6 +271,13 @@ echo "      - Max Clients: keep a ceiling"
 # product domain alone rejects every Google client. Measured 2026-08-16 from a
 # real user's failed connect; the log line naming the URI is the only way to
 # learn a client's actual redirect host — grep Keycloak for KC-SERVICES0108.
+#
+# Cursor is the same trap with a custom scheme: it registers
+# `cursor://anysphere.cursor-mcp/oauth/callback`. The policy ignores the scheme
+# and compares only java.net.URI#getHost, here `anysphere.cursor-mcp`, so that
+# exact host is the whole fix. No wildcard: `.cursor-mcp` is no real TLD, and
+# an exact entry lets nothing else through. Measured 2026-10-11: 403 before,
+# 201 after, a foreign host with a custom scheme still 403.
 echo
 echo "Realm $REALM configured. Discovery:"
 echo "  https://auth.catknows.app/realms/$REALM/.well-known/openid-configuration"
