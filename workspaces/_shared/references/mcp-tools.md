@@ -9,15 +9,15 @@ The only way workspaces touch Skool. Never import the Python client directly.
 |---|---|---|
 | `login_to_skool` | – | call once if other tools report auth errors |
 | `list_my_communities` | – | every community YOUR account is in: slug, display name, your role (owner/admin/moderator/member), member count. **Start here when the job has no slug yet** — every other tool needs one |
-| `list_members` | slug, limit=25 | name, handle, role, points, level, last-active (most recently active first) |
-| `list_posts` | slug, limit=25, sort=activity\|new\|top_day\|top_week\|top_month\|top_year\|top_all, unread_only=false, category="", author="" | title, author, likes, comment count, content, **post id**, `category`, `has_new_comments`. **Filter here instead of reading everything:** `unread_only` = only posts you haven't opened, `category` by name ("feedback"), `author` = every post one member created (@handle or full name) — use this, not `search_community`, for "all posts by X" |
+| `list_members` | slug, limit=25, offset=0 | name, handle, role, points, level, last-active (most recently active first) |
+| `list_posts` | slug, limit=25, sort=activity\|new\|top_day\|top_week\|top_month\|top_year\|top_all, unread_only=false, category="", author="", offset=0 | title, author, likes, comment count, content, **post id**, `category`, `has_new_comments`. **Filter here instead of reading everything:** `unread_only` = only posts you haven't opened, `category` by name ("feedback"), `author` = every post one member created (@handle or full name) — use this, not `search_community`, for "all posts by X" |
 | `search_community` | slug, query, kind=posts\|members, page=1 | Skool's own search in one community: posts (10 per page, `pages`) or members (same fields as list_members + `member_id`). The only way to search members by name |
 | `get_post` | slug, post_name | ONE post incl. file attachments (name, type, download URL) + video ids. The post LIST carries only attachment ids — the downloadable URL exists **only here** |
 | `get_post_comments` | slug, post_id | full nested comment thread (post_id from `list_posts`) |
 | `get_post_likes` | slug, post_id | users who liked the post |
 | `get_video_transcript` | slug, post_name | spoken transcript of a post's Skool-hosted video(s): full text + timestamped cues. Silent videos return has_transcript=false; embedded YouTube/Loom/Vimeo is NOT covered (see skool-quirks.md) |
 | `get_member_profile` | user_name, slug | bio, socials, stats (user_name = Skool handle) |
-| `get_follows` | user_name, direction=followers\|following, limit=200 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
+| `get_follows` | user_name, direction=followers\|following, limit=1000, offset=0 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
 | `get_revenue_leaderboard` | category="", limit=100 | Skool's top-earning communities (the Skoolers "games" board): top 100 overall or top 50 of a category (name like "hobbies"). Global + category rank, community, owner with revenue badge, `mrr_usd`, `mrr_growth_usd`, traffic. Nothing beyond those |

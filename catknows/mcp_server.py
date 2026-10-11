@@ -131,9 +131,8 @@ def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
     only reports Skool cutting the page walk short, not us lowering the limit.
     Both list tools append this instead, so the two stay in step.
 
-    ``returned`` is the ceiling, i.e. the most the walk may collect. A caller
-    that can end the walk earlier (the role cap in `list_members`) overwrites it
-    with the real row count before appending.
+    The returned dict is a template; `_batch_marker` decides whether it is
+    appended at all and fills in the real row count and the next offset.
     """
     ceiling = 30 if raw else 200
     try:
@@ -147,14 +146,53 @@ def _cap(limit: int, raw: bool) -> tuple[int, dict | None]:
         "limit_capped": True,
         "requested": limit,
         "returned": effective,
-        "note": f"catknows caps this tool at {ceiling} records per call"
-                f"{' (raw records are much bigger)' if raw else ''} so the "
-                "response stays inside the tool-result size limit. This list is "
-                "the first "
-                f"{effective}, not everything that matched. Narrow the query "
-                "instead of raising limit: filters, lifecycle, tiers or "
-                "course_ids on list_members, so each call returns fewer rows.",
+        "ceiling": ceiling,
+        "raw": raw,
     }
+
+
+def _offset(offset: int) -> int:
+    try:
+        return max(0, int(offset))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _batch_marker(capped: dict | None, rows: int, offset: int, *,
+                  more: bool, also_cut: bool = False) -> dict | None:
+    """The limit marker for one batch, or None when nothing was cut.
+
+    The 200 cap is a batch size, not the end of the list (Dan Schaad,
+    2026-09-24: list_posts(author=...) and get_follows could never get past
+    200). ``more`` says the walk filled the batch, so rows may follow — the
+    marker then carries ``next_offset`` for the follow-up call. ``also_cut``
+    is another cap that ended the walk first (the role cap in list_members):
+    worth stating, but there is no next batch to point at.
+
+    Asking for 650 of a 10-row list returns all 10 and no marker — claiming a
+    cut that never happened is the mirror image of hiding one.
+    """
+    if not capped or not (more or also_cut):
+        return None
+    ceiling = capped.pop("ceiling", 200)
+    raw = capped.pop("raw", False)
+    marker = {**capped, "returned": rows}
+    if offset:
+        marker["offset"] = offset
+    note = (f"catknows returns at most {ceiling} records per call"
+            f"{' (raw records are much bigger)' if raw else ''} so the response "
+            "stays inside the tool-result size limit. ")
+    if more:
+        marker["next_offset"] = offset + rows
+        note += (f"This list is records {offset + 1}–{offset + rows}, not "
+                 f"everything that matched. Call again with offset="
+                 f"{offset + rows} for the next batch, or narrow the query "
+                 "(filters, lifecycle, tiers or course_ids on list_members; "
+                 "author or category on list_posts) so fewer rows match.")
+    else:
+        note += f"Only {rows} came back, see the other marker for why."
+    marker["note"] = note
+    return marker
 
 
 def _jsonable(obj: Any) -> Any:
@@ -203,7 +241,7 @@ _MEMBER_FILTER_KWARGS = {
 def list_members(community_slug: str, limit: int = 25, raw: bool = False,
                  lifecycle: str = "", sort: str = "last_active",
                  filters: str = "", tiers: str = "",
-                 course_ids: str = "") -> list[dict]:
+                 course_ids: str = "", offset: int = 0) -> list[dict]:
     """List members of a Skool community: name, role, points, level, last-active, and more.
 
     Sorted by Skool DESC on last-active by default, so limit=25 is the most
@@ -217,9 +255,10 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
     lift this. Moderators, admins and owners get every page.
 
     One call returns at most 200 members (30 with raw=True), whatever limit says,
-    so the response fits the tool-result size limit. Ask for more and the last
-    list entry is {"limit_capped": true, "requested": ..., "returned": ...} —
-    narrow the query with the filters below rather than raising limit.
+    so the response fits the tool-result size limit. When more are there, the
+    last list entry is {"limit_capped": true, "next_offset": ...} — call again
+    with offset=next_offset for the next batch, or narrow the query with the
+    filters below.
 
     Filtering (works for regular members too, not just admins):
     - lifecycle: active | cancelling | churned | banned (empty = default view)
@@ -245,16 +284,19 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
                 f"One of: {', '.join(_MEMBER_FILTER_KWARGS)}.")
         kwargs[key] = True
     effective, capped = _cap(limit, raw)
+    offset = _offset(offset)
     users = _get_client().members(
-        community_slug, limit=effective, lifecycle=lifecycle, sort=sort,
+        community_slug, limit=offset + effective, lifecycle=lifecycle, sort=sort,
         tiers=_csv_arg(tiers), course_ids=_csv_arg(course_ids), **kwargs)
-    out = _safe_raw(list(users)) if raw else [_jsonable(normalize.member(u)) for u in users]
-    if capped:
-        # `returned` is computed from the limit, before the walk runs. The role
-        # cap can end the walk sooner, and a marker claiming 200 next to 30 rows
-        # is exactly the dishonesty this marker exists to prevent.
-        capped["returned"] = len(users)
-        out.append(capped)
+    batch = list(users)[offset:]
+    out = _safe_raw(batch) if raw else [_jsonable(normalize.member(u)) for u in batch]
+    # The role cap can end the walk at 30, and a marker claiming 200 next to
+    # 30 rows is exactly the dishonesty this marker exists to prevent.
+    marker = _batch_marker(capped, len(batch), offset,
+                           more=len(users) >= offset + effective,
+                           also_cut=users.capped_by_role)
+    if marker:
+        out.append(marker)
     if users.capped_by_role:
         out.append({
             "capped_by_role": True,
@@ -297,7 +339,7 @@ def list_members(community_slug: str, limit: int = 25, raw: bool = False,
 @mcp.tool()
 def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
                sort: str = "activity", unread_only: bool = False,
-               category: str = "", author: str = "") -> list[dict]:
+               category: str = "", author: str = "", offset: int = 0) -> list[dict]:
     """List posts of a Skool community (title, author, likes, comment count, content, category).
 
     author: only posts this member CREATED in the community — their @handle
@@ -318,20 +360,26 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
     are large and can exceed the tool-result size cap.
 
     One call returns at most 200 posts (30 with raw=True), whatever limit says.
-    Ask for more and the last list entry is {"limit_capped": true, ...} — the
-    list is the first 200 in that order, not the whole community.
+    When more are there, the last list entry is {"limit_capped": true,
+    "next_offset": ...} — call again with offset=next_offset for the next
+    batch, in the same order. Works with author too, so a member's full
+    history is reachable batch by batch.
     """
     effective, capped = _cap(limit, raw)
+    offset = _offset(offset)
+    want = offset + effective
     client = _get_client()
     if author:
         if unread_only or category or sort != "activity":
             raise ValueError("author can't be combined with sort, unread_only or category")
         handle = client.resolve_member(community_slug, author)["name"]
-        trees = client.posts_by(community_slug, handle, limit=effective)
+        trees = client.posts_by(community_slug, handle, limit=want)
     else:
         category_id = client.resolve_category(community_slug, category) if category else ""
-        trees = client.posts(community_slug, limit=effective, sort=sort,
+        trees = client.posts(community_slug, limit=want, sort=sort,
                              unread_only=unread_only, category_id=category_id)
+    more = len(trees) >= want
+    trees = trees[offset:]
     if raw:
         out = _safe_raw(trees)
     else:
@@ -341,8 +389,9 @@ def list_posts(community_slug: str, limit: int = 25, raw: bool = False,
             rec = _jsonable(normalize.post(t))
             rec["category"] = names.get(rec["category_id"], "")
             out.append(rec)
-    if capped:
-        out = [*out, capped]
+    marker = _batch_marker(capped, len(trees), offset, more=more)
+    if marker:
+        out = [*out, marker]
     return out
 
 
@@ -435,7 +484,8 @@ def get_member_profile(user_name: str, community_slug: str, raw: bool = False) -
 
 
 @mcp.tool()
-def get_follows(user_name: str, direction: str = "followers", limit: int = 200) -> dict:
+def get_follows(user_name: str, direction: str = "followers", limit: int = 1000,
+                offset: int = 0) -> dict:
     """Who follows a Skool user (direction="followers") or whom they follow ("following").
 
     user_name is the Skool handle (skool.com/@handle), your own or anyone's —
@@ -444,21 +494,28 @@ def get_follows(user_name: str, direction: str = "followers", limit: int = 200) 
     list that means "follows back").
 
     One call returns at most 200 people. total is Skool's own count; if it's
-    larger than the list, the tail has {"limit_capped": true, ...}. If Skool
-    stopped serving pages early, "incomplete" is true — don't treat that list
-    as everyone. On very large profiles Skool re-serves page 1 for every page,
-    so only the first 30 are reachable there.
+    larger than what has been returned so far, the result has
+    "limit_capped" with next_offset — call again with offset=next_offset for
+    the rest. If Skool stopped serving pages early, "incomplete" is true —
+    don't treat that list as everyone. On other people's profiles Skool often
+    re-serves page 1 for every page, so only the first 30 are reachable there
+    (measured 2026-10-11: @schaad 210 and @mindyy 940 followers → 30 each,
+    incomplete; the caller's own 115 → all 115).
     """
     limit, capped = _cap(limit, False)
-    data = _get_client().follows(user_name, direction, limit=limit)
-    people = [normalize.follow(e, direction) for e in data["entries"]]
+    offset = _offset(offset)
+    data = _get_client().follows(user_name, direction, limit=offset + limit)
+    people = [normalize.follow(e, direction) for e in data["entries"][offset:]]
     out: dict = {"user_name": user_name, "direction": direction,
                  "total": data["total"], "returned": len(people),
                  "incomplete": data["incomplete"], "people": people}
-    if capped and data["total"] > len(people):
-        # _cap's note points at list_members filters; there are none here.
-        out["limit_capped"] = {**capped, "note": f"First {len(people)} of "
-                               f"{data['total']} only — the tool caps one call at 200."}
+    if offset:
+        out["offset"] = offset
+    marker = _batch_marker(capped, len(people), offset,
+                           more=data["total"] > offset + len(people)
+                           and len(data["entries"]) >= offset + limit)
+    if marker:
+        out["limit_capped"] = marker
     return out
 
 
