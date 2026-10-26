@@ -1340,6 +1340,24 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             "voice_guide": text.strip(),
         }
 
+    def _local_paths(paths: str) -> list[str]:
+        """The attachment paths, refused outright on the hosted server.
+
+        Attachments are LOCAL file paths, read off the disk of whoever runs
+        this server. Locally that is the user's own machine. On the hosted
+        server (per-user sessions on) it is MY disk: any signed-in user could
+        name /proc/self/environ or the session store and have the file mailed
+        to their own DMs, session key included. A remote user has no files
+        here anyway, so the hosted service takes no path attachments at all.
+        """
+        items = _csv_arg(paths)
+        if items and sessions.enabled():
+            raise ValueError(
+                "File attachments are not available on the hosted service. "
+                "Send the text without attachments, or add the file in Skool yourself."
+            )
+        return items
+
     def _attachment_preview(paths: str) -> list[dict]:
         """Describe local files for the draft, without uploading anything yet.
 
@@ -1348,7 +1366,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         not halfway through a confirmed post.
         """
         out = []
-        for p in _csv_arg(paths):
+        for p in _local_paths(paths):
             f = Path(p)
             if not f.is_file():
                 raise ValueError(f"Attachment not found: {p}")
@@ -1365,7 +1383,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         client = _get_client()
         ids = [
             client.upload_file(community_slug, p)["id"]
-            for p in _csv_arg(paths)
+            for p in _local_paths(paths)
         ]
         return ",".join(ids)
 
@@ -1675,7 +1693,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             })
         client = _get_client()
         ids: list[str] = []
-        if attachments:
+        if _local_paths(attachments):
             # A DM has no community slug — the file is owned by the group the
             # channel belongs to, so read that off the channel itself. The
             # messages endpoint returns the channel object in one call; listing
@@ -1692,7 +1710,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                 raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
             ids = [
                 client.upload_file(gid, p)["id"]
-                for p in _csv_arg(attachments)
+                for p in _local_paths(attachments)
             ]
         sent = client.send_dm(channel_id, content, attachments=ids)
         return {"status": "sent", "message": _safe_raw(sent)}
