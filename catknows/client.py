@@ -951,14 +951,16 @@ class SkoolClient:
         transcript, video_id}``, what you omit may be dropped.
 
         Page ``desc`` is TipTap ``[v2]`` JSON — plain text is wrapped for you.
+        A COURSE ``desc`` is plain text (§7.3) and goes out unchanged: wrapping
+        it shows the raw JSON under the classroom tile.
         """
         fields = dict(fields)
-        if "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
-            fields["desc"] = tiptap(str(fields["desc"]))
         try:
             cur = (self.course_tree(unit_id).get("course") or {}).get("metadata") or {}
         except SkoolHTTPError:
             cur = None  # not a root unit -> flat update, caller sends full set
+        if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
+            fields["desc"] = tiptap(str(fields["desc"]))
         if cur is not None:
             base = {k: cur[k] for k in ("title", "desc", "privacy", "min_access_level",
                                         "min_tier", "lock_free_trial", "cover_image",
