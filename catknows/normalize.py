@@ -347,9 +347,11 @@ def comments(merged: dict) -> list[dict]:
     snake_case, so we read snake_case first, camelCase as fallback.
     """
     out: list[dict] = []
+    pinned = ((merged.get("pinned_post_tree") or {}).get("children")) or []
     children = ((merged.get("post_tree") or {}).get("children")) or []
-    _walk_comments(children, "", out)
-    return out
+    _walk_comments(pinned + children, "", out)
+    seen: set = set()
+    return [c for c in out if not (c["skool_id"] in seen or seen.add(c["skool_id"]))]
 
 
 def _walk_comments(nodes: list, explicit_parent: str, out: list) -> None:

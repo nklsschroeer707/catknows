@@ -600,6 +600,10 @@ class SkoolClient:
             q = (f"/posts/{post_skool_id}/comments"
                  f"?group-id={group_skool_id}&limit={_COMMENT_PAGE_LIMIT}"
                  f"&created-gt={cursor}")
+            if page_idx == 0:
+                # Pinned comments (and their replies) are NOT in post_tree and
+                # only come back when asked for (catnose 2026-11-01).
+                q += "&pinned=true"
             data = self.http.get_api2(q)
 
             if page_idx == 0:
@@ -1070,6 +1074,23 @@ class SkoolClient:
         )
         msgs = list(data.get("messages") or [])
         seen = {m.get("id") for m in msgs}
+
+        # With unread messages the opening window ends at *your* last read
+        # position, not at the newest message (``has_more_after`` is true).
+        # Walk forward first, or exactly the unread messages go missing.
+        fwd = data
+        while fwd.get("has_more_after") and msgs:
+            newest = max(msgs, key=lambda m: m.get("created_at") or "").get("id")
+            time.sleep(_INTER_PAGE_DELAY_S)
+            fwd = self.http.get_api2(
+                f"/channels/{channel_id}/messages?before=0&after=50&msg={newest}"
+            )
+            fresh = [m for m in fwd.get("messages") or [] if m.get("id") not in seen]
+            if not fresh:  # cursor stopped moving
+                break
+            seen.update(m.get("id") for m in fresh)
+            msgs += fresh
+        msgs.sort(key=lambda m: m.get("created_at") or "")
 
         # Walk the cursor backwards while more history exists and the caller
         # still wants more than we hold.
