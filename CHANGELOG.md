@@ -9,6 +9,28 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-11-12
+
+### Changed
+- **Join requests hide email addresses unless you ask.** `list_join_requests`
+  shows an applicant's email as `a***@example.com`, in the email answer and in
+  any answer that holds an address, and so does the draft of
+  `review_join_request`. Names, locations, sources and answers are unchanged.
+  To see the addresses (to write to an applicant, say), call
+  `list_join_requests` with `reveal_email=true`. The search matches what is
+  shown, so a masked call finds nobody by address.
+- **Member records and vault notes no longer have an `email` field.** Skool
+  sends it empty today; if it ever fills it, it stays out of tool results and
+  out of the notes `pull_to_vault` writes. Notes written earlier keep what
+  they have.
+
+### Fixed
+- **`raw=True` no longer hands out what only admins see about a member.**
+  The join answers, the email they answered, where they came from and where
+  they were, who approved them, how often they applied and an on-PC flag are
+  removed from every raw result, next to the credential fields that were
+  already removed.
+
 ## 2026-10-11
 
 ### Added

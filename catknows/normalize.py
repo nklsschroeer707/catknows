@@ -12,6 +12,7 @@ extractors, so a normalized record here matches what the graph app stored.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 
@@ -75,7 +76,12 @@ def _role(raw: str) -> str:
 
 
 def member(user: dict) -> dict:
-    """Flatten one raw ``pageProps.users[]`` object into a member record."""
+    """Flatten one raw ``pageProps.users[]`` object into a member record.
+
+    There is no ``email`` here on purpose: Skool sends the field to admins
+    (empty so far), and a flat record is what lands in tool output and vault
+    notes. Nothing reads it, so a day it is filled changes nothing downstream.
+    """
     m = user.get("member") or {}
     meta = user.get("metadata") or {}
     sp = _sp_data(meta)
@@ -84,7 +90,6 @@ def member(user: dict) -> dict:
     return {
         "skool_id": user.get("id", ""),
         "name": user.get("name", ""),
-        "email": user.get("email", ""),
         "first_name": user.get("firstName", ""),
         "last_name": user.get("lastName", ""),
         "role": _role(m.get("role", "")),
@@ -202,12 +207,55 @@ def post(tree: dict) -> dict:
     }
 
 
-def join_request(user: dict) -> dict:
+# Local part, "@", dotted domain. `\w` keeps non-ASCII names working; the domain
+# must end in a label, so a full stop closing a sentence stays outside the match.
+_EMAIL_RE = re.compile(r"[\w.%+'\-]+@[\w\-]+(?:\.[\w\-]+)+")
+
+
+def _mask_match(mo: re.Match) -> str:
+    address = mo.group(0)
+    return address[0] + "***" + address[address.index("@"):]
+
+
+def mask_email(text):
+    """Hide the local part of every email address in ``text``.
+
+    ``anna@example.com`` -> ``a***@example.com``: first character and domain
+    stay, enough to tell two applicants apart and to see where they signed up,
+    not enough to write to them. Text without an address comes back unchanged,
+    a text with several gets all of them masked, and anything that is not a
+    string (``None``, a number) passes through.
+    """
+    if not isinstance(text, str):
+        return text
+    return _EMAIL_RE.sub(_mask_match, text)
+
+
+def _mask_email_field(value):
+    """``mask_email`` for a field that IS an email answer.
+
+    A value that carries no address shape ("anna at example dot com") would
+    pass ``mask_email`` untouched, but the question asked for an email, so the
+    value is not let through: first character and ``***`` remain.
+    """
+    masked = mask_email(value)
+    if masked == value and isinstance(value, str) and value.strip():
+        return value.strip()[0] + "***"
+    return masked
+
+
+def join_request(user: dict, *, reveal_email: bool = False) -> dict:
     """Flatten one pending user from ``-/pending.json`` (docs/API.md §6.5).
 
     The application is the ``member`` block: ``member.id`` is what approving
     or declining needs, ``metadata.survey`` a JSON string with the answered
     join questions, ``highRiskScore`` Skool's own spam flag.
+
+    Email addresses come out masked (``mask_email``): ``email_answer``, every
+    answer to a question of type ``email`` and any address typed into another
+    answer. ``reveal_email=True`` returns them as Skool sent them. This reads
+    the RAW user; the result is already flat and never goes through ``scrub``
+    (``num_requests`` is one of scrub's admin keys).
     """
     m = user.get("member") or {}
     md = m.get("metadata") or {}
@@ -215,6 +263,14 @@ def join_request(user: dict) -> dict:
         answers = (json.loads(md.get("survey") or "{}") or {}).get("survey") or []
     except (TypeError, ValueError):
         answers = []
+
+    def answer(a: dict):
+        value = a.get("answer", "")
+        if reveal_email:
+            return value
+        return _mask_email_field(value) if a.get("type") == "email" else mask_email(value)
+
+    email_answer = m.get("searchAnswer", "")
     return {
         "member_id": m.get("id", ""),
         "user_id": user.get("id", ""),
@@ -227,9 +283,9 @@ def join_request(user: dict) -> dict:
         "risk_flag": bool(md.get("highRiskScore")),
         "num_requests": md.get("numRequests"),
         "source": md.get("attrSrcComp", ""),
-        "email_answer": m.get("searchAnswer", ""),
+        "email_answer": email_answer if reveal_email else _mask_email_field(email_answer),
         "answers": [{"question": a.get("question", ""), "type": a.get("type", ""),
-                     "answer": a.get("answer", "")} for a in answers if isinstance(a, dict)],
+                     "answer": answer(a)} for a in answers if isinstance(a, dict)],
     }
 
 
@@ -645,17 +701,40 @@ SECRET_KEYS = frozenset({
     "env",
 })
 
+# Not credentials, but admin-side data about a PERSON: what Skool shows an admin
+# on each member (join survey, the email they answered, where they came from and
+# where they were, who approved them, how often they applied, an on-PC flag).
+# Same rule as SECRET_KEYS: dropped by name at every depth, camelCase and
+# snake_case. Normalizers read the RAW object before this runs (`join_request`
+# turns `survey` into `answers`); their flat output is never scrubbed. Accepted
+# side effect: a community's own join-QUESTION list is also called `survey`
+# (docs/API.md §6.3) and is gone from raw About payloads.
+PRIVATE_KEYS = frozenset({
+    "survey",
+    "searchAnswer", "search_answer",
+    "attrComp", "attr_comp",
+    "attrSrcComp", "attr_src_comp",
+    "requestLocation", "request_location",
+    "approvedBy", "approved_by",
+    "numRequests", "num_requests",
+    "onPc", "on_pc",
+})
+
+_SCRUBBED = SECRET_KEYS | PRIVATE_KEYS
+
 
 def scrub(obj):
-    """Recursively strip SECRET_KEYS from a payload (in place where possible).
+    """Recursively strip SECRET_KEYS and PRIVATE_KEYS from a payload (in place where possible).
 
-    Returns the same object with credential-class keys removed at every depth,
-    so a raw=True tool result can be handed to an AI or written to disk without
-    leaking account secrets. Idempotent; safe on any JSON-shaped structure.
+    Returns the same object with credential-class and admin-side member keys
+    removed at every depth, so a raw=True tool result can be handed to an AI or
+    written to disk without leaking account secrets or member data. Idempotent;
+    safe on any JSON-shaped structure. Raw Skool payloads only: a normalized
+    record may legitimately carry a key of the same name (``num_requests``).
     """
     if isinstance(obj, dict):
         for key in list(obj.keys()):
-            if key in SECRET_KEYS:
+            if key in _SCRUBBED:
                 del obj[key]
             else:
                 scrub(obj[key])
@@ -817,6 +896,40 @@ if __name__ == "__main__":
     blob = _json.dumps(payload)
     for leak in ("acct_", "pk_live_", "zap_secret", "billingEmail", "4242"):
         assert leak not in blob, f"scrub leaked {leak!r}"
+
+    # admin-side member fields go too, in both spellings and at any depth —
+    # but the flat join_request record keeps its own `num_requests`, because
+    # its raw input is read BEFORE scrub and its output is never scrubbed.
+    adm = {"users": [{"name": "keep", "member": {
+        "searchAnswer": "a@b.c", "approvedBy": "u0",
+        "metadata": {"survey": "{}", "attrComp": "x", "attrSrcComp": "y",
+                     "requestLocation": "z", "numRequests": 1, "onPc": 1, "role": "keep"}},
+        "metadata": {"search_answer": "a@b.c", "approved_by": "u0", "attr_comp": "x",
+                     "attr_src_comp": "y", "request_location": "z", "num_requests": 1,
+                     "on_pc": 1, "bio": "keep"}}]}
+    scrub(adm)
+    assert adm == {"users": [{"name": "keep", "member": {"metadata": {"role": "keep"}},
+                              "metadata": {"bio": "keep"}}]}, f"admin keys must go, got {adm}"
+    assert not PRIVATE_KEYS & SECRET_KEYS, "the two lists must not overlap"
+    jr = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com",
+                                              "metadata": {"numRequests": 2}}})
+    assert jr["num_requests"] == 2, "normalized join request keeps num_requests"
+
+    # member(): no email, even when the raw user carries one.
+    assert "email" not in member({"id": "u5", "email": "ann@example.com"}), "member must not carry email"
+
+    # mask_email: first character + domain stay, all addresses, text untouched.
+    assert mask_email("anna@example.com") == "a***@example.com"
+    assert mask_email("a@x.org, b@y.org.") == "a***@x.org, b***@y.org."
+    assert mask_email("no address, just @handle") == "no address, just @handle"
+    jm = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com",
+                       "metadata": {"survey": json.dumps({"survey": [
+                           {"question": "q", "type": "email", "answer": "ann@example.com"}]})}}})
+    assert jm["email_answer"] == "a***@example.com", jm
+    assert jm["answers"][0]["answer"] == "a***@example.com", jm
+    jc = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com"}},
+                      reveal_email=True)
+    assert jc["email_answer"] == "ann@example.com", jc
 
     # my_community: shaped like a REAL self/groups entry — verified against live
     # api2 output, which is snake_case throughout. The fixtures used to be

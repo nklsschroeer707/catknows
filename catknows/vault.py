@@ -98,7 +98,6 @@ def write_member(vault_dir: Path, community: str, rec: dict) -> Path:
         "community": community,
         "skool_id": rec.get("skool_id"),
         "name": rec.get("name"),
-        "email": rec.get("email"),
         "role": rec.get("role"),
         "points": rec.get("points"),
         "is_online": rec.get("is_online"),

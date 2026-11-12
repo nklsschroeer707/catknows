@@ -215,8 +215,11 @@ def _safe_raw(payload):
 
     Every ``raw=True`` path routes through here so account secrets (Zapier
     keys, Stripe payout ids, billing/payment, affiliate, and Skool's own
-    client-side platform keys — docs/API.md §6.6) never reach an AI context or
-    a log. The scrub list lives in one place: normalize.SECRET_KEYS.
+    client-side platform keys — docs/API.md §6.6) and the admin-side data Skool
+    attaches to each member (join survey, email answer, attribution, request
+    location, approver — docs/API.md §6.5) never reach an AI context or a log.
+    The scrub lists live in one place: normalize.SECRET_KEYS and
+    normalize.PRIVATE_KEYS.
     """
     return normalize.scrub(payload)
 
@@ -644,29 +647,41 @@ def get_growth(community_slug: str,
 
 
 def _join_queue(community_slug: str, *, max_pages: int = 10) -> list[dict]:
-    """The whole join queue, flattened (at most ``max_pages`` × 30)."""
+    """The whole join queue, flattened (at most ``max_pages`` × 30).
+
+    Email answers are masked, always: this feeds the draft of
+    ``review_join_request``, and deciding on a person never needs the address.
+    """
     client = _get_client()
     out: list[dict] = []
     for page in range(1, max_pages + 1):
         pp = client.join_requests(community_slug, page=page)
         users = pp.get("users") or []
-        out.extend(_jsonable(normalize.join_request(u)) for u in users)
+        out.extend(_jsonable(normalize.join_request(u, reveal_email=False)) for u in users)
         if not users or page >= int(pp.get("totalPages") or 1):
             break
     return out
 
 
 @mcp.tool()
-def list_join_requests(community_slug: str, query: str = "", page: int = 1) -> dict:
+def list_join_requests(community_slug: str, query: str = "", page: int = 1,
+                       reveal_email: bool = False) -> dict:
     """Pending join requests of a community you own or moderate.
 
     Each: name, bio, when, where from (location), how they found you
     (source), Skool's spam flag (risk_flag), and every answered join question.
     member_id is what review_join_request needs. query narrows to requests
-    whose name, bio or answers contain it (case-insensitive). 30 per page.
+    whose name, bio or answers contain it (case-insensitive), as printed: with
+    the addresses masked, searching for an address finds nothing. 30 per page.
+
+    Email addresses (the email answer and any address in an answer) come out
+    masked by default, e.g. a***@example.com. reveal_email=True prints them in
+    full; use it only when the owner asked for the addresses (to write to an
+    applicant, say), never to "look closer".
     """
     pp = _get_client().join_requests(community_slug, page=page)
-    reqs = [_jsonable(normalize.join_request(u)) for u in pp.get("users") or []]
+    reqs = [_jsonable(normalize.join_request(u, reveal_email=reveal_email))
+            for u in pp.get("users") or []]
     if query:
         q = query.lower()
         reqs = [r for r in reqs if q in " ".join(

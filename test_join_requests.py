@@ -71,7 +71,8 @@ def test_a_request_comes_out_flat_with_its_answers():
     assert r["source"] == "discovery_browse_group_link", r
     assert r["answers"] == [{"question": "Why join?", "type": "text",
                              "answer": "I build MCP tools"}], r
-    assert r["email_answer"] == "anna@example.com", r
+    assert r["email_answer"] == "a***@example.com", "masked unless asked for (test_privacy_scrub.py)"
+    assert normalize.join_request(QUEUE[0], reveal_email=True)["email_answer"] == "anna@example.com"
 
 
 def test_reading_the_queue_uses_the_pending_page():

@@ -85,7 +85,7 @@ the people who use it, not a pricing page.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
 - ☁️ **Or skip the setup entirely.** [catknows.app](https://catknows.app) is the same bridge, hosted — no Python, no terminal. Free while it's small; the code here stays free forever either way.
-- 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk.
+- 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk. The same goes for what Skool shows only admins about each member (join answers, signup location, who approved them), and applicants' email addresses come out masked unless you ask for them.
 - 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
 - 📜 **[Changelog →](CHANGELOG.md)** — what shipped, in plain words.

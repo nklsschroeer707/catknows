@@ -127,10 +127,18 @@ over `SkoolClient`; don't duplicate client logic in it.
   comments, profile, chat channels) and land on your OWN user object even on
   other people's data. **Every `raw=True` path and anything returning a Skool
   payload verbatim MUST route through `_safe_raw()` (→ `normalize.scrub`).** The
-  scrub list lives in one place: `normalize.SECRET_KEYS` — add a field name
-  there, never a one-off `pop()` at a call site. `normalize.scrub` mutates in
-  place; that's safe because the HTTP cache stores/returns `copy.deepcopy`
-  (never hand a scrubbed object back into the cache).
+  scrub lists live in one place: `normalize.SECRET_KEYS` (credentials) and
+  `normalize.PRIVATE_KEYS` (admin-side data about a member: join survey, email
+  answer, attribution, request location, approver, request count, on-PC flag)
+  — add a field name there, never a one-off `pop()` at a call site.
+  `normalize.scrub` mutates in place; that's safe because the HTTP cache
+  stores/returns `copy.deepcopy` (never hand a scrubbed object back into the
+  cache). Scrub raw payloads only: a normalizer reads the raw object first and
+  its flat output is never scrubbed (`join_request` has its own `num_requests`).
+- **No member email in tool output.** `normalize.member()` and the vault note
+  carry no `email`; `list_join_requests` and the `review_join_request` draft
+  mask email answers (`normalize.mask_email`) unless the operator passes
+  `reveal_email=True`. A new reader of the join queue masks too.
 - **Points quirk:** member points/level come from `metadata.spData` (a JSON
   string), NOT `member.metadata.points` (always 0). Handled in `normalize.member`.
 - **Discovery:** `get_discovery` uses the Next.js `discovery.json` board (global
@@ -170,7 +178,8 @@ a bugfix task. Read it now, not after the feature.
 3. If callers want it flat, add a `normalize.*` function and a self-check assert.
 4. **If the MCP tool can return the payload raw (a `raw=True` param, or a
    verbatim passthrough), send it through `_safe_raw()` — no exceptions.** New
-   secret field names go in `normalize.SECRET_KEYS`.
+   secret field names go in `normalize.SECRET_KEYS`, admin-side member data in
+   `normalize.PRIVATE_KEYS`.
 5. Keep API.md and the code in sync — the docs are the contract.
 6. Add the tool to `workspaces/_shared/references/mcp-tools.md`. That cheatsheet
    is the only place the workspace agents learn what exists, so a tool missing

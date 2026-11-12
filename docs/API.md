@@ -123,7 +123,7 @@ for pagination. Each user:
 {
   "id": "user-uuid",
   "name": "handle",                    // the @handle URL slug
-  "email": "a@b.com",                  // only visible to owners/admins
+  "email": "a@b.com",                  // only visible to owners/admins; normalize.member() does not carry it
   "firstName": "Ada", "lastName": "Lovelace",
   "createdAt": "2024-...", "updatedAt": "...",
   "member": {                          // membership in THIS community
@@ -1169,7 +1169,7 @@ GET /_next/data/{buildId}/{slug}/about.json?group={slug}
 | `tabs` | which features are enabled (`classroom`, `calendar`, `audio-chat`, …) |
 | `plugin*Enabled` | active integrations: `pluginHyrosEnabled`, `pluginZapierEnabled`, `pluginGoogleAdsEnabled`, `pluginMetaConversionsEnabled`, `pluginAutoDmEnabled` |
 | `hyrosScriptUrl`, `googleTagId` | the actual tracking IDs the owner wired up |
-| `lpDescription`, `lpAttachmentsData`, `survey` | landing-page copy & join-survey questions |
+| `lpDescription`, `lpAttachmentsData`, `survey` | landing-page copy & join-survey questions (`survey` is dropped from raw tool output, §6.6) |
 
 Outside `metadata`: `pageProps.pixelId` is the owner's **Meta pixel id** (null
 when none is wired up); `metaConversionsStatus` (`success`/`failing`) says
@@ -1252,6 +1252,17 @@ normal user object whose `member` block is the application:
 question/type/answer the applicant submitted. This lets you screen requests
 programmatically (e.g. auto-flag `highRiskScore`, check a survey answer).
 
+**Email in the tool output.** `normalize.join_request()` reads this raw user and
+returns a flat record whose `email_answer`, every answer of `type: "email"` and
+any address typed into another answer are **masked** (`anna@example.com` →
+`a***@example.com`, `normalize.mask_email`). A value of type `email` that has no
+address shape at all is cut to its first character plus `***`. The
+`list_join_requests` MCP tool does the same by default; `reveal_email=true`
+(`normalize.join_request(user, reveal_email=True)`) prints them as Skool sent
+them. `query` searches the printed form, so a masked call cannot be used to
+look an address up. `review_join_request` shows the queue entry masked too.
+The rest of the record is unchanged, including `num_requests`.
+
 **Approving / declining** (read from Skool's pending-page code 2026-09-22,
 not yet watched on the wire — the queue was empty):
 
@@ -1283,6 +1294,31 @@ ship**:
 These arrive automatically inside otherwise-innocuous page payloads (about,
 members, pending, settings). If you persist raw Skool JSON, **strip
 `self`/`allGroups` first** — treat those payloads as containing credentials.
+
+**Admin-side member fields (not credentials, still private).** As an owner or
+admin, the member objects in `members.json`, `pending.json` and the profile
+pages carry data about the person that no tool caller asked for. Where a field
+sits (`member`, `member.metadata` or the user's own `metadata`) differs by
+field and endpoint (§6.5 shows the pending-queue layout); `scrub` goes by name,
+so it does not matter:
+
+| Field (camelCase / snake_case) | What it is |
+|---|---|
+| `survey` | the join questions and the applicant's answers (JSON string) |
+| `searchAnswer` / `search_answer` | the email answer, surfaced flat |
+| `attrComp` / `attr_comp`, `attrSrcComp` / `attr_src_comp` | attribution: where the signup came from |
+| `requestLocation` / `request_location` | location at the time of the join request |
+| `approvedBy` / `approved_by` | who approved the membership (by its name; nothing in catknows reads it) |
+| `numRequests` / `num_requests` | how often the person applied |
+| `onPc` / `on_pc` | an on-PC flag (seen on the member's own entry; meaning not documented) |
+
+`normalize.PRIVATE_KEYS` lists them, next to `SECRET_KEYS`; `normalize.scrub`
+removes both lists at every depth, so no `raw=True` tool result carries them.
+Normalizers read the raw object before scrubbing (that is how
+`join_request()` still fills `answers`, `location`, `source` and
+`num_requests`); their flat output is never scrubbed. A community's own
+join-question list (`metadata.survey` in `about.json`, §6.3) shares the name
+and is dropped from raw About output with them.
 
 ---
 
