@@ -318,9 +318,14 @@ class SkoolHTTP:
         """PUT to an api2.skool.com endpoint (updates — docs/API.md §7)."""
         return self._write_api2("put", path_and_query, body)
 
-    def delete_api2(self, path_and_query: str) -> dict:
-        """DELETE an api2.skool.com resource. Success is usually an empty 200."""
-        return self._write_api2("delete", path_and_query, None)
+    def delete_api2(self, path_and_query: str, body: dict | None = None) -> dict:
+        """DELETE an api2.skool.com resource. Success is usually an empty 200.
+
+        No JSON body unless one is passed: Skool's own client sends one on
+        exactly one DELETE (``deletePost``, at least ``{}``) and none on the
+        others (``deleteCourse``, …).
+        """
+        return self._write_api2("delete", path_and_query, body)
 
     def _write_api2(self, method: str, path_and_query: str, body: dict | None) -> dict:
         """Every write catknows sends to Skool goes through here.

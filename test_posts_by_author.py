@@ -41,6 +41,14 @@ class _FakeHTTP:
             return {"pageProps": {"currentUser": ME, "postTrees": PAGES[page]}}
         return {"pageProps": {"currentGroup": {"labels": []}}}
 
+    def get_api2(self, path):
+        """list_posts names the categories: group id, then its labels."""
+        if path == f"/groups/{SLUG}":
+            return {"id": "gid-1"}
+        if path == "/groups/gid-1/labels":
+            return {"labels": []}
+        raise AssertionError(f"unexpected api2 read {path}")
+
     def _no_write(self, *a, **k):
         raise AssertionError("a read sent a write")
 

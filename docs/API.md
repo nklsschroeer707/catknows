@@ -193,13 +193,25 @@ measured 2026-09-22 on an own community; every page carries the same params):
 | `c` | label id | a category chip |
 
 `pageProps` echoes them as `sortType`, `filter`, `category`, and carries
-`total` for the filtered view (unread: 2 of 80). Categories are
-`currentGroup.labels[]` (`id`, `metadata.displayName`, `metadata.posts`,
-`metadata.defaultSort`); a post names its own in `labelId` and
-`metadata.labels`. `metadata.hasNewComments` is the viewer's "New comment"
-badge. Implemented as `posts(sort=, unread_only=, category_id=)`,
+`total` for the filtered view (unread: 2 of 80). A post names its own category
+in `labelId` and `metadata.labels`. `metadata.hasNewComments` is the viewer's
+"New comment" badge. Implemented as `posts(sort=, unread_only=, category_id=)`,
 `post_categories()`, `resolve_category()`; the `list_posts` tool takes the
 category by name.
+
+**Categories (Skool calls them labels)** come from `getGroupLabels` in Skool's own client:
+
+```
+GET https://api2.skool.com/groups/{gid}/labels          (no query)
+→ {"labels": [{id, group_id, created_at, updated_at, metadata}]}
+```
+
+`metadata` (snake_case): `display_name`, `posts` (count), `color`,
+`default_sort`, `post_write_role` and sometimes `description`. The feed page
+carries the same list as `currentGroup.labels[]` (camelCase:
+`metadata.displayName`, `metadata.posts`, `metadata.defaultSort`).
+`post_categories()` reads the endpoint and falls back to the feed page only if
+it answers 401, 403 or 404; both ways give `{id, name, posts}`.
 
 ### 1.2b One post's own page — attachments and video (Next.js shape)
 
@@ -384,17 +396,35 @@ levels only — writing a third gets the comment deleted (§5.8).
 ### 1.5 Likes (upvoters) — api2 shape (mixed case)
 
 ```
-GET https://api2.skool.com/posts/{postId}/vote-users?group-id={gid}
+GET https://api2.skool.com/posts/{postId}/vote-users?limit=10&tab=upvotes&cursor=
 ```
 
 ```jsonc
 {
+  "tab": "upvotes",
   "users": [
     { "id": "user-id", "name": "handle",
       "first_name": "Ada", "last_name": "Lovelace" }  // or firstName/lastName — handle both
-  ]
+  ],
+  "has_more": true,
+  "cursor": "…",                // opaque; send it back for the next page
+  "total_upvote_users": 25,
+  "total_downvote_users": 2
 }
 ```
+
+The query order is `limit`, `tab`, `cursor`, and there is **no `group-id`**:
+Skool's own client never sends it. It asks for the first page with
+`limit=10&tab=upvotes&cursor=` (empty cursor) and for the next with `cursor` =
+the `cursor` field of the answer, as long as `has_more` is true. The highest
+`limit` Skool accepts is not measured here.
+
+Implemented as `SkoolClient.likes_page()` (one page, raw object) and
+`SkoolClient.likes()` (walks every page; stops when `has_more` is false, a page
+is empty, the cursor is empty or did not change, or after `max_pages`, 50 by
+default; a group id passed to it is accepted and ignored). The
+`get_post_likes` tool returns **one** page — `likes`, `has_more`, `cursor`,
+`total_upvotes`, `total_downvotes` — and the caller pages on with `cursor`.
 
 Skool gives no "un-liked at" signal — to detect a rescinded like you diff the
 current set against a previously stored set (this repo's graph app does; the
@@ -420,14 +450,18 @@ plain client just returns the current set).
 | Your own user object | `GET https://api2.skool.com/self` | api2 |
 | All your communities (compact) | `GET https://api2.skool.com/self/list-visibility-groups` | api2 |
 | Your saved location | `GET https://api2.skool.com/self/location` | api2 |
-| Chat channels | `GET https://api2.skool.com/self/chat-channels?offset={n}&limit=30&last=true&unread-only=false` | api2 |
-| Chat messages | `GET https://api2.skool.com/channels/{channelId}/messages?before=50` (older: `&after=0&msg={oldestId}`) | api2 |
+| Chat channels | `GET https://api2.skool.com/self/chat-channels?offset={n}&limit=30&last=true&unread-only=false` (`unread-only=true` = only channels with unread messages) | api2 |
+| Chat messages | `GET https://api2.skool.com/channels/{channelId}/messages?before=50` (older: `&after=0&msg={oldestId}`; no `limit`) | api2 |
+| Categories (labels) | `GET https://api2.skool.com/groups/{gid}/labels` (§1.2) | api2 |
 
 > Live-verified against two logged-in accounts (Aug 2026). Notes: `/self/me`
 > and `/self/profile` return **404** — only bare `/self` works. `/self/groups`
 > pages 30 at a time (`has_more` tells you when to stop); `/self/list-visibility-groups`
 > returns everything in one call as `groups_member_of[]` + `groups_created_by_user[]`.
 > `self/chat-channels` rejects `limit=50` (`invalid limit`) — 30 works.
+> With `unread-only=true` and nothing unread, Skool answers `{"channels": null}`
+> (measured live, not an empty list); `chat_channels()` turns that into
+> `"channels": []`.
 
 **Chat messages** need `before` (or `after`), and the endpoint is unusually
 easy to misread — three separate traps:
@@ -447,6 +481,10 @@ easy to misread — three separate traps:
   is silently discarded and you get `either before or after must be set` even
   though you set it. `before=0` also counts as unset. That error means your
   **value** is wrong, not your parameter name.
+
+There is **no `limit`** on this endpoint and Skool's own client sends none: live,
+`?before=30` answers exactly like `?limit=30&before=30` (31 messages, the same
+ids). `chat_messages()` sends `before` only and trims the result to `count`.
 
 Response: `{messages[], has_more_before, has_more_after, channel}`, oldest
 first. Per message, everything sits in `metadata`: `content`, the sender in
@@ -714,7 +752,7 @@ handshake** (`curl_cffi`, a browser, …) — from a default python/curl TLS
 stack, api2 answers 403 no matter what you send:
 
 ```
-GET https://api2.skool.com/posts/{postId}/vote-users?group-id={gid}
+GET https://api2.skool.com/posts/{postId}/vote-users?limit=10&tab=upvotes&cursor=
 Headers:
   Cookie:            auth_token={jwt}; aws-waf-token={waf}; <rest of jar>
   Authorization:     Bearer {jwt}
@@ -1053,8 +1091,12 @@ The update body is **flat** — no `metadata` wrapper (unlike §5.1) and no
 > `metadata.{title, content, attachments}` plus `label_id` — and send the
 > unchanged values back with the edit.
 
-Delete takes an empty body and answers an empty `200`. The object is gone from
-the feed immediately, and `GET /posts/{id}` then answers `404 post not found`.
+The DELETE carries a JSON body, at least `{}` (`feedback` and `rules` are
+optional in Skool's client; catknows sends `{}`). It is the only one of the 20
+DELETE calls in the page code that has a body: `DELETE /courses/{id}` (§7.6)
+and the rest send none, and so does `SkoolHTTP.delete_api2()` unless a body is
+passed. The answer is an empty `200`. The object is gone from the feed
+immediately, and `GET /posts/{id}` then answers `404 post not found`.
 Deleting somebody **else's** post needs moderator rights and is untested.
 
 Implemented as `SkoolClient.post_by_id()` / `update_post()` / `delete_post()`
@@ -1357,7 +1399,7 @@ A unit (snake_case, api2 shape):
 |---|---|
 | Slug → group UUID (no posts fetch needed) | `GET api2 /groups/{slug}` → `{id, name, metadata}` |
 | Course list of a community | `GET api2 /groups/{gid}/courses` → `{courses: [unit], num_all_courses}` |
-| **One course's full tree — members only** | `GET api2 /courses/{courseId}?withChildren=true` → `{course, children: [{course, children: […]}]}` |
+| **One course's full tree — members only** | `GET api2 /courses/{courseId}` (no query; `withChildren` is not sent and changes nothing, measured live) → `{course, children: [{course, children: […]}]}` |
 | Same tree, as the website reads it (no membership needed) | `GET /_next/data/{buildId}/{slug}/classroom/{courseName}.json?group={slug}&md={moduleId}` → `pageProps.course` |
 
 The Next.js classroom page (`{slug}/classroom.json`, §1.6) carries **only the
@@ -1496,7 +1538,7 @@ the original.
 
 ### 7.6 Deleting — `DELETE /courses/{id}`
 
-- **Pages and folders**: plain DELETE, empty 200. ⚠ Deleting a folder does
+- **Pages and folders**: plain DELETE, no body, empty 200. ⚠ Deleting a folder does
   **not** delete its pages — they are lifted to the course root.
 - **A whole course** (children are deleted with it) needs
   `?client_id={32-hex}` — without it: `400 invalid client ID`. The id is the

@@ -417,9 +417,25 @@ class SkoolClient:
     def post_categories(self, community_slug: str) -> list[dict]:
         """The feed's categories (Skool calls them labels): id, name, post count.
 
-        Read from the feed's first page, the same URL an unfiltered
-        :meth:`posts` call fetches first, so it is usually a cache hit.
+        Read from ``GET /groups/{gid}/labels`` (``metadata.display_name``,
+        ``metadata.posts``), Skool's own ``getGroupLabels``. Only if Skool
+        answers that with 401, 403 or 404 does it fall back to the feed page,
+        the same URL an unfiltered :meth:`posts` call fetches first.
         """
+        gid = self.group_id_for(community_slug)
+        try:
+            data = self.http.get_api2(f"/groups/{gid}/labels")
+        except SkoolHTTPError as e:
+            if e.status not in (401, 403, 404):
+                raise
+            return self._post_categories_via_page(community_slug)
+        return [{"id": lb.get("id", ""),
+                 "name": (lb.get("metadata") or {}).get("display_name", ""),
+                 "posts": (lb.get("metadata") or {}).get("posts")}
+                for lb in data.get("labels") or []]
+
+    def _post_categories_via_page(self, community_slug: str) -> list[dict]:
+        """The categories as the feed page carries them (camelCase)."""
         data = self.http.get_next(f"/{community_slug}.json?group={community_slug}",
                                   community_slug)
         labels = _dig(data, "pageProps", "currentGroup", "labels") or []
@@ -629,15 +645,47 @@ class SkoolClient:
 
     # -- likes -----------------------------------------------------------------
 
-    def likes(self, post_skool_id: str, group_skool_id: str) -> list[dict]:
-        """Everyone who upvoted a post (raw ``users[]``).
+    def likes_page(self, post_skool_id: str, *, limit: int = 10, cursor: str = "",
+                   tab: str = "upvotes") -> dict:
+        """ONE page of a post's voters, raw (docs/API.md §1.5).
+
+        ``GET /posts/{id}/vote-users?limit=&tab=&cursor=``, in that order, the
+        way Skool's own client sends it: the first page with ``cursor=""``, the
+        next with the ``cursor`` of the answer while ``has_more`` is true. No
+        ``group-id``. Returns ``{tab, users[], has_more, cursor,
+        total_upvote_users, total_downvote_users}``.
+        """
+        return self.http.get_api2(
+            f"/posts/{post_skool_id}/vote-users"
+            f"?limit={limit}&tab={tab}&cursor={quote(cursor, safe='')}"
+        )
+
+    def likes(self, post_skool_id: str, group_skool_id: str = "", *,
+              tab: str = "upvotes", page_limit: int = 10,
+              max_pages: int = 50) -> list[dict]:
+        """Everyone who upvoted a post (raw ``users[]``), every page walked.
 
         api2.skool.com endpoint, mixed case: user objects have ``id``, ``name``,
         and ``first_name``/``firstName`` + ``last_name``/``lastName``.
+
+        Pages with :meth:`likes_page` until ``has_more`` is false, a page is
+        empty, the cursor is empty or did not move, or ``max_pages`` is reached.
+        ``group_skool_id`` is still accepted so old callers keep working, but
+        it is never sent: the vote-users call does not carry it.
         """
-        q = f"/posts/{post_skool_id}/vote-users?group-id={group_skool_id}"
-        data = self.http.get_api2(q)
-        return data.get("users") or []
+        out: list[dict] = []
+        cursor = ""
+        for page_idx in range(max_pages):
+            if page_idx > 0:
+                time.sleep(_INTER_PAGE_DELAY_S)
+            data = self.likes_page(post_skool_id, limit=page_limit, cursor=cursor, tab=tab)
+            users = data.get("users") or []
+            out.extend(users)
+            nxt = data.get("cursor") or ""
+            if not data.get("has_more") or not users or not nxt or nxt == cursor:
+                break
+            cursor = nxt
+        return out
 
     # -- community metadata ----------------------------------------------------
 
@@ -827,7 +875,7 @@ class SkoolClient:
         fallback; without it a non-member just gets the 401.
         """
         try:
-            return self.http.get_api2(f"/courses/{course_id}?withChildren=true")
+            return self.http.get_api2(f"/courses/{course_id}")
         except SkoolHTTPError as e:
             if not community_slug or e.status not in (401, 403):
                 raise
@@ -1041,14 +1089,23 @@ class SkoolClient:
 
     # -- chat ------------------------------------------------------------------
 
-    def chat_channels(self, *, offset: int = 0, limit: int = 30) -> dict:
+    def chat_channels(self, *, offset: int = 0, limit: int = 30,
+                      unread_only: bool = False) -> dict:
         """Your DM channels (docs/API.md §1.6) — the channel ids `send_dm` needs.
 
-        ``limit`` above 30 is refused by Skool ("invalid limit").
+        ``limit`` above 30 is refused by Skool ("invalid limit"). With
+        ``unread_only`` Skool lists only channels with unread messages; when
+        there are none it answers ``{"channels": null}``, which comes back here
+        as ``"channels": []`` so callers never see ``None``. The raw object is
+        returned otherwise.
         """
-        return self.http.get_api2(
-            f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only=false"
+        flag = "true" if unread_only else "false"
+        data = self.http.get_api2(
+            f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only={flag}"
         )
+        if data.get("channels") is None:
+            data = {**data, "channels": []}
+        return data
 
     def chat_messages(self, channel_id: str, *, count: int = 30) -> dict:
         """Messages of one DM channel, newest last (docs/API.md §1.6).
@@ -1058,7 +1115,9 @@ class SkoolClient:
 
         * The opening read takes ``before=N`` — NOT a timestamp and NOT a
           message id, but "how many messages back from newest". It is capped
-          at 50; anything larger is refused with ``invalid before``.
+          at 50; anything larger is refused with ``invalid before``. No
+          ``limit`` goes with it: Skool's own client sends none, and ``before``
+          alone gives the same answer.
         * Going further back needs the ``msg={id}`` cursor: it returns a
           window *around* that message (``before``/``after`` then count
           outwards from it). Walking it from the oldest message of the
@@ -1070,7 +1129,7 @@ class SkoolClient:
         """
         n = min(50, max(1, count))
         data = self.http.get_api2(
-            f"/channels/{channel_id}/messages?limit={n}&before={n}"
+            f"/channels/{channel_id}/messages?before={n}"
         )
         msgs = list(data.get("messages") or [])
         seen = {m.get("id") for m in msgs}
@@ -1369,9 +1428,10 @@ class SkoolClient:
         Same endpoint for both, because a comment IS a post. Verified live
         2026-08-16 (post) and 2026-08-17 (comment) on throwaway objects in
         `hoomans-9944`. Deleting somebody *else's* post needs moderator rights
-        and is untested.
+        and is untested. Sends an empty JSON body ``{}``: ``deletePost`` is the
+        one DELETE in Skool's own client that always carries a body.
         """
-        return self.http.delete_api2(f"/posts/{post_id}")
+        return self.http.delete_api2(f"/posts/{post_id}", {})
 
     def send_dm(self, channel_id: str, content: str, *, attachments: list[str] = ()) -> dict:
         """Send a direct message into an existing chat channel (§5.7).

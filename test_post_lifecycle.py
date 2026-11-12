@@ -28,7 +28,7 @@ CURRENT = {
 
 class _FakeHTTP:
     def __init__(self):
-        self.writes, self.deletes = [], []
+        self.writes, self.deletes, self.delete_bodies = [], [], []
 
     def get_api2(self, path):
         return CURRENT
@@ -37,8 +37,9 @@ class _FakeHTTP:
         self.writes.append((path, body))
         return {"ok": True}
 
-    def delete_api2(self, path):
+    def delete_api2(self, path, body=None):
         self.deletes.append(path)
+        self.delete_bodies.append(body)
         return {}
 
 
@@ -80,6 +81,8 @@ def test_delete_is_the_same_endpoint_for_both():
     c.delete_post("p1")
     c.delete_post("c1")
     assert c.http.deletes == ["/posts/p1", "/posts/c1"], c.http.deletes
+    # deletePost is the one DELETE Skool's own client sends a body with: `{}`.
+    assert c.http.delete_bodies == [{}, {}], c.http.delete_bodies
 
 
 def test_tools_never_write_without_confirm():

@@ -466,13 +466,27 @@ def get_post_comments(community_slug: str, post_id: str, raw: bool = False) -> A
 
 
 @mcp.tool()
-def get_post_likes(community_slug: str, post_id: str) -> list[dict]:
-    """List the users who liked/upvoted a post (id, handle, first/last name)."""
-    client = _get_client()
-    users = client.likes(post_id, client.group_id_for(community_slug))
+def get_post_likes(community_slug: str, post_id: str, limit: int = 10, cursor: str = "",
+                   tab: str = "upvotes") -> dict:
+    """List who liked/upvoted a post, ONE page at a time (id, handle, first/last name).
+
+    Returns `likes` (this page), `has_more`, `cursor`, `total_upvotes` and
+    `total_downvotes`. To read the next page, call again with the same post and
+    `cursor` set to the `cursor` of the previous answer, and stop when
+    `has_more` is false. The first call needs no cursor; `limit` is how many
+    people one page holds (the website asks for 10). `community_slug` is not
+    needed for the lookup any more but is still accepted.
+    """
+    data = _get_client().likes_page(post_id, limit=limit, cursor=cursor, tab=tab)
     # Raw liker objects carry full user metadata — including the caller's own
     # payout/affiliate ids on their own like. Only names leave this tool.
-    return [normalize.like(u, post_id) for u in users]
+    return {
+        "likes": [normalize.like(u, post_id) for u in data.get("users") or []],
+        "has_more": bool(data.get("has_more")),
+        "cursor": data.get("cursor") or "",
+        "total_upvotes": int(data.get("total_upvote_users") or 0),
+        "total_downvotes": int(data.get("total_downvote_users") or 0),
+    }
 
 
 @mcp.tool()
@@ -847,11 +861,15 @@ def get_course_tree(course_id: str, community_slug: str = "", raw: bool = False)
 
 
 @mcp.tool()
-def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
-    """List your Skool DM/chat channels (ids, participants, last message). Channel ids are what send_dm needs."""
+def list_chat_channels(offset: int = 0, limit: int = 30, unread_only: bool = False) -> dict:
+    """List your Skool DM/chat channels (ids, participants, last message). Channel ids are what send_dm needs.
+
+    unread_only=true lists only channels with unread messages (an empty `channels` list when there are none).
+    """
     # Channel objects embed the other participant's full metadata (and, on your
     # own entries, afl/payout secrets) — scrub before returning.
-    return _safe_raw(_get_client().chat_channels(offset=offset, limit=limit))
+    return _safe_raw(_get_client().chat_channels(offset=offset, limit=limit,
+                                                 unread_only=unread_only))
 
 
 @mcp.tool()
