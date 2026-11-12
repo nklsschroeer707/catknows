@@ -375,6 +375,9 @@ def _walk_comments(nodes: list, explicit_parent: str, out: list) -> None:
             "parent_id": parent_id,
             "upvotes": int(meta.get("upvotes", 0) or 0),
             "created_at": _micros_to_dt(p.get("created_at") or p.get("createdAt")),
+            # Bilder/GIFs: ids in ``attachments``, Name/Typ/URL in ``attachments_data`` (wie bei DMs)
+            "attachments": meta.get("attachments") or "",
+            "files": _files(meta),
         })
         sub = node.get("children") or []
         if sub:
