@@ -210,8 +210,12 @@ GET https://api2.skool.com/groups/{gid}/labels          (no query)
 `default_sort`, `post_write_role` and sometimes `description`. The feed page
 carries the same list as `currentGroup.labels[]` (camelCase:
 `metadata.displayName`, `metadata.posts`, `metadata.defaultSort`).
-`post_categories()` reads the endpoint and falls back to the feed page only if
-it answers 401, 403 or 404; both ways give `{id, name, posts}`.
+The endpoint is verified and reachable with `post_categories(via_api=True)`,
+which falls back to the feed page only if it answers 401, 403 or 404. The
+default, `post_categories()`, reads the feed page (one request, usually a cache
+hit on the page `posts()` just read; no group id needed); `resolve_category()`,
+`list_posts` and `search_community` use the default. Both ways give
+`{id, name, posts}`.
 
 ### 1.2b One post's own page — attachments and video (Next.js shape)
 
@@ -452,7 +456,7 @@ plain client just returns the current set).
 | Your saved location | `GET https://api2.skool.com/self/location` | api2 |
 | Chat channels | `GET https://api2.skool.com/self/chat-channels?offset={n}&limit=30&last=true&unread-only=false` (`unread-only=true` = only channels with unread messages) | api2 |
 | Chat messages | `GET https://api2.skool.com/channels/{channelId}/messages?before=50` (older: `&after=0&msg={oldestId}`; no `limit`) | api2 |
-| Categories (labels) | `GET https://api2.skool.com/groups/{gid}/labels` (§1.2) | api2 |
+| Categories (labels) | `GET https://api2.skool.com/groups/{gid}/labels` (§1.2; opt-in via `post_categories(via_api=True)`) | api2 |
 
 > Live-verified against two logged-in accounts (Aug 2026). Notes: `/self/me`
 > and `/self/profile` return **404** — only bare `/self` works. `/self/groups`
@@ -1092,10 +1096,12 @@ The update body is **flat** — no `metadata` wrapper (unlike §5.1) and no
 > unchanged values back with the edit.
 
 The DELETE carries a JSON body, at least `{}` (`feedback` and `rules` are
-optional in Skool's client; catknows sends `{}`). It is the only one of the 20
-DELETE calls in the page code that has a body: `DELETE /courses/{id}` (§7.6)
-and the rest send none, and so does `SkoolHTTP.delete_api2()` unless a body is
-passed. The answer is an empty `200`. The object is gone from the feed
+optional in Skool's client; catknows sends `{}`). It is the only DELETE catknows
+sends with a body: `DELETE /courses/{id}` (§7.6) and the other DELETE calls it
+builds send none, and so does `SkoolHTTP.delete_api2()` unless a body is passed.
+(Of the 20 DELETE calls in Skool's page code, only this one and
+`DELETE /groups/{id}`, which deletes a community and is never built here, carry
+a body.) The answer is an empty `200`. The object is gone from the feed
 immediately, and `GET /posts/{id}` then answers `404 post not found`.
 Deleting somebody **else's** post needs moderator rights and is untested.
 

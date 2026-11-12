@@ -414,14 +414,21 @@ class SkoolClient:
             time.sleep(_INTER_PAGE_DELAY_S)
         return out
 
-    def post_categories(self, community_slug: str) -> list[dict]:
+    def post_categories(self, community_slug: str, *, via_api: bool = False) -> list[dict]:
         """The feed's categories (Skool calls them labels): id, name, post count.
 
-        Read from ``GET /groups/{gid}/labels`` (``metadata.display_name``,
-        ``metadata.posts``), Skool's own ``getGroupLabels``. Only if Skool
-        answers that with 401, 403 or 404 does it fall back to the feed page,
-        the same URL an unfiltered :meth:`posts` call fetches first.
+        By default read from the feed's first page, the same URL an unfiltered
+        :meth:`posts` call fetches first, so it is usually a cache hit and costs
+        no extra request.
+
+        ``via_api=True`` reads ``GET /groups/{gid}/labels``
+        (``metadata.display_name``, ``metadata.posts``), Skool's own
+        ``getGroupLabels``, at the price of two requests (group id, labels).
+        Only if Skool answers that with 401, 403 or 404 does it fall back to the
+        feed page; any other error is raised. Both ways return the same shape.
         """
+        if not via_api:
+            return self._post_categories_via_page(community_slug)
         gid = self.group_id_for(community_slug)
         try:
             data = self.http.get_api2(f"/groups/{gid}/labels")
@@ -1428,8 +1435,8 @@ class SkoolClient:
         Same endpoint for both, because a comment IS a post. Verified live
         2026-08-16 (post) and 2026-08-17 (comment) on throwaway objects in
         `hoomans-9944`. Deleting somebody *else's* post needs moderator rights
-        and is untested. Sends an empty JSON body ``{}``: ``deletePost`` is the
-        one DELETE in Skool's own client that always carries a body.
+        and is untested. Sends an empty JSON body ``{}``, as Skool's own client
+        does for ``deletePost``; it is the only DELETE catknows sends with a body.
         """
         return self.http.delete_api2(f"/posts/{post_id}", {})
 

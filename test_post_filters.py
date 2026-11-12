@@ -16,11 +16,6 @@ LABELS = [
     {"id": "a" * 32, "metadata": {"displayName": "🐽 General", "posts": 60}},
     {"id": "b" * 32, "metadata": {"displayName": "📮 Feedback", "posts": 17}},
 ]
-# The same two categories as GET /groups/{gid}/labels sends them (snake_case).
-API_LABELS = [
-    {"id": "a" * 32, "metadata": {"display_name": "🐽 General", "posts": 60}},
-    {"id": "b" * 32, "metadata": {"display_name": "📮 Feedback", "posts": 17}},
-]
 TREE = {"post": {"id": "p1", "name": "hello", "labelId": "b" * 32, "rootId": "p1",
                  "metadata": {"title": "Hello", "labels": "b" * 32,
                               "hasNewComments": 1, "comments": 3}}}
@@ -45,14 +40,6 @@ class _FakeHTTP:
         trees = [{"post": {"id": f"p{page}"}}] if page <= self.pages else []
         return {"pageProps": {"postTrees": trees,
                               "currentGroup": {"labels": LABELS}}}
-
-    def get_api2(self, path):
-        """Categories come from the labels endpoint (docs/API.md §1.2)."""
-        if path == f"/groups/{SLUG}":
-            return {"id": "gid-1"}
-        if path == "/groups/gid-1/labels":
-            return {"labels": API_LABELS}
-        raise AssertionError(f"unexpected api2 read {path}")
 
     def _no_write(self, *a, **k):
         raise AssertionError("a read sent a write")

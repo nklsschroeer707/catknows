@@ -321,9 +321,9 @@ class SkoolHTTP:
     def delete_api2(self, path_and_query: str, body: dict | None = None) -> dict:
         """DELETE an api2.skool.com resource. Success is usually an empty 200.
 
-        No JSON body unless one is passed: Skool's own client sends one on
-        exactly one DELETE (``deletePost``, at least ``{}``) and none on the
-        others (``deleteCourse``, …).
+        No JSON body unless one is passed. catknows sends a body on exactly one
+        DELETE, ``deletePost`` (at least ``{}``, as Skool's own client does
+        there); ``deleteCourse`` and the other DELETEs it builds send none.
         """
         return self._write_api2("delete", path_and_query, body)
 

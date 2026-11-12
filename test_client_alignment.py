@@ -7,7 +7,8 @@ website gets:
 
   1. vote-users: no `group-id`, and the website pages it (limit, tab, cursor)
   2. chat-channels: `unread-only` is a switch; `{"channels": null}` when empty
-  3. categories: GET /groups/{gid}/labels, the feed page only as a fallback
+  3. categories: GET /groups/{gid}/labels on request (`via_api=True`), the feed
+     page stays the default and the fallback
   4. DELETE: only deletePost carries a body (`{}`), deleteCourse and the rest none
   5. GET /courses/{id}: no `withChildren`
   6. GET /channels/{id}/messages: no `limit`
@@ -249,7 +250,7 @@ def test_list_chat_channels_tool_has_the_switch_and_never_returns_none():
     assert out["channels"] == [{"id": "ch1"}], out
 
 
-# -- 3. categories via the labels endpoint -------------------------------------
+# -- 3. categories: feed page by default, labels endpoint on request -----------
 
 LABELS_API = {"labels": [
     {"id": "a" * 32, "group_id": "gid-1",
@@ -284,9 +285,34 @@ class LabelsHTTP:
         return {"pageProps": {"currentGroup": {"labels": LABELS_PAGE}}}
 
 
-def test_categories_come_from_the_labels_endpoint():
+def test_categories_default_reads_only_the_feed_page():
+    """Same single call as before the alignment: no group id, no labels."""
+    for kw in ({}, {"via_api": False}):
+        http = LabelsHTTP()
+        cats = _client(http).post_categories("some-group", **kw)
+        assert cats == CATEGORIES, cats
+        assert http.api == [], f"the default must not ask api2 at all: {http.api}"
+        assert http.next == ["/some-group.json?group=some-group"], http.next
+
+
+def test_callers_in_this_repo_keep_the_default():
     http = LabelsHTTP()
-    cats = _client(http).post_categories("some-group")
+    c = _client(http)
+    assert c.resolve_category("some-group", "feedback") == "b" * 32
+    assert http.api == [] and len(http.next) == 1, (http.api, http.next)
+
+
+def test_via_api_is_keyword_only():
+    try:
+        _client(LabelsHTTP()).post_categories("some-group", True)
+    except TypeError:
+        return
+    raise AssertionError("via_api must be passed by name")
+
+
+def test_categories_come_from_the_labels_endpoint_on_request():
+    http = LabelsHTTP()
+    cats = _client(http).post_categories("some-group", via_api=True)
     assert cats == CATEGORIES, cats
     assert "/groups/gid-1/labels" in http.api, http.api
     assert http.next == [], "the feed page is only the fallback"
@@ -295,7 +321,7 @@ def test_categories_come_from_the_labels_endpoint():
 def test_categories_fall_back_to_the_feed_page_on_401_403_404():
     for status in (401, 403, 404):
         http = LabelsHTTP(SkoolHTTPError(f"HTTP {status}", status))
-        cats = _client(http).post_categories("some-group")
+        cats = _client(http).post_categories("some-group", via_api=True)
         assert cats == CATEGORIES, (status, cats)
         assert http.next == ["/some-group.json?group=some-group"], (status, http.next)
 
@@ -305,7 +331,7 @@ def test_categories_other_errors_are_not_swallowed():
                 SkoolHTTPError("network", 0)):
         http = LabelsHTTP(err)
         try:
-            _client(http).post_categories("some-group")
+            _client(http).post_categories("some-group", via_api=True)
         except SkoolHTTPError as e:
             assert e is err
         else:
@@ -313,10 +339,12 @@ def test_categories_other_errors_are_not_swallowed():
         assert http.next == [], "no feed page after a real failure"
 
 
-def test_categories_have_the_same_shape_on_both_ways():
-    via_api = _client(LabelsHTTP()).post_categories("some-group")
-    via_page = _client(LabelsHTTP(SkoolHTTPError("HTTP 404", 404))).post_categories("some-group")
-    assert via_api == via_page, (via_api, via_page)
+def test_categories_have_the_same_shape_on_all_ways():
+    default = _client(LabelsHTTP()).post_categories("some-group")
+    via_api = _client(LabelsHTTP()).post_categories("some-group", via_api=True)
+    fallback = _client(LabelsHTTP(SkoolHTTPError("HTTP 404", 404))).post_categories(
+        "some-group", via_api=True)
+    assert default == via_api == fallback, (default, via_api, fallback)
     assert all(set(c) == {"id", "name", "posts"} for c in via_api), via_api
 
 
@@ -327,7 +355,7 @@ def test_categories_empty_or_missing_labels():
                 return {"labels": None}
             return super().get_api2(path)
 
-    assert _client(Empty()).post_categories("some-group") == []
+    assert _client(Empty()).post_categories("some-group", via_api=True) == []
 
 
 # -- 4. DELETE: a body only for deletePost -------------------------------------
