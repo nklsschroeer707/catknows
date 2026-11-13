@@ -24,7 +24,7 @@ from typing import Iterator
 from urllib.parse import quote, urlsplit
 
 from .auth import Session
-from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
+from .http import REJECTED_STATUSES, SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
 # CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
@@ -1510,7 +1510,7 @@ class SkoolClient:
             raise  # Skool's security question is no "not a root unit": no blind PUT
         except SkoolHTTPError as e:
             # 401/403/429 or a network error say nothing about the unit: no blind PUT.
-            if e.status in (401, 403, 429) or not e.status:
+            if e.status in REJECTED_STATUSES or not e.status:
                 raise
             cur = None  # not a root unit -> flat update, caller sends full set
         if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
@@ -2145,7 +2145,7 @@ class SkoolClient:
         except SkoolHTTPError as e:
             # 401/403/429: the account is being turned away; one more request
             # (and above all the write that would follow) is what must not happen.
-            if for_write or e.status in (401, 403, 429):
+            if for_write or e.status in REJECTED_STATUSES:
                 raise
             # any other read failure: the posts bootstrap still works
         # Outside the try: an archived community is a definitive answer, not a

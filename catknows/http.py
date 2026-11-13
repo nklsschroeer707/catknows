@@ -168,14 +168,23 @@ def _security_challenge_code(status: int, data) -> str:
     return ""
 
 
+# The statuses with which Skool turns the account away: session or WAF rejected
+# (401/403), rate limit (429). The one place that lists them.
+REJECTED_STATUSES = (401, 403, 429)
+
+
 def turned_away(e: BaseException) -> bool:
     """True if this error is Skool's 401, 403 or 429: the account is being turned away.
 
     Session or WAF rejected (401/403) or rate limit (429). A batch job stops on
     it as it does on `SkoolSecurityChallenge`; asking on for the next entry is
     the pattern of an automaton. Read from ``.status``, never from the text.
+
+    Meant for answers of Skool itself. `get_mux` raises the same error class
+    with 403 for an expired playback token, which says nothing about the
+    account: do not use this on errors of a Mux request.
     """
-    return isinstance(e, SkoolHTTPError) and e.status in (401, 403, 429)
+    return isinstance(e, SkoolHTTPError) and e.status in REJECTED_STATUSES
 
 
 # Skool's api2 wording for "you may see this endpoint, but not this object":

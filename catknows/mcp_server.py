@@ -1543,7 +1543,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             # messages endpoint returns the channel object in one call; listing
             # /self/chat-channels instead cannot work: Skool refuses limit > 30
             # there, and accounts have hundreds of channels.
-            from .http import SkoolHTTPError, SkoolSecurityChallenge
+            from .http import REJECTED_STATUSES, SkoolHTTPError, SkoolSecurityChallenge
 
             try:
                 gid = (client.chat_messages(channel_id, count=1)
@@ -1553,7 +1553,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             except SkoolHTTPError as e:
                 # 401/403/429 or a network error: not an "unknown channel" either,
                 # and nothing more may go out after them.
-                if e.status in (401, 403, 429) or not e.status:
+                if e.status in REJECTED_STATUSES or not e.status:
                     raise
                 gid = ""
             if not gid:
