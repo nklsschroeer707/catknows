@@ -58,6 +58,7 @@ _AUDIT_ARGS = {  # tool argument -> audit field
     "channel_id": "dm_channel_id",
     "member_id": "member_id",
     "event_id": "calendar_event_id",
+    "category_id": "category_id",
 }
 
 
@@ -1066,17 +1067,23 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "Match how the user writes if you have seen their writing."
     )
 
-    def _draft(status: str, key: str, body: dict, *, prose: bool = True) -> dict:
+    def _draft(status: str, key: str, body: dict, *, prose: bool = True,
+               not_verified: str = "") -> dict:
         """A draft reply: nothing written yet, here is what would be.
 
         `prose` is False for drafts a human never reads as text (a move, a
         delete, a course's metadata) — nothing to humanize there.
+        `not_verified` is a fixed text for an action with a side effect nobody
+        has checked: a warning that lives only in a docstring is not seen by the
+        human who confirms, so it travels in the draft itself.
         """
         out = {
             "status": status,
             key: body,
             "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
         }
+        if not_verified:
+            out["not_verified"] = not_verified
         if prose:
             out["before_you_show_this"] = _HUMANIZE
             voice = _voice()
@@ -1760,6 +1767,265 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         return {"status": "deleted", "event_id": event_id,
                 "from_occurrence_id": from_occurrence_id}
 
+    # -- small post actions ------------------------------------------------------
+    # Read from Skool's page code, not run live by catknows (docs/API.md §5.12).
+    # Skool calls a category a "label". A tool takes the community slug for the
+    # archived-community guard and the audit line; the id of the post, comment
+    # or category is what names the target. Each draft sends nothing and does
+    # not contact Skool; actions with an unchecked side effect carry a fixed
+    # `not_verified` text in the draft.
+
+    def _skool():
+        """The SkoolClient class, imported on use (its HTTP stack is not needed to list tools)."""
+        from .client import SkoolClient
+        return SkoolClient
+
+    _NV_VOTE = (
+        "Not verified: what Skool does when `old` is not the vote it has stored for "
+        "this account (the call sends exactly the old and new you passed). Skool "
+        "answers a quick series of likes with 429 'Liking too fast'."
+    )
+    _NV_PIN_POST = (
+        "Not verified: catknows sends an empty object {} here, as the autopilot does, "
+        "while Skool's own client sends no body. The autopilot got HTTP 400 once in 8 "
+        "days, cause unclear. The web client offers pinning to group admins only; the "
+        "server rule is not verified."
+    )
+    _NV_CREATE_CATEGORY = (
+        "Not verified: Skool allows at most 10 categories and catknows does not count "
+        "them, so a full list is refused only when Skool answers. No description is sent."
+    )
+    _NV_RENAME_CATEGORY = (
+        "Not verified: only display_name is sent. Whether Skool keeps the category's "
+        "sort and write role is not checked live (Skool's own client also sends only "
+        "the fields it changes). The current name is not read back."
+    )
+    _NV_ABOUT = (
+        "Not verified: which format Skool wants for the About text (plain text or "
+        '"[v2]" TipTap): it goes out exactly as shown. This REPLACES the whole About '
+        "description. Skool's editor allows 1000 plain characters; a longer text is "
+        "probably refused."
+    )
+    _NV_COMMENTS = (
+        "Not verified: who the server lets switch comments (the web client offers it to "
+        "admins and moderators) and whether existing comments stay visible while "
+        "comments are off. A new comment on such a post is answered with 409."
+    )
+    _NV_PIN_COMMENT = (
+        "Not verified: the web client allows one pinned comment per post; whether a "
+        "second pin is refused or replaces the first is the server's rule. post_id is "
+        "the post the comment sits under, comment_id the comment's own id."
+    )
+
+    @mcp.tool()
+    def vote_post(community_slug: str, post_id: str, old: str = "", new: str = "up",
+                  confirm: bool = False) -> dict:
+        """Like a post, or take your like back, as the logged-in user.
+
+        Like: old="" new="up" (the default). Take it back: old="up" new="". Those
+        are the only two values Skool's client uses (no downvote), and old and new
+        must differ. post_id comes from list_posts.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        _skool().check_post_vote(old, new)
+        _skool().post_action_path(post_id, "vote")  # refuse a bad id up front
+        if not confirm:
+            liking = new == "up"
+            return _draft(
+                "DRAFT — nothing was voted", "would_vote" if liking else "would_unvote",
+                {"community": community_slug, "post_id": post_id, "old": old, "new": new,
+                 "does": "like the post" if liking else "take the like back"},
+                prose=False, not_verified=_NV_VOTE)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.vote_post(post_id, old, new)
+        return {"status": "voted" if new == "up" else "vote_taken_back", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def pin_post(community_slug: str, post_id: str, pinned: bool = True,
+                 confirm: bool = False) -> dict:
+        """Pin a post to the top of the community feed (pinned=true), or unpin it (pinned=false).
+
+        Skool's web client offers this to group admins only. Pinning to a course
+        page is a different call and not available here.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved. The draft
+        shows the id, not the post's title: make sure the user knows which post it is.
+        """
+        _skool().check_flag(pinned, "pinned")
+        _skool().post_action_path(post_id, "pin" if pinned else "unpin")  # bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was pinned" if pinned else "DRAFT — nothing was unpinned",
+                "would_pin" if pinned else "would_unpin",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "pin the post to the feed" if pinned else "unpin the post from the feed"},
+                prose=False, not_verified=_NV_PIN_POST)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.pin_post(post_id, pinned=pinned)
+        return {"status": "pinned" if pinned else "unpinned", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def create_category(community_slug: str, display_name: str, default_sort: str,
+                        post_write_role: int, confirm: bool = False) -> dict:
+        """Create a feed category (Skool calls it a label) in the community, as the logged-in user.
+
+        display_name: at most 30 characters, public. default_sort: newest-cm
+        (shown as "Default", latest activity), newest ("New"), best-1w ("Top
+        (week)") or best-1m ("Top (month)"). post_write_role: 4 = members and
+        admins may post in it, 3 = admins only. There are no defaults: choose the
+        values with the user. Skool allows at most 10 categories. The answer
+        carries the new category's id.
+
+        Draft-first: with confirm=false NOTHING is created and Skool is not
+        contacted. Call again with confirm=true once the user approved the name.
+        """
+        _skool().check_category_name(display_name)
+        _skool().check_category_options(default_sort, post_write_role)
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was created", "would_create",
+                {"community": community_slug, "display_name": display_name,
+                 "default_sort": default_sort, "post_write_role": post_write_role,
+                 "who_may_post": "admins only" if post_write_role == 3 else "members and admins"},
+                not_verified=_NV_CREATE_CATEGORY)
+        created = _get_client().create_category(
+            community_slug, display_name, default_sort=default_sort,
+            post_write_role=post_write_role)
+        return {"status": "created", "category": _safe_raw(created)}
+
+    @mcp.tool()
+    def rename_category(community_slug: str, category_id: str, display_name: str,
+                        confirm: bool = False) -> dict:
+        """Rename an EXISTING feed category (Skool calls it a label), as the logged-in user.
+
+        category_id is the `category_id` of a post from list_posts. display_name:
+        at most 30 characters, public. Only the name changes; the category's
+        sort and write role are not sent. Deleting a category is not available.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. The draft shows the id and the new name; the current name is
+        not read back. Call again with confirm=true once the user approved.
+        """
+        _skool().check_category_name(display_name)
+        _skool().category_path(category_id)  # refuse a bad id up front
+        if not confirm:
+            return _draft("DRAFT — nothing was renamed", "would_rename",
+                          {"community": community_slug, "category_id": category_id,
+                           "display_name": display_name},
+                          not_verified=_NV_RENAME_CATEGORY)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.rename_category(category_id, display_name)
+        return {"status": "renamed", "category": _safe_raw(updated)}
+
+    @mcp.tool()
+    def update_about_description(community_slug: str, description: str,
+                                 confirm: bool = False) -> dict:
+        """REPLACE the description on the community's About page, as the logged-in user.
+
+        The About page is public: everyone who opens the community link reads it.
+        description is the whole new text (sent exactly as given; Skool's editor
+        allows 1000 plain characters). Skool's web client offers the editor to
+        admins only. A blank text is refused.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. The draft shows the new text only, not the current one. Call
+        again with confirm=true once the user approved that exact text.
+        """
+        _skool().check_about_description(description)
+        if not confirm:
+            return _draft("DRAFT — nothing was changed", "would_update",
+                          {"community": community_slug, "description": description},
+                          not_verified=_NV_ABOUT)
+        answer = _get_client().update_about_description(community_slug, description)
+        return {"status": "updated", "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def set_post_comments(community_slug: str, post_id: str, enabled: bool,
+                          confirm: bool = False) -> dict:
+        """Turn comments OFF (enabled=false) or back ON (enabled=true) for one post.
+
+        Skool's web client offers this to admins and moderators. post_id comes
+        from list_posts. There is no default: say which direction you mean.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the id, not the post's title. Call again with
+        confirm=true once the user approved.
+        """
+        _skool().check_flag(enabled, "enabled")
+        _skool().post_action_path(post_id, "enable-comments" if enabled else "disable-comments")
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed",
+                "would_enable_comments" if enabled else "would_disable_comments",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "turn comments on" if enabled else "turn comments off"},
+                prose=False, not_verified=_NV_COMMENTS)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.set_post_comments(post_id, enabled=enabled)
+        return {"status": "comments_enabled" if enabled else "comments_disabled",
+                "post_id": post_id, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def pin_comment(community_slug: str, post_id: str, comment_id: str, pinned: bool = True,
+                    confirm: bool = False) -> dict:
+        """Pin one comment to the top of its post (pinned=true), or unpin it (pinned=false).
+
+        post_id is the post the comment sits under, comment_id the comment's own
+        id (both from get_post_comments / list_posts). Skool's web client offers
+        this to admins and moderators and allows one pinned comment per post.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the ids, not the comment's text. Call again
+        with confirm=true once the user approved.
+        """
+        _skool().check_flag(pinned, "pinned")
+        _skool().comment_pin_path(post_id, comment_id, pinned=pinned)  # bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was pinned" if pinned else "DRAFT — nothing was unpinned",
+                "would_pin_comment" if pinned else "would_unpin_comment",
+                {"community": community_slug, "post_id": post_id, "comment_id": comment_id,
+                 "does": "pin the comment" if pinned else "unpin the comment"},
+                prose=False, not_verified=_NV_PIN_COMMENT)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.pin_comment(post_id, comment_id, pinned=pinned)
+        return {"status": "comment_pinned" if pinned else "comment_unpinned",
+                "post_id": post_id, "comment_id": comment_id, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def follow_post(community_slug: str, post_id: str, follow: bool = True,
+                    confirm: bool = False) -> dict:
+        """Follow a post (follow=true, the bell on the post) or stop following it (follow=false).
+
+        post_id comes from list_posts.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        _skool().check_flag(follow, "follow")
+        _skool().post_action_path(post_id, "follow" if follow else "unfollow")  # bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed", "would_follow" if follow else "would_unfollow",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "follow the post" if follow else "stop following the post"},
+                prose=False)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.follow_post(post_id, follow=follow)
+        return {"status": "followed" if follow else "unfollowed", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
 
 # -- tool annotations ----------------------------------------------------------
 # Clients (and the Anthropic connector directory) read these hints to decide
@@ -1784,6 +2050,8 @@ _DESTRUCTIVE = {
     "create_course", "create_course_item", "update_course_item",
     "publish_course", "move_course_item", "delete_course_item", "review_join_request",
     "create_calendar_event", "update_calendar_event", "delete_calendar_event",
+    "vote_post", "pin_post", "create_category", "rename_category",
+    "update_about_description", "set_post_comments", "pin_comment", "follow_post",
 }
 
 

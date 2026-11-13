@@ -99,6 +99,23 @@ def _plain(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
 
 
+def _id_segment(value, name: str) -> str:
+    """An id for a path piece or a query value: checked, then percent-encoded.
+
+    Refuses (``ValueError`` naming the argument, never its value) anything that
+    is not text, empty or blank text, and text made only of dots. ``.`` and ``..``
+    survive ``quote(..., safe="")`` unchanged, and libcurl folds such a piece
+    away (``/posts/../pin`` becomes ``/pin``), so a model-supplied id could
+    otherwise steer the request to another endpoint. Everything else is encoded,
+    so an id cannot leave its path segment or add a query.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} is required (non-empty text).")
+    if set(value) <= {"."}:
+        raise ValueError(f"{name} must not be made only of dots.")
+    return quote(value, safe="")
+
+
 _MEMBER_SORTS = {
     "newest": "-memberapprovedat",
     "last_active": "-memberlastoffline",
@@ -965,6 +982,179 @@ class SkoolClient:
         later ones of a series; empty deletes the whole event.
         """
         return self.http.delete_api2(self.calendar_event_path(event_id, from_occurrence_id))
+
+    # -- small post actions (docs/API.md §5.12) --------------------------------
+    # Read from Skool's own page code and NOT run live by catknows (the vote, pin,
+    # category and About calls also run in the author's autopilot): paths, bodies
+    # and limits are the ones its web client uses. Every method refuses a bad
+    # argument BEFORE the first request and hands Skool's answer back as it is.
+    # A SkoolSecurityChallenge is never caught here: the write counts as not sent.
+    POST_VOTES = ("", "up")  # "" = no vote; Skool's client has no downvote
+    CATEGORY_NAME_MAX = 30
+    # The values the category form offers (best-1y is shown in the feed only).
+    CATEGORY_SORTS = ("newest-cm", "newest", "best-1w", "best-1m")
+    CATEGORY_WRITE_ROLES = (4, 3)  # 4 members and admins may post, 3 admins only
+
+    @staticmethod
+    def post_action_path(post_id: str, action: str) -> str:
+        """``/posts/{id}/{action}``. The id goes through `_id_segment`: real text,
+        not only dots, percent-encoded. ``action`` is one of our own constants."""
+        return f"/posts/{_id_segment(post_id, 'post_id')}/{action}"
+
+    @staticmethod
+    def comment_pin_path(post_id: str, comment_id: str, *, pinned: bool = True) -> str:
+        """``/posts/{id}/pin-comment?comment={commentId}`` (``unpin-comment`` if not pinned).
+
+        A comment id is always required here: a missing one must not turn into a
+        call without the ``comment`` query. Both ids go through `_id_segment`.
+        """
+        action = "pin-comment" if pinned else "unpin-comment"
+        return (f"{SkoolClient.post_action_path(post_id, action)}"
+                f"?comment={_id_segment(comment_id, 'comment_id')}")
+
+    @staticmethod
+    def category_path(category_id: str) -> str:
+        """``/labels/{id}`` (Skool calls a category a label)."""
+        return f"/labels/{_id_segment(category_id, 'category_id')}"
+
+    @staticmethod
+    def check_post_vote(old, new) -> None:
+        """Only the two documented transitions: like (``"" -> "up"``) and take back."""
+        for name, value in (("old", old), ("new", new)):
+            if not isinstance(value, str) or value not in SkoolClient.POST_VOTES:
+                raise ValueError(f'{name} must be "" (no vote) or "up": '
+                                 "Skool's client has no downvote.")
+        if old == new:
+            raise ValueError("old and new are the same vote: that changes nothing, "
+                             "so it is not sent.")
+
+    @staticmethod
+    def check_category_name(display_name) -> None:
+        """A category name: non-blank text, at most 30 characters. Never echoes it."""
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValueError("display_name must be non-blank text.")
+        if len(display_name) > SkoolClient.CATEGORY_NAME_MAX:
+            raise ValueError(f"display_name has {len(display_name)} characters; "
+                             f"Skool allows at most {SkoolClient.CATEGORY_NAME_MAX}.")
+
+    @staticmethod
+    def check_category_options(default_sort, post_write_role) -> None:
+        """The sort and the write role the category form offers, nothing else."""
+        if not isinstance(default_sort, str) or default_sort not in SkoolClient.CATEGORY_SORTS:
+            raise ValueError("default_sort must be one of "
+                             + ", ".join(SkoolClient.CATEGORY_SORTS) + ".")
+        if (isinstance(post_write_role, bool) or not isinstance(post_write_role, int)
+                or post_write_role not in SkoolClient.CATEGORY_WRITE_ROLES):
+            raise ValueError("post_write_role must be 4 (members and admins may post) "
+                             "or 3 (admins only).")
+
+    @staticmethod
+    def check_about_description(description) -> None:
+        """The About text: non-blank text. A blank one would wipe the public page."""
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError("description must be non-blank text.")
+
+    @staticmethod
+    def check_flag(value, name: str) -> None:
+        """A real boolean: a text "false" is truthy and must not flip the direction."""
+        if not isinstance(value, bool):
+            raise ValueError(f"{name} must be true or false.")
+
+    def vote_post(self, post_id: str, old: str, new: str) -> dict:
+        """Like a post or take the like back: ``PUT /posts/{id}/vote`` (§5.12).
+
+        Body ``{"old", "new"}``; only ``""`` and ``"up"`` are allowed, so a like
+        is ``("", "up")`` and taking it back ``("up", "")``. No downvote. What
+        Skool does with an ``old`` that is not the stored vote is not known.
+        """
+        self.check_post_vote(old, new)
+        path = self.post_action_path(post_id, "vote")
+        return self.http.put_api2(path, {"old": old, "new": new})
+
+    def pin_post(self, post_id: str, *, pinned: bool = True) -> dict:
+        """Pin a post to the feed, or unpin it: ``POST /posts/{id}/pin|unpin`` (§5.12).
+
+        Skool's own client sends no body; this sends ``{}`` like the autopilot,
+        which once got HTTP 400 for it (cause open). Group admins only in the web
+        client.
+        """
+        self.check_flag(pinned, "pinned")
+        path = self.post_action_path(post_id, "pin" if pinned else "unpin")
+        return self.http.post_api2(path, {})
+
+    def create_category(self, community_slug: str, display_name: str, *,
+                        default_sort: str, post_write_role: int) -> dict:
+        """Create a feed category: ``POST /labels`` (§5.12). Raw answer (the new label).
+
+        Body ``{group_id, metadata: {display_name, default_sort, post_write_role}}``;
+        the slug decides the group (an archived community is refused up front).
+        No defaults of our own: the caller names the sort (``newest-cm``,
+        ``newest``, ``best-1w``, ``best-1m``) and the role (4 members and admins,
+        3 admins only). Skool allows 10 categories at most; that is not counted.
+        """
+        self.check_category_name(display_name)
+        self.check_category_options(default_sort, post_write_role)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        return self.http.post_api2("/labels", {
+            "group_id": group_id,
+            "metadata": {"display_name": display_name, "default_sort": default_sort,
+                         "post_write_role": post_write_role},
+        })
+
+    def rename_category(self, category_id: str, display_name: str) -> dict:
+        """Rename a feed category: ``PUT /labels/{id}`` with ``{display_name}`` (§5.12).
+
+        Only the name is sent. Whether Skool then keeps the category's sort and
+        write role is not verified. ``category_id`` is the ``category_id`` of a
+        ``list_posts`` row. Deleting a category is not built.
+        """
+        self.check_category_name(display_name)
+        return self.http.put_api2(self.category_path(category_id),
+                                  {"display_name": display_name})
+
+    def update_about_description(self, community_slug: str, description: str) -> dict:
+        """Replace the About page's description (§5.12).
+
+        ``POST /groups/{gid}/update-landing-page-description`` with
+        ``{"description": text}``, sent unchanged: the format Skool wants (plain
+        text or ``[v2]`` TipTap) is not documented. The slug decides the group
+        (an archived community is refused). Public text, so the caller shows it
+        to a human first; a blank text is refused.
+        """
+        self.check_about_description(description)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        path = f"/groups/{_id_segment(group_id, 'group_id')}/update-landing-page-description"
+        return self.http.post_api2(path, {"description": description})
+
+    def set_post_comments(self, post_id: str, *, enabled: bool) -> dict:
+        """Turn comments off or on for one post (§5.12).
+
+        ``POST /posts/{id}/disable-comments`` or ``enable-comments``, no body.
+        """
+        self.check_flag(enabled, "enabled")
+        path = self.post_action_path(post_id, "enable-comments" if enabled else "disable-comments")
+        return self.http.post_api2(path, None)
+
+    def pin_comment(self, post_id: str, comment_id: str, *, pinned: bool = True) -> dict:
+        """Pin a comment under its post, or unpin it (§5.12).
+
+        ``POST /posts/{post_id}/pin-comment?comment={comment_id}`` (or
+        ``unpin-comment``), no body. ``comment_id`` is from ``get_post_comments``.
+        The web client allows one pinned comment; what the server does with a
+        second is not verified.
+        """
+        self.check_flag(pinned, "pinned")
+        path = self.comment_pin_path(post_id, comment_id, pinned=pinned)
+        return self.http.post_api2(path, None)
+
+    def follow_post(self, post_id: str, *, follow: bool = True) -> dict:
+        """Follow a post (the bell) or stop following it (§5.12).
+
+        ``POST /posts/{id}/follow`` or ``unfollow``, no body.
+        """
+        self.check_flag(follow, "follow")
+        path = self.post_action_path(post_id, "follow" if follow else "unfollow")
+        return self.http.post_api2(path, None)
 
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""

@@ -98,6 +98,33 @@ Open: which fields Skool requires, the time format, and where `event_id` /
 `from_occurrence_id` come from (`get_calendar` lists neither in its compact
 form; whether `raw=true` carries them is not checked). Details: docs/API.md §5.11.
 
+### Post actions, categories and the About text
+
+Same draft-first rule: `confirm=false` changes nothing **and does not contact
+Skool**; the draft shows what would be sent. For every action with a side effect
+nobody has checked, the draft also carries a fixed `not_verified` text: **show it
+to the human with the draft.** Read from Skool's page code, **not yet run live**
+(the vote, pin, category and About calls also run in the author's own autopilot).
+Every id must be real text, not only dots. The drafts show ids and the new text,
+not the post's title or the current name, so make sure the human knows which post
+or category it is.
+
+| Tool | Args | Does |
+|---|---|---|
+| `vote_post` | slug, post_id, old="", new="up", confirm | like a post (`old=""`, `new="up"`) or take the like back (`old="up"`, `new=""`). Those are the only two values; no downvote; `old` and `new` must differ |
+| `pin_post` | slug, post_id, pinned=true, confirm | pin a post to the top of the feed, `pinned=false` unpins it. Group admins in the web client. Pinning to a course page is not built |
+| `create_category` | slug, display_name, default_sort, post_write_role, confirm | new feed category. Name ≤ 30 characters, public. `default_sort`: `newest-cm` (Default), `newest`, `best-1w`, `best-1m`. `post_write_role`: 4 members and admins may post, 3 admins only. **No defaults, pick them with the human.** Skool allows 10 categories; the answer carries the new id |
+| `rename_category` | slug, category_id, display_name, confirm | rename one category. `category_id` is the `category_id` of a `list_posts` row. Only the name is sent; **whether Skool keeps the sort and write role is not verified.** Deleting or re-sorting a category is not built |
+| `update_about_description` | slug, description, confirm | **REPLACES** the public About text with exactly `description` (a blank text is refused). The format Skool wants (plain text or `[v2]` TipTap) is not documented; Skool's editor stops at 1000 plain characters. The draft shows the new text only |
+| `set_post_comments` | slug, post_id, enabled, confirm | comments off (`enabled=false`) or on for one post. No default. Admins and moderators in the web client |
+| `pin_comment` | slug, post_id, comment_id, pinned=true, confirm | pin a comment under its post (`comment_id` from `get_post_comments`), `pinned=false` unpins. The web client allows one pinned comment per post; **what a second pin does is not verified** |
+| `follow_post` | slug, post_id, follow=true, confirm | follow a post (the bell), `follow=false` stops |
+
+Open: why the autopilot's `pinPost` got HTTP 400 once in 8 days (catknows sends
+`{}` like the autopilot, Skool's own client sends no body), what Skool does with a
+vote whose `old` is wrong, who the server really lets pin or switch comments,
+and what each call answers. Details: docs/API.md §5.12.
+
 ## Rules of thumb
 
 - `post_name` is NOT `post_id`. `get_post` and `get_video_transcript` want the

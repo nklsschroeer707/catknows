@@ -1158,11 +1158,10 @@ disappear.
 
 ### 5.10 What's *not* here
 
-Casting a **like/vote** was never observed in the reverse-engineered traffic,
-so it stays undocumented rather than guessed. The read side (§1.5,
-`/posts/{id}/vote-users`) exists; the write verb likely follows the same `api2`
-conventions but confirm it from your own browser's Network tab before relying
-on it.
+Casting a **like/vote** was never observed in the captured browser traffic. The
+verb (`PUT /posts/{id}/vote`) is known from Skool's page code instead and is
+written down, with the other small post actions, in §5.12. The read side is §1.5
+(`/posts/{id}/vote-users`).
 
 ### 5.11 Calendar events — create, change, delete
 
@@ -1259,6 +1258,117 @@ A security question (§3) is never swallowed and never retried. The audit line
 - Where the event id and the occurrence id come from in the read payload
   (`get_calendar` shows neither in its compact form), and what the DELETE answers
   (the web client only shows "Event deleted").
+
+### 5.12 Small post actions — votes, pins, categories, About text, comments switch, follow
+
+> **Status: read from Skool's own page code (build `1794436674711`, 12 Nov 2026),
+> never run against Skool by catknows.** The vote, pin, category and About calls
+> also run in the author's autopilot; the comments switch, pin-comment and follow
+> calls are from the page code only. Where a row says "web client", that is the
+> menu the page shows, not a rule measured on the server. Test with a throwaway
+> post or category in a private community before relying on any of it.
+
+All twelve are on `https://api2.skool.com`. `{id}` is a **post** id (a comment
+is a post, §5.9, but the pin-comment calls take the post here and the comment in
+the query).
+
+| Call (Skool's name) | Request | Body | Web client |
+|---|---|---|---|
+| `updatePostVote` | `PUT /posts/{id}/vote` | `{"old": "", "new": "up"}` (like) or `{"old": "up", "new": ""}` (take it back) | any member |
+| `pinPost` | `POST /posts/{id}/pin` | none in Skool's client; catknows sends `{}` | "Pin to feed", group admin only |
+| `unpinPost` | `POST /posts/{id}/unpin` | same as `pinPost` | "Unpin from feed" |
+| `createLabel` | `POST /labels` | `{"group_id": "…", "metadata": {"display_name": "…", "default_sort": "…", "post_write_role": 4}}` | Settings, Community, Categories |
+| `updateLabel` | `PUT /labels/{labelId}` | `{"display_name": "…"}` (see below) | same |
+| `updateLandingPageDescription` | `POST /groups/{gid}/update-landing-page-description` | `{"description": "…"}` | About page, admin only |
+| `disablePostComments` | `POST /posts/{id}/disable-comments` | none | "Turn off comments", admin / moderator |
+| `enablePostComments` | `POST /posts/{id}/enable-comments` | none | "Turn on comments" |
+| `pinComment` | `POST /posts/{id}/pin-comment?comment={commentId}` | none | "Pin comment", admin / moderator |
+| `unpinComment` | `POST /posts/{id}/unpin-comment?comment={commentId}` | none | "Unpin comment" |
+| `followPost` | `POST /posts/{id}/follow` | none | the bell on a post |
+| `unfollowPost` | `POST /posts/{id}/unfollow` | none | same |
+
+"None" means no request body at all: `SkoolHTTP.post_api2(path, None)` leaves the
+JSON out (`_write_api2` only sends `json` when the body is not `None`).
+
+**Votes.** The only values are `""` (no vote) and `"up"`; there is no downvote in
+Skool's client. Skool answers 429 "Liking too fast! Try again later" to a quick
+series. The autopilot sends `{"old": "", "new": "up"}`.
+
+**Pin to the feed.** Skool's own client sends no body; the autopilot sends `{}`
+and got HTTP 400 once in 8 days (cause not clarified, not tested live), so the
+body question is open (below). Pinning to a *course page* (`pin-module`) and
+re-ordering pinned posts (`move-pinned`) are different calls and **not built**.
+
+**Categories.** The community settings allow at most 10 categories and at least
+1; the name has at most 30 characters. `post_write_role` is `4` (members and
+admins may post) or `3` (admins only). `default_sort` is `newest-cm` (shown as
+"Default"), `newest` ("New"), `best-1w` ("Top (week)") or `best-1m` ("Top
+(month)"); `best-1y` is shown in the feed but is not selectable in the form.
+`createLabel` has no `description` in the request body (Skool's JS function takes
+one, the body it builds does not). `updateLabel` builds its body from whichever of
+`display_name`, `post_write_role` and `default_sort` it is given; catknows sends
+only `display_name` (rename). Not built: `deleteLabel`, `updateGroupLabelOrder`
+(`move-label`), changing the sort or the write role of an existing category. The
+category ids are the `category_id` of a `list_posts` row, or `GET
+/groups/{gid}/labels` (§1.2).
+
+**About text.** `metadata.lpDescription` of the group (§6.3) is what this call
+writes. Skool's editor counts at most 1000 characters of plain text; a refusal
+comes back as 422 with the message in `fields[0].error`. Which format the
+`description` string has on the wire (plain text, or `[v2]` TipTap as page bodies,
+§7.3) is not documented: catknows sends the string unchanged.
+
+**Comments switch.** With comments off, creating a comment answers 409
+(read from the page code, not measured). Whether the existing comments stay visible is not known.
+
+**Pinned comment.** `{id}` is the post the comment sits under, `comment` is the
+comment's own id (`get_post_comments`). The web client allows at most one pinned
+comment; what the server does with a second pin (refuse, or replace the first) is
+its own rule and not verified. The page code shows a 422 with a field message for
+a refused pin.
+
+Implemented as `SkoolClient.vote_post(post_id, old, new)`, `pin_post(post_id,
+pinned=True)`, `create_category(slug, display_name, *, default_sort,
+post_write_role)`, `rename_category(category_id, display_name)`,
+`update_about_description(slug, description)`, `set_post_comments(post_id, *,
+enabled)`, `pin_comment(post_id, comment_id, pinned=True)` and
+`follow_post(post_id, follow=True)`; each returns Skool's answer as it is. The
+`vote_post`, `pin_post`, `create_category`, `rename_category`,
+`update_about_description`, `set_post_comments`, `pin_comment` and `follow_post`
+MCP tools (behind `CATKNOWS_ALLOW_WRITE=1`) are draft-first: `confirm=false`
+contacts nobody and returns what would be sent, and for every action with a
+side effect nobody verified it also carries a fixed `not_verified` text. A
+security question (§3) is never swallowed and never retried. The audit line
+(`catknows/audit.py`) names the tool, the community and the ids (`post_id`,
+`comment_id`, `category_id`) and carries no category name and no About text.
+
+**Checks before anything is sent** (a `ValueError` and zero requests on a
+violation): every id that goes into a path or the `comment` query must be
+non-empty text and not made only of dots (`.` and `..` stay as they are when
+percent-encoded, and libcurl folds `/posts/../pin` into `/pin`); the vote values
+must be `""` or `"up"` and differ; a category name must be non-blank text of at
+most 30 characters; `default_sort` and `post_write_role` must be one of the values
+above (create has no defaults of its own); the About text must be non-blank text
+(a blank text would wipe the public About page, which is not what these tools are
+for); the on/off flags must be real booleans. Ids and the `comment` value are
+percent-encoded into the path text.
+
+**Open, not verified live:**
+
+- `pinPost` / `unpinPost`: catknows sends `{}` as the autopilot does; Skool's
+  client sends no body. One HTTP 400 in 8 days in the autopilot, cause unclear.
+- What Skool does with a vote whose `old` does not match the vote it has stored.
+- Whether `updateLabel` with only `display_name` keeps the category's sort and
+  write role (the page code builds the body from the given fields, which points
+  to yes).
+- The 10-category limit is Skool's to enforce; catknows does not count.
+- The wire format of the About `description`, how the 1000 characters are counted
+  for a stored string, and what a blank text does (catknows refuses it).
+- What a second pinned comment does, and what the comments switch does to
+  existing comments.
+- Who the server lets do each of these (all read from the web client's menus).
+- What each call answers (the tools hand the answer back through the scrub;
+  the shape is not documented).
 
 ---
 
