@@ -1076,8 +1076,9 @@ def pull_to_vault(
     A post whose comments fail to load is counted in `comments_failed` and the
     pull goes on. Not so if Skool answers with HTTP 401, 403 or 429, with a 202
     again and again, or with its security question: the pull stops there with
-    an error that says how far it got, and requests nothing more. The notes
-    already written stay. Do not start it again right away: tell the user.
+    an error (in the comments loop it says how far it got) and requests nothing
+    more. The notes already written stay. Do not start it again right away:
+    tell the user.
     """
     from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 

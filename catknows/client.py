@@ -119,6 +119,8 @@ def _id_segment(value, name: str) -> str:
     The ``www`` paths (``get_next``) send community slug, member handle and post
     name through it too. Letters, digits, ``-``, ``_``, ``.`` and ``~`` are left
     as they are, so a real slug, handle or post name goes out byte for byte.
+    Pass the raw value, not one already percent-encoded (copied from an
+    address bar): its ``%`` is encoded again (``%C3`` goes out as ``%25C3``).
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} is required (non-empty text).")
@@ -141,12 +143,16 @@ _MEMBER_FLAGS = ("admin", "online", "trials", "monthly", "annual", "oneTime", "f
 def _members_query(slug: str, page: int, *, sort_type: str, lifecycle: str = "",
                    flags: dict | None = None, tiers: list[str] = (),
                    course_ids: list[str] = ()) -> str:
-    """The members.json query for one page, browser-faithful.
+    """The members.json query for one page, in the browser's parameter layout.
 
     Verified live 2026-08-15: page 1 takes only the active filters; follow-up
     pages carry the full filter tail (unset flags as ``false``/empty, exactly
     like Skool's own browser requests — including ``oneTime``/``free``, which
-    the old hand-written tail omitted).
+    the old hand-written tail omitted). That measurement covers which
+    parameters go out and in what order, not the comma between several
+    ``tiers``/``courseIds``: it is sent raw here, while Skool's page code
+    encodes it in the page URL. What the browser sends on this data route is
+    not measured (open point).
     """
     flags = flags or {}
     # Each tier and course id is encoded on its own (the comma between them
@@ -532,7 +538,8 @@ class SkoolClient:
         their playback handles here, in ``postTree.videos[]``.
 
         ``post_name`` is the post's ``name`` (URL slug), not its UUID — that is
-        what the Next.js route keys on.
+        what the Next.js route keys on. Pass it raw, as Skool's answers carry it,
+        not percent-encoded: a ``%`` in it is encoded again.
         """
         slug = _id_segment(community_slug, "community_slug")
         name = _id_segment(post_name, "post_name")

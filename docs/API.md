@@ -831,7 +831,7 @@ back to camelCase.
 | empty body, 2xx | same as 202 | retry |
 | 401 | `auth_token` invalid/expired | re-login |
 | 403 | AWS-WAF blocked you | most likely your **TLS fingerprint** (§0.2 — use `curl_cffi`/a browser, headers can't fix it); else refresh `aws-waf-token` and check headers |
-| 429 / repeated 202 | rate-limited | back off (this repo pauses ~1h after 5 consecutive 202s) |
+| 429 / repeated 202 | rate-limited | back off. catknows does not wait and try again on its own: a 429 is never retried, a 202 is asked three times in all, and both stop a batch job (see below) |
 
 **The security question (HTTP 200, no data).** Skool can answer an api2 call with
 HTTP 200 and a JSON body whose top-level `code` is a text matching
@@ -868,16 +868,22 @@ and then stops:
 treat an answer of 401, 403 or 429 like the security question: the account is
 being turned away, so the entry is not counted as failed and nothing more is
 requested. `pull_to_vault` raises a `SkoolHTTPError` with the same `.status`
-and how far it got in front of the message, `python -m catknows pull` exits
+and, in its comments loop, how far it got in front of the message (before the
+loop, while members and the list of posts are read, the error comes as it is), `python -m catknows pull` exits
 with code 1, `python -m catknows.snapshot` exits with code 3 (in all four
 loops). catknows reads this from the error's `.status`, never from its text.
 The CLI pull does the same while it reads the members and the list of posts,
 before its loop: the stop line and exit code 1, no traceback.
-A 202 that Skool repeats until the three tries are used up (the other
+A 202 that is still the answer on the last of the three tries (the other
 rate-limit answer in the table above) stops the job the same way; that error
 keeps `.status` 0 and carries `repeated_202`, and the message names it as HTTP
-202. Any other error (404, 500, a network error, a body that stays empty, an
-empty payload) is still one failed entry and the job goes on.
+202. Only that last answer is looked at: empty, empty, 202 counts, 202, 202,
+empty does not. Any other error (404, 500, a network error, a body that stays
+empty, an empty payload) is still one failed entry and the job goes on.
+Skool's membership 401 ("action not permitted": the account is not in that
+community, the session is fine) is a 401 like any other here and ends the
+whole run on purpose, the snapshot's remaining slugs included: the careful
+side was chosen over telling the two apart.
 
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.
