@@ -1,6 +1,6 @@
 """Self-check: unread DMs must come back with chat_messages.
 
-catnose 2026-11-01 (Tommy, Phil): with unread messages Skool's opening window
+catnose 2026-11-01 (two members): with unread messages Skool's opening window
 `before=N` ends at our own last read position and says `has_more_after`.
 chat_messages never walked forward, so exactly the unread messages were
 missing and the autopilot never answered them.

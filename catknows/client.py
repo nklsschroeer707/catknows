@@ -2163,8 +2163,8 @@ class SkoolClient:
 
         ``for_write=True`` additionally refuses archived communities. That group
         payload already states it (``archived: true`` plus ``metadata.archived:
-        1``, measured on `vrooms-3264` 17.08.), so the check costs no extra
-        request. Archiving leaves a community readable and turns every write
+        1``, measured on an archived community, 17.08.), so the check costs no
+        extra request. Archiving leaves a community readable and turns every write
         off, so only the write paths pass the flag; reads must keep working.
 
         When ``GET /groups/{slug}`` fails, this raises the `SkoolHTTPError`

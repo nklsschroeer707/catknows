@@ -32,7 +32,7 @@ class _FakeHTTP:
         pp = {"users": page,
               "totalPages": self.total_pages or len(self.pages),
               # Native bool, spelled as Skool spells it — copied from a live
-              # members.json (hoomans True / skooligans False, 2026-08-17).
+              # members.json (hoomans True / as a plain member False, 2026-08-17).
               "isAdmin": self.is_admin}
         if self.total is not None:
             pp["total"] = self.total
@@ -165,7 +165,7 @@ def test_mcp_trailer_states_the_role_cap():
 def test_limit_marker_reports_real_rows_when_role_cap_hits_first():
     """Both markers can fire on one call (limit=650 as a plain member). The
     limit marker must then report the rows that actually came back, not the
-    200 it would have allowed — measured live on skooligans: 30 rows."""
+    200 it would have allowed — measured live as a plain member: 30 rows."""
     import catknows.mcp_server as m
 
     class FakeClient:

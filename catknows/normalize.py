@@ -543,8 +543,8 @@ def notification(msg: dict) -> dict:
     is the object the notification is about — the comment for a mention in a
     reply — and ``root_post_id`` the post it hangs under, so a comment is the
     case where the two differ. The community slug is NOT in the payload: it is
-    the first segment of ``link_as`` (the display name is not a slug, and
-    hoomans' slug is ``the-skool-memes-4437``). ``target`` is shaped so it goes
+    the first segment of ``link_as`` (the display name is not a slug: a
+    "Some Group" can be ``some-group-1234``). ``target`` is shaped so it goes
     straight into get_post (community + post_name) and get_post_comments
     (community + post_id).
     """
@@ -904,7 +904,7 @@ if __name__ == "__main__":
     listed = post({"post": {"id": "p7", "metadata": {
         "attachments": "6ab9cacf0d444f63a441c69e22320f6a"}}})
     assert listed["attachments"] and listed["files"] == [], listed
-    # videoIds is a comma-joined string; two-video posts are real (skooligans).
+    # videoIds is a comma-joined string; two-video posts are real (measured).
     assert post({"post": {"id": "p6", "metadata": {
         "videoIds": "a,b"}}})["video_ids"] == ["a", "b"]
     assert post({"post": {"id": "p5", "metadata": {"videoIds": ""}}})["video_ids"] == []
@@ -1089,14 +1089,14 @@ if __name__ == "__main__":
     assert dayone["joined_at"].day == 25 and dayone["joined_at"].hour == 20, dayone
     # archived: an archived community stays readable but every write is off, and
     # this record used to pass on neither of Skool's two statements of it. Shape
-    # copied from a live self/groups entry (vrooms-3264, 17.08.): outer bool AND
+    # copied from a live self/groups entry (17.08., names made up): outer bool AND
     # metadata 1, both present together. Either alone must still count — nothing
     # measured says Skool always sends both, and guessing that it does is how a
     # made-up fixture would freeze the bug in place.
     arch = my_community(
-        {"name": "vrooms-3264", "archived": True, "public": True,
+        {"name": "some-group-1234", "archived": True, "public": True,
          "created_at": "2025-06-30T05:15:16.746011Z",
-         "metadata": {"display_name": "vRooms - Real Connections", "archived": 1,
+         "metadata": {"display_name": "Some Group", "archived": 1,
                       "total_members": 11, "color": "#E9597F",
                       "member": '{"role": "member",'
                                 ' "created_at": "2025-07-01T05:15:16.746011Z"}'}}

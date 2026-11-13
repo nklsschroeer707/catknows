@@ -621,7 +621,7 @@ name is the literal "New membership request!" and there is no user),
   mention in a reply they differ: `post_id` is the comment, `root_post_id` the
   post it hangs under. For a post notification they are equal.
 - **The community slug is only in `link_as`.** The display name is not a
-  slug (hoomans' slug is `the-skool-memes-4437`), and the payload carries
+  slug (a "Some Group" can be `some-group-1234`), and the payload carries
   `group_id` but no name.
 - Actions seen on 30 live entries: `admin-post` (broadcast), `mention-comment`,
   `membership-request` (link to `/{slug}/-/pending`, no post),
@@ -1958,8 +1958,8 @@ at all. So api2 is not "the ONLY module read" — it is the door that needs
 membership (and the only one for our own drafts and the whole write path),
 while the page is the door the website itself uses.
 
-Reading a course through the page (measured 2026-08-19, `wealthpack` and
-`skooligans`, neither joined):
+Reading a course through the page (measured 2026-08-19 on two
+communities, neither joined):
 
 ```
 GET /_next/data/{buildId}/{slug}/classroom/{courseNAME}.json?group={slug}

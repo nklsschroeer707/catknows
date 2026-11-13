@@ -13,12 +13,12 @@ from catknows.client import SkoolClient
 
 HOBBIES = "8a7678583d3246a1a1a0a4a994321146"
 CATS = [{"id": HOBBIES, "name": "🎨 Hobbies"}, {"id": "b" * 32, "name": "💻 Tech"}]
-ROW = {"globalRank": 46, "categoryRank": 1, "category": "🎨 Hobbies",
-       "mrr": 3502050.5, "mrrGrowth": -12000.0, "traffic": 3880,
-       "user": {"id": "u1", "name": "mario-vreco", "firstName": "Mario", "lastName": "Vreco",
+ROW = {"globalRank": 40, "categoryRank": 1, "category": "🎨 Hobbies",
+       "mrr": 3112050.5, "mrrGrowth": -12000.0, "traffic": 3000,
+       "user": {"id": "u1", "name": "example-member", "firstName": "Example", "lastName": "Member",
                 "metadata": {"mrrStatus": "crown", "actStatus": ""}},
-       "group": {"id": "g1", "name": "talasakademija",
-                 "metadata": {"displayName": "Talas Akademija", "logoUrl": "x"}}}
+       "group": {"id": "g1", "name": "some-group-1234",
+                 "metadata": {"displayName": "Some Group", "logoUrl": "x"}}}
 
 
 class _FakeHTTP:
@@ -39,12 +39,12 @@ def _client():
 
 def test_a_row_is_dollars_badge_and_link():
     r = normalize.revenue_row(ROW)
-    assert r["global_rank"] == 46 and r["category_rank"] == 1, r
-    assert r["community"] == "talasakademija" and r["community_name"] == "Talas Akademija", r
-    assert r["owner"] == "Mario Vreco" and r["owner_handle"] == "mario-vreco", r
-    assert r["mrr_usd"] == 35021 and r["mrr_growth_usd"] == -120, "cents -> whole dollars"
+    assert r["global_rank"] == 40 and r["category_rank"] == 1, r
+    assert r["community"] == "some-group-1234" and r["community_name"] == "Some Group", r
+    assert r["owner"] == "Example Member" and r["owner_handle"] == "example-member", r
+    assert r["mrr_usd"] == 31121 and r["mrr_growth_usd"] == -120, "cents -> whole dollars"
     assert r["owner_badge"] == "👑 crown ($30k+)", r
-    assert r["traffic"] == 3880 and r["url"] == "https://www.skool.com/talasakademija", r
+    assert r["traffic"] == 3000 and r["url"] == "https://www.skool.com/some-group-1234", r
 
 
 def test_unknown_badge_passes_through_and_none_is_empty():
