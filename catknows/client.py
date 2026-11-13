@@ -23,6 +23,7 @@ import time
 from typing import Iterator
 from urllib.parse import quote, urlsplit
 
+from . import audit
 from .auth import Session
 from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
 
@@ -1657,13 +1658,27 @@ class SkoolClient:
         on its side, so the answer says nothing about the finished course. The key
         is a credential: it is sent on the wire, and hidden by its name
         (``clone_code=``) in the audit line and in every error text, and an error
-        has no exception chain (docs/API.md §7.8). Returns Skool's answer as it is.
+        has no exception chain (docs/API.md §7.8). An error whose text repeats the
+        bare key (Skool's answer echoing it) shows ``[redacted]`` in its place: the
+        key is known here, so it is replaced by its value (`audit.redact_value`).
+        Returns Skool's answer as it is.
         """
         code = self.check_import_course(course_id, clone_code)
         group_id = self.group_id_for(community_slug, for_write=True)
         path = (f"{self.course_action_path(course_id, 'import')}"
                 f"?group={_id_segment(group_id, 'group_id')}&clone_code={quote(code, safe='')}")
-        return self.http.post_api2(path, None)
+        try:
+            return self.http.post_api2(path, None)
+        except SkoolHTTPError as e:
+            # Only a text that holds the key is rebuilt, status kept. A security
+            # question never repeats the answer, so it passes as it is.
+            said = str(e)
+            clean = audit.redact_value(said, code)
+            if clean == said:
+                raise
+            status = e.status
+        # Raised outside the handler, with no cause: the first error holds the key.
+        raise SkoolHTTPError(clean, status) from None
 
     # -- community rules and level names (docs/API.md §1.11) -------------------
     # Plain GETs, no query. Read from the page code, answer shape not run live, so

@@ -53,14 +53,17 @@ _DEFAULT_PATH = Path.home() / ".catknows" / "writes.jsonl"
 
 
 # Query parameters whose VALUE is a credential: the course share key
-# (`importCourse` carries it as `clone_code`, docs/API.md §7.8) and the verified
+# (`importCourse` carries it as `clone_code`, docs/API.md §7.8), the verified
 # client id that lets a whole course be deleted (`deleteCourse`, §7.6: an id that
-# passed the e-mail code check once and is reused for good). The log line keeps
+# passed the e-mail code check once and is reused for good) and the one-shot token
+# of the dashboard numbers (`/wait?token=` and the read that follows it, §1.9: no
+# write, so it never reaches the log, but the read paths name their URL in error
+# texts and take the rule from here). The log line keeps
 # the path with its query because the flags in it explain the write
 # (`notify=members`, `state=published`), so the value is replaced and the name
 # stays: the line still says that a key was sent, never which. A new secret
 # query name goes in this tuple, not into a call site.
-_SECRET_QUERY_KEYS = ("clone_code", "client_id")
+_SECRET_QUERY_KEYS = ("clone_code", "client_id", "token")
 _SECRET_QUERY = re.compile(
     r"([?&](?:" + "|".join(map(re.escape, _SECRET_QUERY_KEYS)) + r"))=[^&#\s]*")
 
@@ -79,6 +82,19 @@ def redact(text: str) -> str:
     parameter comes back unchanged, byte for byte.
     """
     return _SECRET_QUERY.sub(r"\1=[redacted]", text)
+
+
+def redact_value(text: str, value: str) -> str:
+    """``text`` with every occurrence of ``value`` replaced by ``[redacted]``, in any case.
+
+    `redact` finds a credential behind its parameter name. This is for the caller
+    that knows the value it sent (the course share key of an import) and must not
+    see it come back bare in an answer that an error text repeats. An empty
+    ``value`` hides nothing.
+    """
+    if not value:
+        return text
+    return re.sub(re.escape(value), "[redacted]", text, flags=re.IGNORECASE)
 
 
 def secret_answer(path_and_query: str) -> bool:
@@ -245,6 +261,8 @@ if __name__ == "__main__":
         assert last["path"] == "/courses/c1/import?group=g1&clone_code=[redacted]", last
         assert redact("/posts?follow=true") == "/posts?follow=true", "a plain path must not change"
         assert redact("/courses/c1?client_id=abc") == "/courses/c1?client_id=[redacted]"
+        assert redact("/wait?token=abc") == "/wait?token=[redacted]"
+        assert redact_value(f"Invalid code {key.upper()}", key) == "Invalid code [redacted]"
         assert secret_answer("/courses/c1/clone-code") and not secret_answer("/courses/c1/import")
         assert carries_secret("/courses/c1?client_id=abc") and not carries_secret("/posts/p1/pin")
 

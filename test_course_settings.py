@@ -813,6 +813,43 @@ def test_a_failed_import_leaves_no_key_in_the_log_the_error_or_its_chain():
         assert line["path"].endswith("clone_code=[redacted]"), (label, line)
 
 
+def test_a_failed_import_whose_answer_repeats_the_bare_key_shows_a_placeholder():
+    """`audit.redact` finds the key behind its name (`clone_code=`). An answer that
+    repeats the key without the name is caught by its value: the sender knows it."""
+    cases = {
+        "HTTP 400, the key in a field error": (
+            _Resp(400, json.dumps({"fields": [{"error": f"Invalid code {CODE}"}]})), 400),
+        "HTTP 400, the key in capitals": (_Resp(400, f"Invalid code {CODE.upper()}"), 400),
+        "HTTP 500, the key as plain text": (_Resp(500, f"boom {CODE} boom"), 500),
+        "bad json with the key": (_Resp(200, f"Invalid code {CODE} <not json>"), 200),
+    }
+    for label, (resp, status) in cases.items():
+        err, log, line = _failing(resp)
+        blob = _everything(err)
+        _without_key(blob, f"the error text or its chain ({label})")
+        _without_key(blob.lower(), f"the error text or its chain, in any case ({label})")
+        _without_key(log, f"the audit log ({label})")
+        assert type(err) is SkoolHTTPError and err.status == status, (label, err)
+        assert "Invalid code [redacted]" in str(err) or "boom [redacted] boom" in str(err), (
+            f"Skool's reason stays readable around the placeholder ({label}): {err}")
+        assert err.__cause__ is None and err.__context__ is None, label
+        assert line["path"].endswith("clone_code=[redacted]"), (label, line)
+
+
+def test_a_failed_import_that_does_not_repeat_the_key_is_passed_on_as_it_is():
+    err, _, _ = _failing(_Resp(400, json.dumps({"fields": [{"error": "Invalid code"}]})))
+    assert type(err) is SkoolHTTPError and err.status == 400, err
+    assert "Invalid code" in str(err) and "HTTP 400" in str(err), str(err)
+    assert str(err).count("[redacted]") == 1, "only the query value was replaced"
+
+
+def test_redact_value_replaces_a_known_value_in_any_case_and_nothing_else():
+    assert audit.redact_value(f"a {CODE} b {CODE.upper()} c", CODE) == "a [redacted] b [redacted] c"
+    assert audit.redact_value("nothing to hide", CODE) == "nothing to hide"
+    assert audit.redact_value("a.b and axb", "a.b") == "[redacted] and axb", "the value is no pattern"
+    assert audit.redact_value("unchanged", "") == "unchanged", "an empty value hides nothing"
+
+
 def test_a_network_error_leaves_no_key_in_the_log_the_error_or_its_chain():
     # curl's own error text names the host, not the query; the second one is the
     # worst case, a library that repeats the whole URL: our copy of it is redacted,

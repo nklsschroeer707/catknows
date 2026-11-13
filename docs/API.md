@@ -2133,19 +2133,35 @@ guaranteed, and where, so that a log never holds it:
   the HTTP error and the bad-JSON error say "answer not shown" instead of the first
   300 / 200 characters, and keep the HTTP status. The 401/403 refusal and the security
   question (§3) are unchanged: same type, code and status, no second try.
+  On the **import** the key is also replaced **by its value**: `import_course` knows
+  the key it sent, so an error whose text repeats it bare (an answer of Skool echoing
+  it, in any case) shows `[redacted]` in its place (`audit.redact_value`), with the
+  same status and no chain. The rest of that answer stays, because Skool's reason,
+  e.g. "Invalid code", is what the user needs.
 - **Exception chain.** The MCP SDK logs every tool exception that is not a
   `ToolError` with its whole chain (`__cause__`), so what hangs on the chain is in a
   log. On a path that carries a credential in the request or the answer
   (`audit.carries_secret`) the error is raised with no cause and no context
   (`from None`, outside the handler), so the library's own message, which can repeat
   the URL, does not travel on. Other write paths keep their cause.
+- **Read paths and the upload.** The same holds for the reads (`get_api2`, `get_next`,
+  `get_api2_text`, `post_api2_read`): the one-shot token of the dashboard numbers
+  (§1.9, `?token=`) is in `audit._SECRET_QUERY_KEYS`, an error about such a URL names
+  it without its query and has no chain, and the library's message of a network error
+  goes through `audit.redact` (when that replaces something, the chain is cut too).
+  A presigned upload link (§5.3) is access as a whole, with parameter names that are
+  not Skool's: a network error of `put_bytes` names the host only, repeats the
+  library's message without the URL or any other link, and never has a chain.
+- **Answer excerpt.** Every error text of the HTTP layer takes the start of Skool's
+  answer from one place (`http._answer_excerpt`): e-mail addresses in it are masked
+  (`normalize.mask_email`, `a***@example.com`) and it goes through `audit.redact`.
 - **Draft.** The `import_course` draft shows the key's length, never the key.
 - **Not covered.** The MCP tool `create_course_share_key` returns the key in its answer
   to the caller: that is its job. A key you pass to `import_course` sits in the
-  conversation that passed it. `audit.redact` finds a value only behind its name
-  (`clone_code=`): an error body of the **import** that echoes the bare key without it
-  is not scanned (that body is still shown, because Skool's reason, e.g. "Invalid code",
-  is what the user needs).
+  conversation that passed it. The course id in the import's path is the first half of
+  the key (Skool's own form builds the request that way), and a path is never hidden.
+  Replacing by value finds the whole key as it was sent, not a piece of it and not
+  another encoding of it.
 
 The same rule covers `client_id`, the verified id that lets a whole course be deleted
 (§7.6): `delete_course_item` puts it in the query (`?client_id=…`), it is reusable for
