@@ -52,21 +52,38 @@ server over stdio — this is catknows' primary direction: **the bridge between
 Skool and any MCP-capable tool** (Claude, Codex, Cursor, …). It's a thin wrapper
 over `SkoolClient`; don't duplicate client logic in it.
 
-- Read tools (always on): members, posts, comments, likes, member profile,
-  community about, discovery, admin metrics, calendar, classroom, chat channels,
-  `list_my_communities`, and `pull_to_vault`.
+- The server registers **31 tools** by default and **62 tools** with
+  `CATKNOWS_ALLOW_WRITE=1`. `test_mcp_tools_doc.py` counts both against the
+  running server and fails if this file, the README or the `catknows-update`
+  skill says another number.
+- Read tools (always on, those in `_READ_ONLY`): members, member search,
+  community search, posts, video transcripts, comments, likes (one page per
+  call), member profile, follows, community about, rules and level names,
+  discovery, leaderboards, admin metrics, growth, calendar, classroom, course
+  tree, chat channels, DMs, notifications, join requests, a file's download
+  link and `list_my_communities`. Three more are always on without being read
+  tools: `login_to_skool`, `pull_to_vault` and `update_catknows`.
 - `list_my_communities` is the entry point for cross-community questions —
   every other tool needs a slug, and this is where slugs come from. Skool omits
   `role` for communities you own, so it's derived by comparing
   `metadata.owner` against your own `/self` id (`normalize.my_community`).
-- Write tools (`create_post`, `create_comment`, `edit_post`, `edit_comment`,
-  `delete_post`, `delete_comment`, `send_dm`, and the classroom writers):
-  **only registered when `CATKNOWS_ALLOW_WRITE=1`**. They're draft-first —
-  `confirm=false` returns the draft without writing; `confirm=true` actually
-  writes. Deletes show the title and text that would disappear, because an id
-  alone is not something a user can review. `notify_members` (email broadcast)
-  is a separate explicit flag. Never weaken this: writes act as the user,
-  visible to real members.
+- Write tools (those in `_DESTRUCTIVE`): posts and comments (`create_post`,
+  `create_comment`, `edit_post`, `edit_comment`, `delete_post`,
+  `delete_comment`), `send_dm`, `review_join_request`, the classroom writers
+  (`create_course`, `create_course_item`, `update_course_item`,
+  `publish_course`, `move_course_item`, `delete_course_item`,
+  `set_course_drip`, `move_course_to_folder`, `create_course_share_key`,
+  `import_course`), the calendar writers (`create_calendar_event`,
+  `update_calendar_event`, `delete_calendar_event`), the small post actions
+  (`vote_post`, `pin_post`, `create_category`, `rename_category`,
+  `update_about_description`, `set_post_comments`, `pin_comment`,
+  `follow_post`) and the chat read marks (`mark_chat_read`,
+  `mark_all_chats_read`): **only registered when `CATKNOWS_ALLOW_WRITE=1`**.
+  They're draft-first — `confirm=false` returns the draft without writing;
+  `confirm=true` actually writes. Deletes show the title and text that would
+  disappear, because an id alone is not something a user can review.
+  `notify_members` (email broadcast) is a separate explicit flag. Never weaken
+  this: writes act as the user, visible to real members.
 - Drafts that carry prose (post, comment, DM, course page) also return
   `before_you_show_this`: a short instruction telling the calling model to
   strip AI tells before the user reads the draft. The server has no model, so
@@ -96,6 +113,10 @@ over `SkoolClient`; don't duplicate client logic in it.
   privacy policy, so a content field added here would make a public document
   untrue), and **the log never steers** — no queue, no retry hanging off it.
   It also must never break a write: `record()` swallows its own errors on purpose.
+  A credential that rides in a **query** (`clone_code`, `client_id`) belongs in
+  `audit._SECRET_QUERY_KEYS`: the wire keeps the real value, the log line and
+  every error text of `_write_api2` show `[redacted]`, and on such a path the
+  error carries no exception chain (docs/API.md §7.8, §7.6).
 - **At least 15 s between two writes of the same Skool account** (decision Niklas
   2026-09-22, replaces the old rule D5 "no throttle"). Enforced in the same
   `http._write_api2`, so every write path waits, failed writes count as sent.
@@ -186,6 +207,10 @@ a bugfix task. Read it now, not after the feature.
    there is a tool no agent will ever call. `python test_mcp_tools_doc.py`
    enforces it — it matches on word boundaries, because a plain substring check
    counts `get_post` as documented the moment `get_post_comments` is listed.
+   The same test compares the tool counts (the two figures written as
+   bold "N tools") in this file, in `README.md` and in the `catknows-update`
+   skill with the running server, and checks that every write tool is named in
+   this file: when you add a tool, update those three places too.
 
 ## Guardrails
 
@@ -195,6 +220,10 @@ a bugfix task. Read it now, not after the feature.
   goes through `_safe_raw()` / `normalize.scrub` first (see the MCP-server
   section). This matters most for the planned Cloud MCP, where output crosses a
   network to a third party — treat scrub as load-bearing, not cosmetic.
+- **Skool's security question is not an error to swallow.** HTTP 200 with a
+  top-level `code` matching `AUTH-SEC-5xx` raises `SkoolSecurityChallenge`
+  (a `SkoolHTTPError`): don't catch it with a broad `except`, don't retry it,
+  and let a batch job stop on it (docs/API.md §3).
 - **Never commit `.skool-profile/`** — it holds the user's live session.
 - **Pick the branch before you commit, not after.** `main` is the open-source
   side users pull via `update_catknows`; `hosted-mcp` adds HTTP transport, OAuth

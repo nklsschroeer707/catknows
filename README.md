@@ -219,8 +219,11 @@ Then just talk to your AI:
 **Writing (posts, comments & DMs) is off by default.** The server only registers
 the write tools — creating, editing and deleting posts and comments
 (`create_post`, `create_comment`, `edit_post`, `edit_comment`, `delete_post`,
-`delete_comment`), `send_dm`, and the classroom writers — when you opt in with
-an env var in the MCP config:
+`delete_comment`), `send_dm`, join-request decisions (`review_join_request`),
+the classroom writers (courses, pages, drip, folders, share key, import),
+calendar events, small post actions (likes, pins, categories, the About text,
+the comments switch, follows) and chat read marks — when you opt in with an
+env var in the MCP config:
 
 ```json
 "catknows": {
@@ -230,11 +233,12 @@ an env var in the MCP config:
 }
 ```
 
-Without the flag your AI can't even see the write tools. With it, three guards
-remain: your MCP client asks permission before every tool call, the tools are
-draft-first (the AI must show you the draft, then call again with
-`confirm=true`), and emailing all members (`notify_members`) is a separate
-explicit switch. Test in a private community first — these post as *you*.
+Without the flag the server has **31 tools** and your AI can't even see the
+write tools; with it, **62 tools**. With the flag, three guards remain: your
+MCP client asks permission before every tool call, the tools are draft-first
+(the AI must show you the draft, then call again with `confirm=true`), and
+emailing all members (`notify_members`) is a separate explicit switch. Test in
+a private community first — these post as *you*.
 
 ### Running it over HTTP (self-hosting)
 
@@ -313,11 +317,12 @@ growth curves build themselves.
 
 ## What can it pull?
 
-Members · posts · comments (full nested threads) · likes/upvoters · single-member
-profiles · community About · calendar · classroom · discovery · admin metrics
-(owner only) · chat channels & messages · your communities & roles · pending
-join requests (with the applicants' survey answers). Full list and JSON shapes
-in **[docs/API.md](docs/API.md)**.
+Members (and a name search) · posts · comments (full nested threads) ·
+likes/upvoters · single-member profiles · community About, rules and level names ·
+leaderboards · calendar · classroom · discovery · admin metrics (owner only) ·
+chat channels & messages · download links for uploaded files · your communities
+& roles · pending join requests (with the applicants' survey answers, emails
+masked). Full list and JSON shapes in **[docs/API.md](docs/API.md)**.
 
 **Market research from the discovery pages** ([docs/API.md §6](docs/API.md#6-discovery-the-global-leaderboard--scraping-any-community)):
 the global **revenue leaderboard** (top 100 communities with real monthly
@@ -336,8 +341,13 @@ covered too: `edit_post` / `edit_comment` (draft-first, showing old versus new,
 replacing only the fields you pass) and `delete_post` / `delete_comment`
 (explicit confirm). Category labels, video
 links and native **polls** (`create_poll` / the `poll_options` parameter) are
-supported too; GIF and video attachments stay documented for you to build on. **Write carefully** — these act as *you*, visible to real
-members; see the MCP section for the safety switch.
+supported too; GIF and video attachments stay documented for you to build on.
+The newest writers (calendar events, likes, pins, categories, the About text,
+comment switches, course drip, folders, share key and import, chat read marks)
+are built from Skool's own page code and tested against stand-ins, **not yet
+tried against Skool**: test them in a private community first. **Write
+carefully** — these act as *you*, visible to real members; see the MCP section
+for the safety switch.
 
 ---
 
