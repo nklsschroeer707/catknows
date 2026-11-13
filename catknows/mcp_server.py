@@ -430,6 +430,82 @@ def search_community(community_slug: str, query: str, kind: str = "posts",
 
 
 @mcp.tool()
+def search_members(community_slug: str, query: str, limit: int = 7, cursor: str = "",
+                   raw: bool = False) -> dict:
+    """Find members of one community by name with Skool's @mention search: id, handle, name, points, level.
+
+    A quick answer to "who is X?" when you need a person's handle or id. It
+    returns the same fields as list_members and no email or other contact
+    data; raw=True returns Skool's records through the secret scrub, with
+    email keys removed too. `query` is required: this is a person search, not
+    a way to list a community (use list_members for that, and note that
+    Skool's role limits on member lists still apply).
+
+    ONE page per call and no walking: `limit` is how many hits to ask for
+    (default 7, what Skool's own mention list asks for; hard cap 200, 30 with
+    raw=True, and a `limit_capped` entry says when it cut). Skool's own client
+    never pages this search; `cursor` is passed on as given, and `cursor` /
+    `has_more` appear in the answer only when Skool sends them. Names and
+    bios are personal data: use them for the task at hand, do not collect
+    them.
+    """
+    effective, capped = _cap(limit, raw)
+    answer = _get_client().search_members(community_slug, query, limit=effective,
+                                          cursor=cursor)
+    users = answer.get("users") or []
+    if raw:
+        members = normalize.strip_contact(_safe_raw(users))
+    else:
+        members = [_jsonable(normalize.search_user(u)) for u in users]
+    out: dict = {"query": query, "community": community_slug,
+                 "returned": len(members), "members": members}
+    for key in ("cursor", "has_more"):  # as Skool sent them; never invented
+        if key in answer:
+            out[key] = answer[key]
+    if capped:
+        out["limit_capped"] = {
+            "requested": capped["requested"], "returned": len(members),
+            "ceiling": capped["ceiling"],
+            "note": (f"catknows asks Skool for at most {capped['ceiling']} hits per call"
+                     f"{' (raw records are much bigger)' if raw else ''}, so the "
+                     "response stays inside the tool-result size limit. Narrow the query "
+                     "instead of asking for more."),
+        }
+    return out
+
+
+@mcp.tool()
+def get_file_download_url(file_id: str, expire: int = 0) -> dict:
+    """Get a download link for one uploaded FILE (document, image, other attachment) by its file id.
+
+    The link is an ACCESS LINK: whoever holds it can fetch the file until it
+    expires. Use it to fetch the file, then drop it. Do not paste it into a
+    post, a DM or a note, and do not store it; catknows itself writes it
+    nowhere (not into the audit log, not into an error message). A post's
+    attachments already carry a ready link in get_post (`files[].url`): use
+    that first, this is for a file id without one.
+
+    expire: how long the link should stay valid. 0 (default) means not sent,
+    Skool decides. Skool's own client calls it `expireSecs` (so seconds;
+    28800 for chat attachments), but the unit and the allowed range were not
+    run: pass it only when you know you need it.
+
+    Files only. Downloading a VIDEO is an admin right in Skool and is not
+    offered here; videos embedded from Loom, Wistia or Vimeo are not touched
+    either (LEGAL.md).
+    """
+    url = _get_client().file_download_url(file_id, expire or None)
+    return _safe_raw({
+        "file_id": file_id,
+        "download_url": url,
+        "expire": expire or "not sent (Skool's default)",
+        "note": ("This is an access link: anyone who has it can fetch the file until it "
+                 "expires. Fetch what you need, do not paste it into posts, DMs or notes, "
+                 "and do not keep it. How long it works is not known."),
+    })
+
+
+@mcp.tool()
 def get_post(community_slug: str, post_name: str, raw: bool = False) -> Any:
     """Get ONE post with its file attachments (name, type, download URL) and video ids.
 
@@ -2044,6 +2120,77 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         return {"status": "followed" if follow else "unfollowed", "post_id": post_id,
                 "answer": _safe_raw(answer)}
 
+    # -- chat read marks (docs/API.md §5.13) ------------------------------------
+    # Both change the unread state of the account, nothing else. No slug and no
+    # archived guard: a chat belongs to no single community. The draft does not
+    # contact Skool.
+
+    _NV_MARK_READ = (
+        "Not verified: what `last` does on the server. Skool's page sends the id of the "
+        "chat message that just came into view, and no `last` when the newest message is "
+        "in view or when a chat is marked read from the channel list; catknows sends "
+        "exactly the text you passed. Also not verified: whether the other person can see "
+        "that you read the chat. Anything that looks for unread chats "
+        "(list_chat_channels with unread_only, a poller) stops seeing this one as unread."
+    )
+    _NV_MARK_ALL_READ = (
+        "Not verified: what Skool answers, and whether the other people can see that you "
+        "read their chats. This marks EVERY chat of the account as read at once, and "
+        "there is no way back for all of them in one call: anything that looks for unread "
+        "chats (list_chat_channels with unread_only, a poller) sees none afterwards."
+    )
+
+    @mcp.tool()
+    def mark_chat_read(channel_id: str, last: str = "", confirm: bool = False) -> dict:
+        """Mark ONE chat (DM channel) as read for the logged-in account, so its unread counter drops.
+
+        channel_id comes from list_chat_channels. `last` is optional and sent as
+        text exactly as given: Skool's own page sends the id of a chat message
+        (the one that just came into view) and nothing for "the whole chat";
+        leave it empty to mark the whole chat. What the server does with `last`
+        was not run.
+
+        This changes what looks unread: anything that polls unread chats stops
+        seeing this one. Draft-first: with confirm=false NOTHING is sent and
+        Skool is not contacted. Call again with confirm=true once the user
+        approved. The draft shows the ids, not the chat's participants.
+        """
+        _skool().chat_read_path(channel_id, last or None)  # bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was marked as read", "would_mark_read",
+                {"channel_id": channel_id,
+                 "last": last or "(none: the whole chat)",
+                 "does": (f"mark this chat as read, sending last={last} (a chat message id; "
+                          "what Skool does with it is not verified)" if last
+                          else "mark the whole chat as read")},
+                prose=False, not_verified=_NV_MARK_READ)
+        answer = _get_client().mark_chat_read(channel_id, last or None)
+        return {"status": "marked_read", "channel_id": channel_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def mark_all_chats_read(confirm: bool = False) -> dict:
+        """Mark ALL chats of the logged-in account as read at once: every chat in every community, not one.
+
+        There is no way to name a channel or a community here; for one chat use
+        mark_chat_read. Afterwards nothing looks unread, so anything that polls
+        unread chats (list_chat_channels with unread_only) finds none.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved, and say
+        in plain words that it is every chat of the account.
+        """
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was marked as read", "would_mark_all_read",
+                {"scope": "ALL chats of the logged-in Skool account",
+                 "does": ("mark EVERY chat of this account as read: all channels in all "
+                          "communities, not just one")},
+                prose=False, not_verified=_NV_MARK_ALL_READ)
+        answer = _get_client().mark_all_chats_read()
+        return {"status": "all_chats_marked_read", "answer": _safe_raw(answer)}
+
 
 # -- tool annotations ----------------------------------------------------------
 # Clients (and the Anthropic connector directory) read these hints to decide
@@ -2060,6 +2207,7 @@ _READ_ONLY = {
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
     "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard", "get_leaderboard",
+    "search_members", "get_file_download_url",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
@@ -2070,6 +2218,7 @@ _DESTRUCTIVE = {
     "create_calendar_event", "update_calendar_event", "delete_calendar_event",
     "vote_post", "pin_post", "create_category", "rename_category",
     "update_about_description", "set_post_comments", "pin_comment", "follow_post",
+    "mark_chat_read", "mark_all_chats_read",
 }
 
 

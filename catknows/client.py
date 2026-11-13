@@ -1160,6 +1160,107 @@ class SkoolClient:
         path = self.post_action_path(post_id, "follow" if follow else "unfollow")
         return self.http.post_api2(path, None)
 
+    # -- chat read marks, member search, file download link (docs/API.md §5.13) --
+    # Read from Skool's own page code and NOT run live by catknows. The two marks
+    # are writes (they change the unread state of the account): `post_api2`, so
+    # they are spaced and logged. The search and the link request are POSTs that
+    # only read: `post_api2_read`, which writes no audit line and does not wait.
+    # Every method refuses a bad argument BEFORE the first request, and a
+    # SkoolSecurityChallenge is never caught here.
+
+    @staticmethod
+    def chat_read_path(channel_id: str, last: str | None = None) -> str:
+        """``/channels/{id}/read``, with ``?last={last}`` when ``last`` is given.
+
+        Both go through `_id_segment`. ``last`` is sent as the text it is: the
+        page code passes the id of the chat message that just came into view, and
+        no ``last`` at all for "the whole chat". ``None`` means not given; an
+        empty text is refused rather than turned into "not given".
+        """
+        path = f"/channels/{_id_segment(channel_id, 'channel_id')}/read"
+        if last is None:
+            return path
+        return f"{path}?last={_id_segment(last, 'last')}"
+
+    @staticmethod
+    def file_download_path(file_id: str, expire: int | None = None) -> str:
+        """``/files/{id}/download-url``, with ``?expire={n}`` when ``expire`` is given.
+
+        Skool's own name for ``expire`` is ``expireSecs``, so seconds; the unit
+        and the allowed range were not run. Only what cannot be a number is
+        refused here (not a whole number, below 1, a boolean).
+        """
+        path = f"/files/{_id_segment(file_id, 'file_id')}/download-url"
+        if expire is None:
+            return path
+        if isinstance(expire, bool) or not isinstance(expire, int) or expire < 1:
+            raise ValueError("expire must be a whole number of 1 or more, or left out.")
+        return f"{path}?expire={expire}"
+
+    def mark_chat_read(self, channel_id: str, last: str | None = None) -> dict:
+        """Mark one chat as read for this account: ``POST /channels/{id}/read`` (§5.13).
+
+        No body. ``last`` (query) is the id of a chat message, as the page code
+        passes it; without it the whole chat is meant. What the server does with
+        ``last`` was not run, so it is sent exactly as given. Returns Skool's
+        answer as it is.
+        """
+        return self.http.post_api2(self.chat_read_path(channel_id, last), None)
+
+    def mark_all_chats_read(self) -> dict:
+        """Mark EVERY chat of this account as read: ``POST /self/chat-channels/read`` (§5.13).
+
+        No query, no body, no way to name a community or a channel. Returns
+        Skool's answer as it is.
+        """
+        return self.http.post_api2("/self/chat-channels/read", None)
+
+    def search_members(self, community_slug: str, query: str, *, limit: int = 7,
+                       cursor: str = "") -> dict:
+        """The @mention member search of one community: ``POST /search/users`` (§5.13).
+
+        Reads only, although it is a POST (`post_api2_read`). Body ``{query,
+        group_id, limit}``, plus ``cursor`` when one is given: Skool's own client
+        never sends one, the field is in its function signature. ``limit`` 7 is
+        the desktop mention list's value. A blank query is refused: this is a
+        search, not a way to list a community. Returns Skool's answer (an object,
+        ``users[]`` in the page code) as it is; flatten it with
+        ``normalize.search_user``. Archived communities stay searchable.
+        """
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must be non-blank text.")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a whole number of 1 or more.")
+        if not isinstance(cursor, str):
+            raise ValueError("cursor must be text (empty = first page).")
+        body: dict = {"query": query, "group_id": self.group_id_for(community_slug),
+                      "limit": limit}
+        if cursor:
+            body["cursor"] = cursor
+        answer = self.http.post_api2_read("/search/users", body)
+        if not isinstance(answer, dict):
+            raise SkoolHTTPError(
+                "Skool answered the member search with something that is not an object "
+                "(the answer is not shown).")
+        return answer
+
+    def file_download_url(self, file_id: str, expire: int | None = None) -> str:
+        """A download link for one uploaded file: ``POST /files/{id}/download-url`` (§5.13).
+
+        Reads only (`post_api2_read`), no body. Returns the link as text. The page
+        code uses the answer as the link itself, so a text is expected; anything
+        else (an object, a list, empty) is an error that does NOT show the answer,
+        because it may hold the access link. The link must not be logged and is
+        not: nothing here writes it anywhere. This is for files (documents,
+        images). Video download is an admin right in Skool and is not offered.
+        """
+        answer = self.http.post_api2_read(self.file_download_path(file_id, expire), None)
+        if not isinstance(answer, str) or not answer.strip():
+            raise SkoolHTTPError(
+                "Skool's answer to the download-link request is not a link (the answer is "
+                "not shown: it may hold an access link).")
+        return answer.strip()
+
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""
         return self.http.get_next(

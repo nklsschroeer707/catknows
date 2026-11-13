@@ -11,7 +11,9 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `list_my_communities` | – | every community YOUR account is in: slug, display name, your role (owner/admin/moderator/member), member count. **Start here when the job has no slug yet** — every other tool needs one |
 | `list_members` | slug, limit=25, offset=0 | name, handle, role, points, level, last-active (most recently active first) |
 | `list_posts` | slug, limit=25, sort=activity\|new\|top_day\|top_week\|top_month\|top_year\|top_all, unread_only=false, category="", author="", offset=0 | title, author, likes, comment count, content, **post id**, `category`, `has_new_comments`. **Filter here instead of reading everything:** `unread_only` = only posts you haven't opened, `category` by name ("feedback"), `author` = every post one member created (@handle or full name) — use this, not `search_community`, for "all posts by X" |
-| `search_community` | slug, query, kind=posts\|members, page=1 | Skool's own search in one community: posts (10 per page, `pages`) or members (same fields as list_members + `member_id`). The only way to search members by name |
+| `search_community` | slug, query, kind=posts\|members, page=1 | Skool's own search in one community: posts (10 per page, `pages`) or members (same fields as list_members + `member_id`; matches name or bio). `search_members` is the quick name lookup |
+| `search_members` | slug, query, limit=7, cursor="", raw=false | find people by name with Skool's `@mention` search: the same fields as `list_members` (id, handle, name, points, level, bio), **no email or other contact data**. `query` is required (a person search, not a member list); ONE page per call, no walking: `limit` is capped (200, 30 with `raw`; a `limit_capped` entry says so), `cursor` is passed on as given and `cursor` / `has_more` come back only if Skool sends them. For a member's id on a membership (approve, role) use `search_community kind=members`. Names and bios are personal data: use them for the task, do not collect them. Not run live yet (docs/API.md §5.13) |
+| `get_file_download_url` | file_id, expire=0 | a download link for ONE uploaded file (document, image) by its file id, as `download_url`. **It is an access link:** fetch what you need, never paste it into a post, DM or note, never keep it; catknows writes it nowhere (no audit line, no error text). Try `get_post`'s `files[].url` first. `expire` 0 = not sent; Skool's name for it is `expireSecs` but the unit and the range are **not verified**. Files only, no video (admin right in Skool, not offered). Not run live yet (docs/API.md §5.13) |
 | `get_post` | slug, post_name | ONE post incl. file attachments (name, type, download URL) + video ids. The post LIST carries only attachment ids — the downloadable URL exists **only here** |
 | `get_post_comments` | slug, post_id | full nested comment thread (post_id from `list_posts`) |
 | `get_post_likes` | slug, post_id, limit=10, cursor="", tab="upvotes" | ONE page of the users who liked the post: `likes` (handle, first/last name), `has_more`, `cursor`, `total_upvotes`, `total_downvotes`. **Everyone, not just 10:** call again with `cursor` = the `cursor` of the last answer until `has_more` is false |
@@ -126,6 +128,23 @@ Open: why the autopilot's `pinPost` got HTTP 400 once in 8 days (catknows sends
 `{}` like the autopilot, Skool's own client sends no body), what Skool does with a
 vote whose `old` is wrong, who the server really lets pin or switch comments,
 and what each call answers. Details: docs/API.md §5.12.
+
+### Chat read marks
+
+Same draft-first rule: `confirm=false` changes nothing **and does not contact
+Skool**, and the draft carries a fixed `not_verified` text: **show it to the human
+with the draft.** Read from Skool's page code, **not yet run live**. Both change
+what looks *unread*: anything that polls unread chats (`list_chat_channels` with
+`unread_only`) stops seeing them, so do not use them inside a flow that waits for
+unread chats. Ids must be real text, not only dots.
+
+| Tool | Args | Does |
+|---|---|---|
+| `mark_chat_read` | channel_id, last="", confirm | mark ONE chat as read (`channel_id` from `list_chat_channels`). `last` is optional and sent as given: Skool's page sends the id of a chat message there, and nothing for the whole chat; **what the server does with it is not verified.** The draft shows the ids, not the participants |
+| `mark_all_chats_read` | confirm | marks **EVERY chat of the account** as read at once, in all communities: no channel, no community can be named. Say that in plain words to the human before confirming. Afterwards nothing looks unread |
+
+Open: what `last` does, whether the other person sees a read mark, and what each call
+answers. Details: docs/API.md §5.13.
 
 ## Rules of thumb
 

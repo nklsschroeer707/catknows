@@ -140,6 +140,10 @@ class SkoolSecurityChallenge(SkoolHTTPError):
 # the same test here is a `fullmatch` on [0-9].
 _SECURITY_CHALLENGE = re.compile(r"AUTH-SEC-5[0-9]{2}")
 
+# A link in an error body is never repeated: an answer of `post_api2_read` can be
+# an access link (the file download URL), and an error text travels to logs.
+_ANY_LINK = re.compile(r"https?://\S+")
+
 
 def _security_challenge_code(status: int, data) -> str:
     """The AUTH-SEC-5xx code if this answer is Skool's security question, else "".
@@ -416,6 +420,50 @@ class SkoolHTTP:
         retry: a retried write could double-post. Callers handle failures.
         """
         return self._write_api2("post", path_and_query, body)
+
+    def post_api2_read(self, path_and_query: str, body: dict | None = None):
+        """POST to an api2.skool.com endpoint that only READS (docs/API.md §5.13).
+
+        A few of Skool's reads are POSTs (the @mention member search, the file
+        download link). They are not writes, so they do not go through
+        `_write_api2`: no write-audit line, no 15 s write gap, and the read
+        cache is left alone. Nothing else changes: same headers, no automatic
+        retry, and Skool's security question (HTTP 200, ``code: AUTH-SEC-5xx``)
+        stops the call with `SkoolSecurityChallenge`, found by the same
+        `_security_challenge_code` as everywhere else. Never use this for a
+        call that changes something: that one belongs in `post_api2`, where it
+        is spaced and logged.
+
+        The answer is returned as it comes: the parsed JSON, or the text when it
+        is not JSON (the file link may be plain text), or ``{}`` when empty.
+        A successful answer is never echoed into an error message, and a link in
+        an error body is replaced by ``[link removed]``: an answer here can be an
+        access link.
+        """
+        url = f"{SKOOL_API2}{path_and_query}"
+        kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
+        if body is not None:
+            kwargs["json"] = body
+        try:
+            resp = self._http.post(url, **kwargs)
+        except RequestException as e:
+            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+        code, text = resp.status_code, resp.text or ""
+        if not (200 <= code < 300):
+            if code == 401 or code == 403:
+                raise _auth_rejected(code, url, text)
+            raise SkoolHTTPError(
+                f"HTTP {code} on {url}: {_ANY_LINK.sub('[link removed]', text[:300])}", code)
+        if not text.strip():
+            return {}
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return text.strip()
+        challenge = _security_challenge_code(code, data)
+        if challenge:
+            raise SkoolSecurityChallenge(challenge, "POST", path_and_query)
+        return data
 
     def put_api2(self, path_and_query: str, body: dict) -> dict:
         """PUT to an api2.skool.com endpoint (updates — docs/API.md §7)."""

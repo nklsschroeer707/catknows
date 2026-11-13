@@ -652,6 +652,9 @@ Implemented as `SkoolClient.search()` / the `search_community` MCP tool
 (`normalize.search_member` turns a member hit back into a `list_members`
 record, plus `member_id`).
 
+A quicker name-only member search is the editors' `@mention` call
+`POST /search/users` (§5.13, `search_members`).
+
 ---
 
 ### 1.9 Admin dashboard analytics (wait-token) — api2 shape, owner/admin
@@ -770,8 +773,9 @@ HTTP 200 and a JSON body whose top-level `code` is a text matching
 wants a security nonce for that path. It is not an HTTP error: the page's own
 client reads `code` only on HTTP 200. catknows raises
 `catknows.http.SkoolSecurityChallenge` (a `SkoolHTTPError`, `.status` 200,
-`.code` the AUTH-SEC code) on `get_api2`, `get_api2_text`, `post_api2`, `put_api2`
-and `delete_api2`, and then stops:
+`.code` the AUTH-SEC code) on `get_api2`, `get_api2_text`, `post_api2`,
+`post_api2_read` (the POSTs that only read, §5.13), `put_api2` and `delete_api2`,
+and then stops:
 
 - Only HTTP 200, only a JSON object, only the top-level `code`, and only a text
   that matches in full. A number, another text (`OK`, `AUTH-SEC-401`,
@@ -1377,6 +1381,113 @@ percent-encoded into the path text.
 - Who the server lets do each of these (all read from the web client's menus).
 - What each call answers (the tools hand the answer back through the scrub;
   the shape is not documented).
+
+### 5.13 Chat read marks, member search, file download link
+
+> **Status: read from Skool's own page code (build `1794436674711`, 12 Nov 2026),
+> never run against Skool by catknows.** The page code is minified; where a row
+> says "inferred", that is a reading of the code, not a measurement. Test with a
+> throwaway chat, a small community and a small file before relying on any of it.
+
+Four calls on `https://api2.skool.com`. Two change the unread state of the
+account (writes), two only read although they are POSTs.
+
+| Call (Skool's name) | Request | Body | Kind |
+|---|---|---|---|
+| `markChatMessageRead` | `POST /channels/{id}/read?last={last}` | none | write |
+| `markAllChatMessageRead` | `POST /self/chat-channels/read` | none | write |
+| `searchUsers` | `POST /search/users` | `{"query": "…", "group_id": "…", "limit": 7}` (+ `"cursor": "…"`) | **read** |
+| `getResourceUrl` | `POST /files/{id}/download-url?expire={n}` | none | **read** |
+
+**Read mark of one chat.** `{id}` is a chat channel id (`list_chat_channels`).
+`last` is optional. The page calls it three ways: from the channel list's "mark as
+read" entry without `last`; from the open chat window (debounced 500 ms) with
+`last` = the `id` of a chat message that has just come into view; and without
+`last` for the newest message of the loaded list (inferred from the flag the code
+tests there). So `last` is a **message id**, and no `last` means the whole chat.
+What the server does with `last` is not verified, which is why catknows sends the
+text exactly as given and leaves the query out when none is given (an empty text
+is refused, not turned into "not given"). Anything that looks for unread chats
+(`list_chat_channels(unread_only=true)`, a poller such as an autopilot trigger)
+stops seeing a chat after this call: do not use it in a flow that depends on the
+unread state.
+
+**Read mark of all chats.** The web client's "Mark all as read". No query, no
+body, and no way to name a community or a channel: it is **every chat of the
+account**. The MCP draft says so in words.
+
+**Member search.** The `@mention` search of the editors (debounced 300 ms). The
+page sends `query`, the group id and `limit` (5 or 7, 7 on desktop) and **never a
+`cursor`** (the function takes one, the JSON drops the unset key), so catknows
+sends `cursor` only when the caller gives one. The page reads `users[]` from the
+answer, each with `id`, `firstName` and `lastName` after its own conversion; the
+wire spelling is snake_case (`first_name`), and `normalize.search_user` reads both.
+It is a read: `SkoolHTTP.post_api2_read`, which does not write an audit line, does
+not wait for the 15 s write gap and does not clear the read cache (§3 still
+applies: a security question stops it). The answer carries whatever Skool puts on
+a user object; the tool returns the `list_members` record (`normalize.member`
+fields, **no `email`, no other contact data**) or, with `raw=true`, the records
+through `normalize.scrub` and `normalize.strip_contact`. It is the third member
+search next to the community search (§1.8, which also finds bios and returns the
+membership id) and `members.json` (§1.1, which ignores a `q`).
+
+**File download link.** `expire` is the page client's `expireSecs`, so very
+probably seconds. The page asks with `expireSecs: 28800` for chat attachments
+that carry no ready link, and with none for a PDF in a course page and for the
+member export file. The answer is used as the link itself (`window.location =
+data`, `href = data`): a text. The page client reads a JSON answer as JSON and
+anything else as text, so the answer is a JSON string or plain text; catknows
+reads both, and returns the link as text. **The link is an access link.** The MCP
+tool returns it (that is its job); catknows writes it nowhere: no audit line (a
+read leaves none), and no error message repeats an answer: a successful answer is
+never echoed, an answer that is not a text is reported without being shown, and a
+link inside an error body is replaced by `[link removed]`. `get_post` already
+carries ready links for a post's attachments (§1.2b): this call is for a file id
+without one. For files only: the page never asks for a link of a Mux video or an
+embedded video this way (Skool's video download is a separate admin call that is
+**not built**, `LEGAL.md` boundary 1).
+
+Implemented as `SkoolClient.mark_chat_read(channel_id, last=None)`,
+`mark_all_chats_read()`, `search_members(slug, query, *, limit=7, cursor="")` and
+`file_download_url(file_id, expire=None)`. The first two return Skool's answer as
+it is; `search_members` returns the answer object, `file_download_url` the link.
+The `mark_chat_read` and `mark_all_chats_read` MCP tools (behind
+`CATKNOWS_ALLOW_WRITE=1`) are draft-first and flagged destructive: `confirm=false`
+contacts nobody and returns what would be sent plus a fixed `not_verified` text.
+The `search_members` and `get_file_download_url` tools are read tools, always on,
+flagged read-only; the search is capped with `_cap` (`limit_capped` says when).
+The audit line of a mark names the tool and `dm_channel_id` (and the path, which
+carries `last`), no community and no content. A security question (§3) is never
+swallowed and never retried, on the marks and on the two reads.
+
+**Checks before anything is sent** (a `ValueError` and zero requests on a
+violation): `channel_id`, `last` and `file_id` must be text, not blank and not made
+only of dots (`/channels/../read` would fold to `/read`), and are percent-encoded;
+`expire`, when given, must be a whole number of 1 or more (nothing else about it is
+known); the search needs a non-blank `query`, a whole `limit` of 1 or more and a
+text `cursor`. The refusals name the argument, never its value.
+
+**Access policy (`LEGAL.md`).** The member search passes the test "can the logged-in
+user see this in normal use of Skool?" for what the page itself asks (the first 5
+to 7 matches of a name in a community the account is in). Paging with `cursor` is
+**not** something the page does; the tool passes a cursor on only when asked, never
+walks, and requires a query, so it is a name search and no list of a community
+(a member list is served to non-owners as the first page only, and a workaround is
+not a bugfix task). Names, handles and bios are personal data: nothing is written
+to the vault or a log, no email and no contact data come out.
+
+**Open, not verified live:**
+
+- `markChatMessageRead`: what `last` does on the server, whether no `last` marks the
+  whole chat, whether the other person sees a read mark, what the call answers.
+- `markAllChatMessageRead`: what it answers, whether the other people see read marks.
+- `searchUsers`: the answer's shape beyond `users[]` (whether `cursor` and `has_more`
+  come back, and under which names), the highest `limit`, whether a `cursor` is
+  accepted and what a regular member gets beyond the first page, what a query is
+  matched against (name, handle, bio), whether `group_id` is required.
+- `getResourceUrl`: the unit and the allowed range of `expire`, the default
+  lifetime of a link, whether the answer is a JSON string or plain text, and what
+  Skool answers for a file the account may not see or for a video.
 
 ---
 

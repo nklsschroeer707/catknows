@@ -395,6 +395,21 @@ def search_member(hit: dict) -> dict:
     return {**member(user), "member_id": hit.get("id", "")}
 
 
+def search_user(hit: dict) -> dict:
+    """Flatten one ``users[]`` entry of ``POST /search/users`` (docs/API.md §5.13).
+
+    The entry is a user object, like the ones in ``members.json``, but api2 spells
+    the top-level names snake_case (``first_name``) where the Next.js routes use
+    camelCase: both are read. The record has exactly the fields of ``member()``,
+    so no ``email`` and no other contact data can come along. A search hit does
+    not carry the membership, so ``role`` and ``group_id`` stay empty.
+    """
+    user = dict(hit)
+    for camel, snake in (("firstName", "first_name"), ("lastName", "last_name")):
+        user[camel] = _either(user, camel, snake, "")
+    return member(user)
+
+
 def comments(merged: dict) -> list[dict]:
     """Flatten a merged comment tree into a list of comment records.
 
@@ -744,6 +759,31 @@ def scrub(obj):
     return obj
 
 
+# Contact data of a PERSON, dropped from raw member payloads the same way: by name,
+# at every depth, in one place. Only what Skool is known to send: ``email`` (admins
+# get it on member objects, docs/API.md §1.6). Normalizers never emit it anyway.
+CONTACT_KEYS = frozenset({"email"})
+
+
+def strip_contact(obj):
+    """Recursively drop CONTACT_KEYS from a raw payload (in place), like ``scrub``.
+
+    For raw member output that must carry no address (``search_members(raw=True)``):
+    ``scrub`` takes the credential-class and admin-side keys, this takes the
+    contact keys. Returns the same object.
+    """
+    if isinstance(obj, dict):
+        for key in list(obj.keys()):
+            if key in CONTACT_KEYS:
+                del obj[key]
+            else:
+                strip_contact(obj[key])
+    elif isinstance(obj, list):
+        for item in obj:
+            strip_contact(item)
+    return obj
+
+
 if __name__ == "__main__":
     # ponytail: self-check for the quirky bits — ns timestamps, mixed-case
     # likes, recursive comment parenting. Runs with `python -m catknows.normalize`.
@@ -1053,4 +1093,16 @@ if __name__ == "__main__":
     for quiet in ({"name": "g", "metadata": {}},
                   {"name": "g", "archived": False, "metadata": {"archived": 0}}):
         assert my_community(quiet)["archived"] is False, quiet
+    # member search (POST /search/users): api2 spells the names snake_case, and a
+    # contact field on the entry never reaches the record.
+    su = search_user({"id": "u5", "name": "ann", "first_name": "Ann", "last_name": "Test",
+                      "email": "ann@example.com",
+                      "metadata": {"spData": '{"pts":5,"lv":2}', "bio": "hi"}})
+    assert su["first_name"] == "Ann" and su["last_name"] == "Test", su
+    assert su["points"] == 5 and su["level"] == 2 and su["bio"] == "hi", su
+    assert set(su) == set(member({})), "same fields as list_members"
+    assert "ann@example.com" not in str(su), "search_user leaked an email"
+    assert search_user({"id": "u6", "firstName": "Cam"})["first_name"] == "Cam"
+    assert strip_contact({"users": [{"email": "a@b.c", "member": {"email": "d@e.f", "role": "m"}}]}
+                         ) == {"users": [{"member": {"role": "m"}}]}, "strip_contact failed"
     print("normalize self-check OK")
