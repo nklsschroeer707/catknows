@@ -1991,7 +1991,9 @@ original is the proven way.
   code) → `POST /auth/email-verify {"client_id", "code"}`. The verification
   **sticks to the client_id across sessions** — grab the id from your own
   browser after deleting any course in the UI once, then reuse it forever.
-  (A fresh random hex id would need that email dance first.)
+  (A fresh random hex id would need that email dance first.) Because it is reusable
+  it is a credential: catknows keeps its value out of the audit line and out of error
+  texts and chains (§7.8, `audit._SECRET_QUERY_KEYS`).
 
 ### 7.7 The option matrix (what a unit can carry)
 
@@ -2079,22 +2081,43 @@ channel). An error text it would show comes from `data.fields[0].error`. The not
 list as unknown whether duplicating and importing are tied to a plan.
 
 **The share key is a credential.** Whoever holds it can duplicate the whole course
-into any community. catknows treats it like an access link (§5.13):
+into any community. catknows treats it like an access link (§5.13). What is
+guaranteed, and where, so that a log never holds it:
 
-- `clone_code` is a **query value**, and `catknows/audit.py` logs the path with its
-  query. `audit.redact()` replaces the value of `clone_code` with `[redacted]`
-  (the key name stays, so the line still says what was sent) before a line is
-  written, and `SkoolHTTP._write_api2` runs every error text it raises through it
-  as well (network error, HTTP error, auth error, bad JSON). The list of such query
-  names is `audit._SECRET_QUERY_KEYS`: a new one goes there, not into a call site.
-  The security-question error already drops the query.
-- `createCourseShareKey` returns the key **in the answer**. The audit line keeps of
-  an answer only `response_hash` (16 hex characters of a SHA-256, which does not give
-  the key back) and `created_id` when the answer has an `id`; the key is in neither.
-  The MCP tool returns it to its caller, which is its job; no error text repeats it.
-- The `import_course` draft shows the key's length, never the key.
-- `_AUDIT_ARGS` has no entry for `clone_code`, so the key never becomes an audit
-  field either.
+- **Audit line.** `clone_code` is a **query value** and `catknows/audit.py` logs the
+  path with its query, so `audit.redact()` replaces the value of `clone_code` with
+  `[redacted]` before a line is written (the key name stays, the line still says what
+  was sent). The list of such query names is `audit._SECRET_QUERY_KEYS`: a new one
+  goes there, not into a call site. The key request's answer carries the key in its
+  body; of an answer the line keeps only `response_hash` (16 hex characters of a
+  SHA-256, which does not give the key back) and `created_id` when the answer has an
+  `id`, so the key is in neither. `_AUDIT_ARGS` has no entry for `clone_code`, so the
+  key never becomes an audit field either.
+- **Error text.** `SkoolHTTP._write_api2` runs every error text it raises through
+  `audit.redact`. On the **key request** (`POST /courses/{id}/clone-code`, whose
+  *answer* is the key, `audit.secret_answer`) no error shows any piece of the answer:
+  the HTTP error and the bad-JSON error say "answer not shown" instead of the first
+  300 / 200 characters, and keep the HTTP status. The 401/403 refusal and the security
+  question (§3) are unchanged: same type, code and status, no second try.
+- **Exception chain.** The MCP SDK logs every tool exception that is not a
+  `ToolError` with its whole chain (`__cause__`), so what hangs on the chain is in a
+  log. On a path that carries a credential in the request or the answer
+  (`audit.carries_secret`) the error is raised with no cause and no context
+  (`from None`, outside the handler), so the library's own message, which can repeat
+  the URL, does not travel on. Other write paths keep their cause.
+- **Draft.** The `import_course` draft shows the key's length, never the key.
+- **Not covered.** The MCP tool `create_course_share_key` returns the key in its answer
+  to the caller: that is its job. A key you pass to `import_course` sits in the
+  conversation that passed it. `audit.redact` finds a value only behind its name
+  (`clone_code=`): an error body of the **import** that echoes the bare key without it
+  is not scanned (that body is still shown, because Skool's reason, e.g. "Invalid code",
+  is what the user needs).
+
+The same rule covers `client_id`, the verified id that lets a whole course be deleted
+(§7.6): `delete_course_item` puts it in the query (`?client_id=…`), it is reusable for
+good and so as good as a password for deleting courses. It is in
+`audit._SECRET_QUERY_KEYS`: the wire carries the real value, the audit line and every
+error text show `client_id=[redacted]`, and the error has no chain.
 
 Implemented as `SkoolClient.set_course_drip(id, enabled, days=0)`,
 `move_course_to_folder(id, parent_id)`, `create_course_share_key(id)` and

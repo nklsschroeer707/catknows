@@ -199,6 +199,17 @@ def _auth_rejected(code: int, url: str, body: str = "") -> SkoolHTTPError:
     )
 
 
+def _answer_excerpt(path_and_query: str, text: str, limit: int) -> str:
+    """The start of an answer, for an error text, unless the answer is a credential.
+
+    The one place that decides it (`audit.secret_answer`): on the share-key request
+    the body is the key, so an error about it says that the answer is held back.
+    """
+    if audit.secret_answer(path_and_query):
+        return "(answer not shown: it can hold a credential)"
+    return text[:limit]
+
+
 class SkoolHTTP:
     # Where the Next.js buildId comes from, when someone else already knows it.
     # `provider(False)` returns the current value, `provider(True)` fetches it
@@ -490,18 +501,25 @@ class SkoolHTTP:
         between two writes of the same account, failed ones included, since
         Skool saw them too.
 
-        A credential in the query (the course share key, `audit.redact`) is
-        kept out of every text this method writes or raises: the audit line
-        redacts its own path, and each error message goes through `audit.redact`.
+        A credential in the request or the answer (the course share key and the
+        verified client id, `audit.redact` and `audit.carries_secret`) is kept out
+        of everything this method writes or raises: the audit line redacts its own
+        path, each error message goes through `audit.redact`, an error about a
+        request whose ANSWER is the credential shows no piece of that answer
+        (`_answer_excerpt`), and such an error has no exception chain at all, since
+        a logger prints the chain and the library's own message can repeat the URL.
         The request itself carries the real value.
         """
         url = f"{SKOOL_API2}{path_and_query}"
+        # On such a path an error carries no chain (`from None`); elsewhere it does.
+        secret = audit.carries_secret(path_and_query)
         account = self.session.auth_token or self.session.cookie_header
         with _write_locks_guard:
             lock = _write_locks.setdefault(account, threading.Lock())
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:
             kwargs["json"] = body
+        failed: RequestException | None = None
         with lock:
             last = _last_write_at.get(account)
             if last is not None:
@@ -512,9 +530,14 @@ class SkoolHTTP:
                 resp = getattr(self._http, method)(url, **kwargs)
             except RequestException as e:
                 audit.record(method=method, path=path_and_query, status="network_error")
-                raise SkoolHTTPError(audit.redact(f"Network error on {url}: {e}")) from e
+                failed = e
             finally:
                 _last_write_at[account] = _clock()
+        if failed is not None:
+            # Raised here, outside the handler: `__context__` stays empty, so with
+            # `from None` the error of a credential path carries no chain at all.
+            raise SkoolHTTPError(
+                audit.redact(f"Network error on {url}: {failed}")) from (None if secret else failed)
 
         code = resp.status_code
         if not (200 <= code < 300):
@@ -524,7 +547,9 @@ class SkoolHTTP:
             audit.record(method=method, path=path_and_query, status=code)
             if code == 401 or code == 403:
                 raise _auth_rejected(code, audit.redact(url), resp.text)
-            raise SkoolHTTPError(audit.redact(f"HTTP {code} on {url}: {resp.text[:300]}"), code)
+            raise SkoolHTTPError(
+                audit.redact(f"HTTP {code} on {url}: "
+                             f"{_answer_excerpt(path_and_query, resp.text, 300)}"), code)
         data: object = {}
         bad_json: json.JSONDecodeError | None = None
         if resp.text.strip():
@@ -549,8 +574,9 @@ class SkoolHTTP:
         if bad_json is not None:
             audit.record(method=method, path=path_and_query, status=code, note="bad_json")
             raise SkoolHTTPError(
-                audit.redact(f"Bad JSON from {url}: {bad_json} | {resp.text[:200]}"),
-                code) from bad_json
+                audit.redact(f"Bad JSON from {url}: {bad_json} | "
+                             f"{_answer_excerpt(path_and_query, resp.text, 200)}"),
+                code) from (None if secret else bad_json)
         audit.record(method=method, path=path_and_query, status=code, response=data)
         return data
 

@@ -1491,8 +1491,11 @@ class SkoolClient:
     # argument BEFORE the first request and hands Skool's answer back as it is.
     # A SkoolSecurityChallenge is never caught here: the write counts as not sent.
     # The share key is a credential (a query value on the import, the answer of
-    # the key request): nothing here puts it in a message, and `audit.redact` keeps
-    # it out of the audit line and the HTTP errors.
+    # the key request), and so is the client id of a course delete. Nothing in this
+    # class puts one in a message of its own; the HTTP layer keeps them out of the
+    # audit line, the error texts and the exception chain (docs/API.md §7.8:
+    # `audit.redact`, `audit.secret_answer`, `audit.carries_secret`). What it does
+    # not cover: the key request's answer, which is returned to the caller on purpose.
     COURSE_DRIP_DAYS_MAX = 999   # the drip form clamps the field to 1..999
     CLONE_CODE_LENGTH = 64       # the import form refuses any other length
     COURSE_ID_LENGTH = 32        # ... and takes the course id from the first 32
@@ -1581,7 +1584,9 @@ class SkoolClient:
 
         The answer is an object with ``code`` (what the page reads), a 64-character
         key. **It is a credential**: whoever holds it can duplicate the whole
-        course into any community. Returned as it is; nothing here logs or repeats it.
+        course into any community. Returned to the caller as it is, which is the
+        point; the audit line keeps only a hash of it, and an error about this
+        request shows no piece of the answer and has no chain (docs/API.md §7.8).
         """
         return self.http.post_api2(self.course_action_path(course_id, "clone-code"), None)
 
@@ -1593,8 +1598,9 @@ class SkoolClient:
         Skool's form does); no body. ``course_id`` is the SOURCE course, the first 32
         characters of the key; the copy goes into the community. Skool makes the copy
         on its side, so the answer says nothing about the finished course. The key
-        is a credential: it is sent on the wire and kept out of the audit line and
-        every error text (`audit.redact`). Returns Skool's answer as it is.
+        is a credential: it is sent on the wire, and hidden by its name
+        (``clone_code=``) in the audit line and in every error text, and an error
+        has no exception chain (docs/API.md §7.8). Returns Skool's answer as it is.
         """
         code = self.check_import_course(course_id, clone_code)
         group_id = self.group_id_for(community_slug, for_write=True)

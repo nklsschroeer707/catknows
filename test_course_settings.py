@@ -50,11 +50,17 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
 os.environ["CATKNOWS_ALLOW_WRITE"] = "1"  # the write tools only exist with this
 os.environ["CATKNOWS_WRITE_GAP_S"] = "0"  # not a test of the write gap (test_write_gap.py is)
+# Several tests go through the real write path, which logs. Keep every run of this
+# file (direct or through the starter) out of the real ~/.catknows/writes.jsonl,
+# which is somebody's measurement base. The audit tests below point it at a fresh
+# file of their own and put this one back afterwards.
+os.environ["CATKNOWS_AUDIT_LOG"] = os.path.join(tempfile.mkdtemp(), "writes.jsonl")
 
 from curl_cffi.requests.exceptions import RequestException
 
@@ -68,6 +74,7 @@ GID = "gid-1"
 COURSE = "0123456789abcdef0123456789abcdef"      # 32 characters: the course id, no secret
 SECRET = "feedfacecafebeef0011223344556677"      # 32 characters: the secret half
 CODE = COURSE + SECRET                           # the 64-character share key
+CLIENT_ID = "9a8b7c6d5e4f30211203f4e5d6c7b8a9"   # invented: the verified client id of a delete
 BASE = "https://api2.skool.com"
 
 IMPORT_PATH = f"/courses/{COURSE}/import?group={GID}&clone_code={CODE}"
@@ -682,11 +689,24 @@ def _without_key(blob: str, where: str):
     assert SECRET not in blob, f"the secret half of the share key reached {where}"
 
 
+def _everything(err: BaseException) -> str:
+    """What a logger prints for an exception: its text AND the whole chain.
+
+    The MCP SDK logs every tool exception that is not a ToolError with
+    `logger.exception`, which prints `__cause__` and `__context__` too, so a
+    credential in the chain is a credential in a log.
+    """
+    return str(err) + "\n" + "".join(traceback.format_exception(err))
+
+
 def test_redact_hides_only_the_value_of_the_key_parameter():
     assert audit.redact(IMPORT_PATH) == (
         f"/courses/{COURSE}/import?group={GID}&clone_code=[redacted]")
     assert audit.redact(f"/x?clone_code={CODE}") == "/x?clone_code=[redacted]"
     assert audit.redact(f"/x?a=1&clone_code={CODE}&b=2") == "/x?a=1&clone_code=[redacted]&b=2"
+    assert audit.redact(f"/courses/c2?client_id={CLIENT_ID}") == "/courses/c2?client_id=[redacted]"
+    assert audit.redact(f"/x?client_id={CLIENT_ID}&clone_code={CODE}") == (
+        "/x?client_id=[redacted]&clone_code=[redacted]")
     for plain in ("/courses/p1/update-parent?parent=f1", "/posts/p1/pin-comment?comment=c1",
                   "/courses/p1/state?state=published", "/courses/p1/clone-code", ""):
         assert audit.redact(plain) == plain, plain
@@ -739,23 +759,44 @@ def test_every_course_setting_leaves_a_line_without_the_key():
         assert sent == [f"{BASE}{IMPORT_PATH}"], sent
 
 
-def _failing(resp=None, exc=None):
-    """Run the import against a transport that fails; return (raised error, log text)."""
+def _run_failing(call, *, tool, resp=None, exc=None, **ctx):
+    """Run `call(client)` against a transport that fails.
+
+    Returns (raised error, audit log text, the one audit line, the client).
+    """
     with _audit_log():
         c = _real_client(resp, exc)
         try:
-            with audit.context("import_course", community=SLUG, course_item_id=COURSE):
-                c.import_course(COURSE, SLUG, CODE)
+            with audit.context(tool, **ctx):
+                call(c)
         except Exception as e:  # noqa: BLE001 - the test wants whatever comes
             err = e
         else:
             raise AssertionError("the call was expected to fail")
         lines = _lines()
         assert len(lines) == 1, lines
-        return err, audit.log_path().read_text("utf-8"), lines[0]
+        return err, audit.log_path().read_text("utf-8"), lines[0], c
 
 
-def test_a_failed_import_leaves_no_key_in_the_log_or_the_error():
+def _import(c):
+    c.import_course(COURSE, SLUG, CODE)
+
+
+def _share(c):
+    c.create_course_share_key(COURSE)
+
+
+def _delete_course(c):
+    c.delete_course_item("c2", client_id=CLIENT_ID)
+
+
+def _failing(resp=None, exc=None):
+    err, log, line, _ = _run_failing(_import, tool="import_course", resp=resp, exc=exc,
+                                     community=SLUG, course_item_id=COURSE)
+    return err, log, line
+
+
+def test_a_failed_import_leaves_no_key_in_the_log_the_error_or_its_chain():
     cases = {
         "HTTP 500": _Resp(500, "server exploded"),
         "HTTP 500 echoing the query": _Resp(500, f"bad request ...?group={GID}&clone_code={CODE}"),
@@ -766,43 +807,170 @@ def test_a_failed_import_leaves_no_key_in_the_log_or_the_error():
     }
     for label, resp in cases.items():
         err, log, line = _failing(resp)
-        _without_key(str(err), f"the error text ({label})")
+        _without_key(_everything(err), f"the error text or its chain ({label})")
         _without_key(log, f"the audit log ({label})")
         assert isinstance(err, SkoolHTTPError), (label, err)
         assert line["path"].endswith("clone_code=[redacted]"), (label, line)
 
 
-def test_a_network_error_leaves_no_key_in_the_log_or_the_error():
+def test_a_network_error_leaves_no_key_in_the_log_the_error_or_its_chain():
     # curl's own error text names the host, not the query; the second one is the
-    # worst case, a library that repeats the whole URL: our copy of it is redacted
+    # worst case, a library that repeats the whole URL: our copy of it is redacted,
+    # and the library's own message must not travel on as the cause either
     for message in ("Could not resolve host: api2.skool.com",
                     f"failed: {BASE}{IMPORT_PATH}"):
         err, log, line = _failing(exc=RequestException(message))
-        _without_key(str(err), "the error text")
+        _without_key(_everything(err), "the error text or its chain")
         _without_key(log, "the audit log")
         assert line["status"] == "network_error", line
         assert isinstance(err, SkoolHTTPError), err
+        assert err.__cause__ is None and err.__context__ is None, (
+            "the library's error hangs on the chain of an error about a credential path")
 
 
 def test_a_security_question_on_the_import_leaves_no_key_anywhere():
     err, log, line = _failing(_Resp(200, json.dumps({"code": "AUTH-SEC-501"})))
     assert isinstance(err, SkoolSecurityChallenge), err
-    _without_key(str(err), "the error text")
+    _without_key(_everything(err), "the error text or its chain")
     _without_key(log, "the audit log")
     assert line["status"] == "security_challenge" and line["note"] == "AUTH-SEC-501", line
     assert line["path"].endswith("clone_code=[redacted]"), line
 
 
+# -- the share-key request: the ANSWER is the credential --------------------------
+
+SHARE_KEY_FAILURES = {
+    "500 with the key in the body": (_Resp(500, json.dumps({"code": CODE})), 500),
+    "500 with the key as plain text": (_Resp(500, f"boom {CODE} boom"), 500),
+    "502 with only the secret half": (_Resp(502, SECRET), 502),
+    "2xx, JSON cut off inside the key": (_Resp(200, '{"code": "' + CODE), 200),
+    "2xx, JSON cut off in the secret half": (_Resp(201, '{"code": "' + SECRET[:20]), 201),
+    "2xx, not JSON, key first": (_Resp(200, f"{CODE} <not json>"), 200),
+}
+
+
 def test_a_failed_share_key_request_leaves_nothing_of_a_key():
+    """Neither the audit log, nor the error text, nor the chain holds a piece of the answer."""
+    for label, (resp, status) in SHARE_KEY_FAILURES.items():
+        err, log, line, _ = _run_failing(_share, tool="create_course_share_key",
+                                         resp=resp, course_item_id=COURSE)
+        _without_key(_everything(err), f"the error text or its chain ({label})")
+        _without_key(log, f"the audit log ({label})")
+        assert isinstance(err, SkoolHTTPError), (label, err)
+        assert err.status == status, (label, err.status)  # the HTTP status is kept
+        assert status < 300 or str(status) in str(err), (label, str(err))
+        assert "not shown" in str(err), f"the error says that the answer is held back ({label})"
+        assert err.__cause__ is None and err.__context__ is None, label
+        assert line["status"] == status, (label, line)
+        assert "response_hash" not in line, (label, line)  # a failure's body is never hashed in
+
+
+def test_a_network_error_on_the_share_key_request_has_no_chain():
+    err, log, line, _ = _run_failing(
+        _share, tool="create_course_share_key", exc=RequestException("Could not resolve host"),
+        course_item_id=COURSE)
+    assert err.__cause__ is None and err.__context__ is None, "no chain on a credential path"
+    assert "Could not resolve host" in str(err), "the reason is kept in the text"
+    assert line["status"] == "network_error", line
+
+
+def test_the_share_key_request_keeps_its_401_403_and_security_question():
+    """Type, code and status of the ordinary refusals do not change, and nothing is retried."""
+    for code, body in ((401, '{"error":"action not permitted"}'), (403, "blocked")):
+        err, _, line, c = _run_failing(_share, tool="create_course_share_key",
+                                       resp=_Resp(code, body), course_item_id=COURSE)
+        assert type(err) is SkoolHTTPError and err.status == code, (code, err)
+        assert f"HTTP {code} on {BASE}/courses/{COURSE}/clone-code" in str(err), str(err)
+        assert ("action not permitted" in str(err)) == (code == 401), str(err)
+        assert len(c.http._http.calls) == 1, "a refused request was sent again"
+        assert line["status"] == code, line
+    err, _, line, c = _run_failing(_share, tool="create_course_share_key",
+                                   resp=_Resp(200, json.dumps({"code": "AUTH-SEC-501"})),
+                                   course_item_id=COURSE)
+    assert isinstance(err, SkoolSecurityChallenge) and err.code == "AUTH-SEC-501", err
+    assert err.status == 200, err
+    assert len(c.http._http.calls) == 1, "the security question was answered or retried"
+    assert line["status"] == "security_challenge", line
+
+
+def test_the_answer_of_other_write_paths_still_shows_in_their_error_text():
+    """Only the share-key path holds its answer back: the rest of the error texts stay as they are."""
+    err, _, _, _ = _run_failing(lambda c: c.pin_post("p1"), tool="pin_post",
+                                resp=_Resp(500, "server exploded"), post_id="p1")
+    assert "HTTP 500" in str(err) and "server exploded" in str(err), str(err)
+    err, _, _, _ = _run_failing(lambda c: c.pin_post("p1"), tool="pin_post",
+                                resp=_Resp(200, "this is <not> json"), post_id="p1")
+    assert "Bad JSON" in str(err) and "this is <not> json" in str(err), str(err)
+    boom = RequestException("Could not resolve host")
+    err, _, _, _ = _run_failing(lambda c: c.pin_post("p1"), tool="pin_post", exc=boom,
+                                post_id="p1")
+    assert err.__cause__ is boom, "the cause of an ordinary network error is kept"
+    # the import's own error texts keep the excerpt too: Skool's reason ("Invalid code")
+    # is what the user needs, and the key is redacted by name
+    err, _, _, _ = _run_failing(_import, tool="import_course",
+                                resp=_Resp(400, '{"fields":[{"error":"Invalid code"}]}'),
+                                community=SLUG, course_item_id=COURSE)
+    assert "Invalid code" in str(err), str(err)
+
+
+def test_only_the_share_key_answer_is_held_back():
+    for path in (f"/courses/{COURSE}/clone-code", "/courses/a%2Fb/clone-code"):
+        assert audit.secret_answer(path), path
+        assert audit.carries_secret(path), path
+    for path in (f"/courses/{COURSE}/import?group={GID}&clone_code={CODE}",
+                 f"/courses/c2?client_id={CLIENT_ID}"):
+        assert not audit.secret_answer(path), path
+        assert audit.carries_secret(path), path  # a credential in the request
+    for path in ("/posts/p1/pin", f"/courses/{COURSE}/update-drip", "/courses/p1/state?state=draft",
+                 "/groups/g1/clone-code", "/courses/p1/clone-code/x", ""):
+        assert not audit.secret_answer(path) and not audit.carries_secret(path), path
+
+
+# -- client_id: the verified id for deleting whole courses is a credential too ----
+
+def test_client_id_goes_on_the_wire_but_not_into_the_audit_line():
     with _audit_log():
-        c = _real_client(_Resp(500, json.dumps({"code": CODE})))
-        try:
-            c.create_course_share_key(COURSE)
-        except SkoolHTTPError:
-            pass
+        c = _real_client(_Resp(200, ""))
+        with audit.context("delete_course_item", course_item_id="c2"):
+            _delete_course(c)
         (line,) = _lines()
-        assert line["status"] == 500 and "response_hash" not in line, line
-        _without_key(audit.log_path().read_text("utf-8"), "the audit log")
+        assert line["path"] == "/courses/c2?client_id=[redacted]", line
+        assert line["method"] == "DELETE" and line["status"] == 200, line
+        assert line["course_item_id"] == "c2", line
+        assert CLIENT_ID not in audit.log_path().read_text("utf-8"), "the client id reached the log"
+        sent = [u for _, u, _ in c.http._http.calls]
+        assert sent == [f"{BASE}/courses/c2?client_id={CLIENT_ID}"], \
+            "the request itself must carry the real id, or the delete would be refused"
+
+
+def test_a_failed_course_delete_leaves_no_client_id_in_log_error_or_chain():
+    cases = {
+        "HTTP 500": ("resp", _Resp(500, "server exploded")),
+        "HTTP 500 echoing the query": ("resp", _Resp(500, f"bad ...?client_id={CLIENT_ID}")),
+        "HTTP 400 invalid client ID": ("resp", _Resp(400, '{"error":"invalid client ID"}')),
+        "401 not permitted": ("resp", _Resp(401, '{"error":"action not permitted"}')),
+        "403 waf": ("resp", _Resp(403, "blocked")),
+        "bad json": ("resp", _Resp(200, "this is <not> json")),
+        "network error": ("exc", RequestException("Could not resolve host: api2.skool.com")),
+        "network error repeating the URL": (
+            "exc", RequestException(f"failed: {BASE}/courses/c2?client_id={CLIENT_ID}")),
+    }
+    for label, (kind, thing) in cases.items():
+        err, log, line, _ = _run_failing(_delete_course, tool="delete_course_item",
+                                         course_item_id="c2", **{kind: thing})
+        assert isinstance(err, SkoolHTTPError), (label, err)
+        assert CLIENT_ID not in _everything(err), f"the client id reached an error text or chain ({label})"
+        assert CLIENT_ID not in log, f"the client id reached the audit log ({label})"
+        assert line["path"] == "/courses/c2?client_id=[redacted]", (label, line)
+    # the text is still useful: status and Skool's reason stay
+    err, _, _, _ = _run_failing(_delete_course, tool="delete_course_item", course_item_id="c2",
+                                resp=_Resp(400, '{"error":"invalid client ID"}'))
+    assert err.status == 400 and "invalid client ID" in str(err), str(err)
+
+
+def test_this_file_never_writes_to_the_real_audit_log():
+    assert audit.log_path() != audit._DEFAULT_PATH, "the audit log of a test run is the real one"
+    assert Path(os.environ["CATKNOWS_AUDIT_LOG"]).parent != Path.home() / ".catknows"
 
 
 # -- the self-check of audit.py itself must still say the same --------------------
