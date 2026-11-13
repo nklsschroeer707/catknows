@@ -131,6 +131,26 @@ def test_likes_stops_when_the_cursor_stands_still():
     assert len(got) == 2, got
 
 
+def test_likes_standing_cursor_does_not_add_the_page_twice():
+    """Skool re-serves the same page with the same cursor: the list holds each voter once."""
+    class Repeats:
+        def __init__(self):
+            self.calls = []
+
+        def get_api2(self, path):
+            self.calls.append(path)
+            return {"users": [_liker(1), _liker(2)], "has_more": True, "cursor": "same"}
+
+    got = _client(Repeats()).likes("p1")
+    ids = [u["id"] for u in got]
+    assert ids == ["u1", "u2"], f"each voter once, in order: {ids}"
+
+
+def test_likes_docstring_says_it_ends_quietly():
+    doc = " ".join(SkoolClient.likes.__doc__.split())
+    assert "max_pages" in doc and "without an error" in doc, doc
+
+
 def test_likes_stops_at_max_pages():
     class Endless:
         def __init__(self):

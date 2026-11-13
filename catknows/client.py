@@ -704,15 +704,29 @@ class SkoolClient:
         empty, the cursor is empty or did not move, or ``max_pages`` is reached.
         ``group_skool_id`` is still accepted so old callers keep working, but
         it is never sent: the vote-users call does not carry it.
+
+        It ends without an error and without a flag in every one of those
+        cases. So when ``max_pages`` is reached, the cursor stands still or a
+        page comes back empty while ``has_more`` is still true, the list can be
+        SHORT and nothing says so; compare it with ``total_upvote_users`` of
+        :meth:`likes_page` if completeness matters. Voters are kept once per
+        ``id`` (first seen wins): a page Skool serves twice adds nobody.
         """
         out: list[dict] = []
+        seen: set = set()
         cursor = ""
         for page_idx in range(max_pages):
             if page_idx > 0:
                 time.sleep(_INTER_PAGE_DELAY_S)
             data = self.likes_page(post_skool_id, limit=page_limit, cursor=cursor, tab=tab)
             users = data.get("users") or []
-            out.extend(users)
+            for user in users:
+                uid = user.get("id") if isinstance(user, dict) else None
+                if uid is not None:
+                    if uid in seen:
+                        continue
+                    seen.add(uid)
+                out.append(user)
             nxt = data.get("cursor") or ""
             if not data.get("has_more") or not users or not nxt or nxt == cursor:
                 break
