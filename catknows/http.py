@@ -489,6 +489,11 @@ class SkoolHTTP:
         For the same reason the write gap lives here: at least `WRITE_GAP_S`
         between two writes of the same account, failed ones included, since
         Skool saw them too.
+
+        A credential in the query (the course share key, `audit.redact`) is
+        kept out of every text this method writes or raises: the audit line
+        redacts its own path, and each error message goes through `audit.redact`.
+        The request itself carries the real value.
         """
         url = f"{SKOOL_API2}{path_and_query}"
         account = self.session.auth_token or self.session.cookie_header
@@ -507,7 +512,7 @@ class SkoolHTTP:
                 resp = getattr(self._http, method)(url, **kwargs)
             except RequestException as e:
                 audit.record(method=method, path=path_and_query, status="network_error")
-                raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+                raise SkoolHTTPError(audit.redact(f"Network error on {url}: {e}")) from e
             finally:
                 _last_write_at[account] = _clock()
 
@@ -518,8 +523,8 @@ class SkoolHTTP:
             # can echo the content we just tried to send.
             audit.record(method=method, path=path_and_query, status=code)
             if code == 401 or code == 403:
-                raise _auth_rejected(code, url, resp.text)
-            raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
+                raise _auth_rejected(code, audit.redact(url), resp.text)
+            raise SkoolHTTPError(audit.redact(f"HTTP {code} on {url}: {resp.text[:300]}"), code)
         data: object = {}
         bad_json: json.JSONDecodeError | None = None
         if resp.text.strip():
@@ -544,7 +549,8 @@ class SkoolHTTP:
         if bad_json is not None:
             audit.record(method=method, path=path_and_query, status=code, note="bad_json")
             raise SkoolHTTPError(
-                f"Bad JSON from {url}: {bad_json} | {resp.text[:200]}", code) from bad_json
+                audit.redact(f"Bad JSON from {url}: {bad_json} | {resp.text[:200]}"),
+                code) from bad_json
         audit.record(method=method, path=path_and_query, status=code, response=data)
         return data
 

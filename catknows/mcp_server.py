@@ -649,6 +649,34 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
 
 
 @mcp.tool()
+def get_community_rules(community_slug: str) -> Any:
+    """Get a community's rules (the list its members see and pick from when they report a post), as Skool sends them.
+
+    Returned RAW, through the secret scrub, and not reshaped: the page code reads
+    a `rules` list with a `title` and a `content` per rule, but what the call
+    really answers was not run against Skool, so nothing is renamed or filled in.
+    Reading the rules is what any member of the community can do. Archived
+    communities stay readable. The write side (add, edit, delete, reorder a rule)
+    is not available.
+    """
+    return _safe_raw(_get_client().group_rules(community_slug))
+
+
+@mcp.tool()
+def get_community_levels(community_slug: str) -> Any:
+    """Get a community's level names (what each of its 9 levels is called), as Skool sends them.
+
+    Returned RAW, through the secret scrub, and not reshaped: the Leaderboards
+    page shows a `[{number, title, ...}]` list of level names to every member,
+    but that this call answers with the same list was not run against Skool, so
+    nothing is renamed or filled in. For the levels together with the points
+    board and each level's share of members, `get_leaderboard` is the page's own
+    view. Archived communities stay readable. Renaming a level is not available.
+    """
+    return _safe_raw(_get_client().group_levels(community_slug))
+
+
+@mcp.tool()
 def get_discovery(page: int = 1) -> dict:
     """Get one page (~30) of Skool's global discovery board — ranked communities across all categories.
 
@@ -1667,6 +1695,172 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         _get_client().delete_course_item(item_id, client_id=client_id)
         return {"status": "deleted", "item_id": item_id}
 
+    # -- course settings: drip, folder, share key, import (docs/API.md §7.8) ------
+    # Read from Skool's page code, not run live by catknows. Each draft sends
+    # nothing and does not contact Skool, and carries a fixed `not_verified` text.
+    # No community slug on three of them (like publish_course): the ids name the
+    # target. The share key is a credential: `import_course` never shows it back,
+    # `create_course_share_key` hands it to its caller and nothing else.
+
+    _NV_DRIP = (
+        "Not verified, not run: Skool's own form clamps the days to 1-999 and catknows "
+        "checks the same (the server's limit is not known); who the server lets switch "
+        "drip (the web client shows it in a page's menu); whether a course or folder id "
+        "works as well as a page id; what Skool answers; and what drip does to members "
+        "who already have access. The current setting is not read first, so the draft "
+        "cannot show it."
+    )
+    _NV_MOVE_TO_FOLDER = (
+        "Not verified, not run: where the page lands among the new folder's pages (the "
+        "call sets the parent only; `move_course_item` reorders afterwards); whether "
+        "Skool refuses a parent that is not a folder, or one of another course (catknows "
+        "does not check it, the ids are not read back); what Skool answers. The web "
+        "client moves pages into folders, and never a folder into a folder."
+    )
+    _NV_SHARE_KEY = (
+        "Not verified, not run: what Skool answers besides `code`, and whether a second "
+        "call gives the same key or a new one. The key is an ACCESS CODE: anybody who "
+        "holds it can duplicate the whole course into any community (Skool's own warning "
+        "in the dialog), so hand it only to the person the user names and never post or "
+        "store it. The web client offers it to the owner of the community only (read from "
+        "its code). catknows keeps the key out of its audit log (only a short fingerprint "
+        "of the answer is logged) and out of error messages; this tool's answer is the "
+        "one place it appears."
+    )
+    _NV_IMPORT = (
+        "Not verified, not run: what Skool answers (the web client then only says 'Import "
+        "in progress' and waits for a notice, only 1 course at a time), whether the copy "
+        "arrives as a draft or already PUBLISHED and visible to members, where it lands in "
+        "the classroom, and whether importing needs a paid plan. Check get_classroom "
+        "afterwards, and unpublish the copy with publish_course if it is visible and "
+        "should not be. catknows keeps the key out of its audit log and error messages, "
+        "and this draft does not show it; it still sits in this conversation, so do not "
+        "paste it anywhere else."
+    )
+
+    @mcp.tool()
+    def set_course_drip(course_id: str, enabled: bool, days: int = 0,
+                        confirm: bool = False) -> dict:
+        """Switch drip (timed release) on or off for ONE page, and set after how many days it opens.
+
+        With drip on, a member sees the page `days` days after they join. Skool's
+        web client offers this in a PAGE's menu ("Drip status"), so course_id is a
+        page's id (from get_course_tree). enabled=true needs days from 1 to 999;
+        enabled=false needs none (0, the default). There is no default direction:
+        say which one you mean.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the id, not the page's title, and not the
+        current setting. Call again with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.check_course_drip(enabled, days)
+        SkoolClient.course_action_path(course_id, "update-drip")  # refuse a bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed", "would_set_drip",
+                {"course_id": course_id, "enabled": enabled, "days": days,
+                 "does": (f"release the page {days} days after a member joins" if enabled
+                          else "switch drip off for the page")},
+                prose=False, not_verified=_NV_DRIP)
+        answer = _get_client().set_course_drip(course_id, enabled, days)
+        return {"status": "drip_set", "course_id": course_id, "enabled": enabled,
+                "days": days, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def move_course_to_folder(course_id: str, parent_id: str, confirm: bool = False) -> dict:
+        """Move a page into a folder, or back out to the course root (ids via get_course_tree).
+
+        course_id is the page's id. parent_id is the folder's id (type `set` in
+        get_course_tree), or the id of the course itself to take the page out of
+        its folder. Only the parent changes; the page's place among its new
+        siblings is not set (reorder with move_course_item afterwards). Skool's
+        web client moves pages only, never a folder into a folder.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the ids, not the titles. Call again with
+        confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.course_parent_path(course_id, parent_id)  # bad or equal ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was moved", "would_move",
+                {"course_id": course_id, "parent_id": parent_id,
+                 "does": ("make parent_id the new parent of course_id (a folder, or the "
+                          "course itself for 'no folder')")},
+                prose=False, not_verified=_NV_MOVE_TO_FOLDER)
+        answer = _get_client().move_course_to_folder(course_id, parent_id)
+        return {"status": "moved", "course_id": course_id, "parent_id": parent_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def create_course_share_key(course_id: str, confirm: bool = False) -> dict:
+        """Get the SHARE KEY of one of your courses: an access code that lets whoever holds it duplicate the course into any community.
+
+        This is Skool's "Share course key" (owner only in the web client); the
+        key is the answer. THE KEY IS A CREDENTIAL: give it only to the person
+        the user names, never post, store or log it. The other side imports it
+        with import_course. course_id is the course's id (get_classroom).
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.course_action_path(course_id, "clone-code")  # refuse a bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was requested", "would_create_share_key",
+                {"course_id": course_id,
+                 "does": ("ask Skool for this course's share key; whoever holds the key can "
+                          "duplicate the whole course into any community")},
+                prose=False, not_verified=_NV_SHARE_KEY)
+        answer = _get_client().create_course_share_key(course_id)
+        code = answer.get("code") if isinstance(answer, dict) else None
+        if not isinstance(code, str) or not code:
+            from .http import SkoolHTTPError
+            raise SkoolHTTPError(
+                "Skool answered the share-key request without a `code` (the answer is not "
+                "shown: it may hold the key). The request was sent, so a key may exist.")
+        return {"status": "share_key_created", "course_id": course_id, "code": code,
+                "warning": ("This key is an access code: whoever holds it can duplicate the "
+                            "whole course into any community. Hand it only to the person the "
+                            "user names; do not post, store or paste it anywhere else.")}
+
+    @mcp.tool()
+    def import_course(course_id: str, community_slug: str, clone_code: str,
+                      confirm: bool = False) -> dict:
+        """Import (duplicate) a course INTO this community with a share key its owner gave you.
+
+        clone_code is the 64-character share key (from the owner's
+        create_course_share_key). course_id is the SOURCE course: the first 32
+        characters of the key (Skool's own form takes it from there), and it
+        must match. The copy is made on Skool's side and can take a while; only
+        1 course may be imported at a time. Whether it arrives as a draft or
+        already visible to members is not known: check get_classroom afterwards.
+        Use a key only if its owner gave it to the user for this.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the key's length, never the key. Call again
+        with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.check_import_course(course_id, clone_code)  # refuse bad input up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was imported", "would_import",
+                {"community": community_slug, "course_id": course_id,
+                 "clone_code": f"{len(clone_code)} characters (not shown)",
+                 "does": "copy the whole course this key belongs to into the community"},
+                prose=False, not_verified=_NV_IMPORT)
+        answer = _get_client().import_course(course_id, community_slug, clone_code)
+        return {"status": "import_started", "community": community_slug,
+                "course_id": course_id, "answer": _safe_raw(answer)}
+
     # -- calendar events ---------------------------------------------------------
     # Read from Skool's page code, not yet run live (docs/API.md §5.11). The web
     # client shows the buttons to community admins only; whether the server
@@ -2207,7 +2401,7 @@ _READ_ONLY = {
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
     "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard", "get_leaderboard",
-    "search_members", "get_file_download_url",
+    "search_members", "get_file_download_url", "get_community_rules", "get_community_levels",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
@@ -2219,6 +2413,7 @@ _DESTRUCTIVE = {
     "vote_post", "pin_post", "create_category", "rename_category",
     "update_about_description", "set_post_comments", "pin_comment", "follow_post",
     "mark_chat_read", "mark_all_chats_read",
+    "set_course_drip", "move_course_to_folder", "create_course_share_key", "import_course",
 }
 
 

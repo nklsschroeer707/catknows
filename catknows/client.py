@@ -1479,6 +1479,137 @@ class SkoolClient:
         q = f"?client_id={client_id}" if client_id else ""
         self.http.delete_api2(f"/courses/{unit_id}{q}")
 
+    # -- course settings: drip, folder, share key, import (docs/API.md §7.8) ----
+    # Read from Skool's own page code and NOT run live by catknows: paths, query
+    # and body are the ones its web client sends. Every method refuses a bad
+    # argument BEFORE the first request and hands Skool's answer back as it is.
+    # A SkoolSecurityChallenge is never caught here: the write counts as not sent.
+    # The share key is a credential (a query value on the import, the answer of
+    # the key request): nothing here puts it in a message, and `audit.redact` keeps
+    # it out of the audit line and the HTTP errors.
+    COURSE_DRIP_DAYS_MAX = 999   # the drip form clamps the field to 1..999
+    CLONE_CODE_LENGTH = 64       # the import form refuses any other length
+    COURSE_ID_LENGTH = 32        # ... and takes the course id from the first 32
+
+    @staticmethod
+    def course_action_path(course_id: str, action: str) -> str:
+        """``/courses/{id}/{action}``. The id goes through `_id_segment`: real text,
+        not only dots, percent-encoded. ``action`` is one of our own constants."""
+        return f"/courses/{_id_segment(course_id, 'course_id')}/{action}"
+
+    @staticmethod
+    def course_parent_path(course_id: str, parent_id: str) -> str:
+        """``/courses/{id}/update-parent?parent={parentId}``.
+
+        Both ids go through `_id_segment` (the parent is a query value, so it is
+        percent-encoded and cannot add a parameter). A unit cannot be its own parent.
+        """
+        path = SkoolClient.course_action_path(course_id, "update-parent")
+        parent = _id_segment(parent_id, "parent_id")
+        if course_id == parent_id:
+            raise ValueError("course_id and parent_id are the same id: a unit cannot sit "
+                             "inside itself.")
+        return f"{path}?parent={parent}"
+
+    @staticmethod
+    def check_course_drip(enabled, days) -> int:
+        """The days to send with a drip switch, after the checks of Skool's own form.
+
+        ``enabled`` must be a real boolean. ``days`` a whole number (not a boolean):
+        1 to 999 when drip is on (the form clamps to that, and its Save button stays
+        off without days), 0 to 999 when it is off (the form sends the days left in
+        its field, or 0). Whether the server enforces the same limits is not known.
+        """
+        SkoolClient.check_flag(enabled, "enabled")
+        low, high = (1 if enabled else 0), SkoolClient.COURSE_DRIP_DAYS_MAX
+        if isinstance(days, bool) or not isinstance(days, int) or not low <= days <= high:
+            raise ValueError(f"days must be a whole number from {low} to {high}"
+                             + (" (drip is on)." if enabled else " (0 when drip is off)."))
+        return days
+
+    @staticmethod
+    def check_import_course(course_id, clone_code) -> str:
+        """The share key for an import, after the checks of Skool's own form; returns it lowercased.
+
+        The form refuses a key that is not exactly 64 characters, lowercases it,
+        and takes the course id from its first 32 characters, so that is the only
+        pair it ever sends. The refusals say how long, never what was passed.
+        """
+        if (not isinstance(clone_code, str)
+                or len(clone_code) != SkoolClient.CLONE_CODE_LENGTH):
+            raise ValueError(f"clone_code must be exactly {SkoolClient.CLONE_CODE_LENGTH} "
+                             "characters, the share key as Skool shows it.")
+        code = clone_code.lower()
+        _id_segment(course_id, "course_id")
+        if course_id != code[:SkoolClient.COURSE_ID_LENGTH]:
+            raise ValueError(f"course_id must be the first {SkoolClient.COURSE_ID_LENGTH} "
+                             "characters of clone_code: Skool's own form takes the course id "
+                             "from the key.")
+        return code
+
+    def set_course_drip(self, course_id: str, enabled: bool, days: int = 0) -> dict:
+        """Switch drip (timed release) on or off: ``POST /courses/{id}/update-drip`` (§7.8).
+
+        Body ``{"enabled", "days"}``. Skool's web client offers it in a page's
+        menu, so ``course_id`` is a page id; whether a course or folder id works
+        is not known. ``days``: see `check_course_drip` (1 to 999 when ``enabled``,
+        0 by default when not). Returns Skool's answer as it is.
+        """
+        days = self.check_course_drip(enabled, days)
+        path = self.course_action_path(course_id, "update-drip")
+        return self.http.post_api2(path, {"enabled": enabled, "days": days})
+
+    def move_course_to_folder(self, course_id: str, parent_id: str) -> dict:
+        """Put a page into a folder, or out of it: ``POST /courses/{id}/update-parent?parent=`` (§7.8).
+
+        No body. ``parent_id`` is a folder's id, or the id of the course itself
+        (what the page's "None" sends: the page's ``root_id``). It sets the parent
+        and nothing else: the place among the new siblings is not set (reorder
+        with `move_course_item`). Skool's web client moves pages only. Returns
+        Skool's answer as it is.
+        """
+        return self.http.post_api2(self.course_parent_path(course_id, parent_id), None)
+
+    def create_course_share_key(self, course_id: str) -> dict:
+        """Ask for a course's share key: ``POST /courses/{id}/clone-code``, no body (§7.8).
+
+        The answer is an object with ``code`` (what the page reads), a 64-character
+        key. **It is a credential**: whoever holds it can duplicate the whole
+        course into any community. Returned as it is; nothing here logs or repeats it.
+        """
+        return self.http.post_api2(self.course_action_path(course_id, "clone-code"), None)
+
+    def import_course(self, course_id: str, community_slug: str, clone_code: str) -> dict:
+        """Import a course into a community with its share key: ``POST /courses/{id}/import`` (§7.8).
+
+        Query ``group`` (the community's group ID, from the slug: an archived
+        community is refused up front) and ``clone_code`` (the key, lowercased as
+        Skool's form does); no body. ``course_id`` is the SOURCE course, the first 32
+        characters of the key; the copy goes into the community. Skool makes the copy
+        on its side, so the answer says nothing about the finished course. The key
+        is a credential: it is sent on the wire and kept out of the audit line and
+        every error text (`audit.redact`). Returns Skool's answer as it is.
+        """
+        code = self.check_import_course(course_id, clone_code)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        path = (f"{self.course_action_path(course_id, 'import')}"
+                f"?group={_id_segment(group_id, 'group_id')}&clone_code={quote(code, safe='')}")
+        return self.http.post_api2(path, None)
+
+    # -- community rules and level names (docs/API.md §1.11) -------------------
+    # Plain GETs, no query. Read from the page code, answer shape not run live, so
+    # both return the answer as it is. Archived communities stay readable.
+
+    def group_rules(self, community_slug: str) -> dict:
+        """The community's rules: ``GET /groups/{gid}/rules`` (§1.11). Raw answer."""
+        gid = _id_segment(self.group_id_for(community_slug), "group_id")
+        return self.http.get_api2(f"/groups/{gid}/rules")
+
+    def group_levels(self, community_slug: str) -> dict:
+        """The community's level names: ``GET /groups/{gid}/levels`` (§1.11). Raw answer."""
+        gid = _id_segment(self.group_id_for(community_slug), "group_id")
+        return self.http.get_api2(f"/groups/{gid}/levels")
+
     # -- notifications ---------------------------------------------------------
 
     # The website's filter tabs; anything else Skool answers 400 "invalid category".

@@ -14,7 +14,8 @@ The old rule D5 "no throttle" is replaced (decision Niklas 2026-09-22): there
 is now a fixed minimum gap between writes, but it lives in
 `http._write_api2`, not here, so the log stays a record and never a control.
 
-What must NEVER be in here (E4): post text, DM text, member data. Only
+What must NEVER be in here (E4): post text, DM text, member data, and a
+credential in a query string (the course share key, `redact`). Only
 technical metadata about our own writes. The response is stored as a hash, not
 as text, because Skool payloads carry credential-class fields — logging them
 raw would make the log the leak. `normalize.scrub` runs before hashing anyway,
@@ -28,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -47,6 +49,27 @@ _CONTEXT: ContextVar[dict] = ContextVar("catknows_audit_context", default={})
 # Fallback path so a local install that never sets the env var still logs
 # somewhere findable, rather than silently not logging at all.
 _DEFAULT_PATH = Path.home() / ".catknows" / "writes.jsonl"
+
+
+# Query parameters whose VALUE is a credential: the course share key
+# (`importCourse` carries it as `clone_code`, docs/API.md §7.8). The log line
+# keeps the path with its query because the flags in it explain the write
+# (`notify=members`, `state=published`), so the value is replaced and the name
+# stays: the line still says that a key was sent, never which. A new secret
+# query name goes in this tuple, not into a call site.
+_SECRET_QUERY_KEYS = ("clone_code",)
+_SECRET_QUERY = re.compile(
+    r"([?&](?:" + "|".join(map(re.escape, _SECRET_QUERY_KEYS)) + r"))=[^&#\s]*")
+
+
+def redact(text: str) -> str:
+    """``text`` with the value of every secret query parameter replaced by ``[redacted]``.
+
+    For anything that may repeat a request path or URL and is allowed to leave
+    this process: an audit line, an error message. A text without such a
+    parameter comes back unchanged, byte for byte.
+    """
+    return _SECRET_QUERY.sub(r"\1=[redacted]", text)
 
 
 def log_path() -> Path:
@@ -112,8 +135,9 @@ def record(*, method: str, path: str, status, response=None, **extra) -> None:
             "community": ctx.get("community", ""),
             "method": method.upper(),
             # Query strings carry only flags (notify=members, state=published),
-            # no content — keep them, they explain what the write did.
-            "path": path,
+            # no content — keep them, they explain what the write did. The one
+            # exception is a credential in the query (`redact`).
+            "path": redact(path),
             "status": status,
             "mode": mode(),
             "write_mode": write_mode(),
@@ -188,6 +212,14 @@ if __name__ == "__main__":
         h = response_hash({"a": 1, "b": 2})
         assert h == response_hash({"b": 2, "a": 1}), "hash must not depend on key order"
         assert h != response_hash({"a": 1, "b": 3}), "different payload, same hash"
+
+        # A credential in the query never reaches the line; the other flags stay.
+        key = "0123456789abcdef0123456789abcdef" * 2
+        record(method="post", path=f"/courses/c1/import?group=g1&clone_code={key}", status=200)
+        last = json.loads(log_path().read_text("utf-8").splitlines()[-1])
+        assert key not in json.dumps(last), "a share key reached the log"
+        assert last["path"] == "/courses/c1/import?group=g1&clone_code=[redacted]", last
+        assert redact("/posts?follow=true") == "/posts?follow=true", "a plain path must not change"
 
         # A log that cannot be written must not raise into the write path.
         os.environ["CATKNOWS_AUDIT_LOG"] = str(Path(tmp) / "w.jsonl" / "nope.jsonl")

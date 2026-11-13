@@ -21,6 +21,8 @@ The only way workspaces touch Skool. Never import the Python client directly.
 | `get_member_profile` | user_name, slug | bio, socials, stats (user_name = Skool handle) |
 | `get_follows` | user_name, direction=followers\|following, limit=1000, offset=0 | who follows that user / whom they follow: name, handle, bio, location, `you_follow`. Works on any profile, no slug needed. `total` = Skool's count |
 | `get_community_about` | slug | public profile incl. pricing model + `tiers` — works WITHOUT membership (see skool-quirks.md) |
+| `get_community_rules` | slug | the community's rules as Skool sends them: **raw** (through the secret scrub, nothing renamed or filled in). The page reads a `rules` list with a `title` and a `content` per rule, but the answer's shape was **not run live**. It is what every member sees. Archived communities stay readable. Writing rules is not available. Not run live yet (docs/API.md §1.11) |
+| `get_community_levels` | slug | what the community calls its levels, as Skool sends it: **raw**, through the scrub, not reshaped (the Leaderboards page shows `[{number, title, …}]` to every member; that this call answers the same is **not verified**). `get_leaderboard` carries level names with each level's share of members and unlocks too. Renaming a level is not available. Not run live yet (docs/API.md §1.11) |
 | `get_discovery` | page=1 | one page (~30) of Skool's top-1000 board; pages 1–34; filter locally |
 | `get_revenue_leaderboard` | category="", limit=100 | Skool's top-earning communities (the Skoolers "games" board): top 100 overall or top 50 of a category (name like "hobbies"). Global + category rank, community, owner with revenue badge, `mrr_usd`, `mrr_growth_usd`, traffic. Nothing beyond those |
 | `get_leaderboard` | slug, period="all"\|"30d"\|"7d" | a community's points leaderboard as on its Leaderboards page: top 10 (all Skool shows) with rank, handle, name, points in the period, level; `me` = your rank, level, points to the next level (rank null for owners/admins); `levels` = level names, share of members, unlocks. Private communities: members only |
@@ -80,8 +82,26 @@ Ids come from `get_classroom` (courses) and `get_course_tree` (folders, pages).
 | `create_course_item` | course_id, title, parent_id, folder=false, content, video_link | folder (`folder=true`) or page. `parent_id` empty = course root. `content` takes plain text; `video_link` embeds YouTube/Loom/Vimeo |
 | `update_course_item` | item_id, title, content, privacy, … | rename/rewrite. For PAGES pass title AND content together — Skool drops omitted page fields, so read current values from `get_course_tree` first |
 | `publish_course` | course_id, published=true | publish (**visible to all members**) or pull back to hidden draft |
-| `move_course_item` | item_id, position | reorder among siblings (0-based). Moving BETWEEN folders is impossible via the API — recreate the page instead |
+| `move_course_item` | item_id, position | reorder among siblings (0-based). Does not change the parent: to move a page into a folder or out of it use `move_course_to_folder` (below; read from Skool's page code, **not run live yet**). Until that is tried, recreating the page in the target folder is the proven way |
 | `delete_course_item` | item_id, client_id, confirm | PERMANENT. Deleting a COURSE needs `client_id` (32-hex, email-code check, docs/API.md §7.6). Deleting a FOLDER does not delete its pages — they move to the course root |
+
+### Course settings, share key and import
+
+Same draft-first rule: `confirm=false` changes nothing **and does not contact
+Skool**, and every draft carries a fixed `not_verified` text: **show it to the human
+with the draft.** Read from Skool's page code, **not yet run live** — try a throwaway
+course in a private community first. Ids must be real text, not only dots.
+
+| Tool | Args | Does |
+|---|---|---|
+| `set_course_drip` | course_id, enabled, days=0, confirm | drip (timed release) on or off for ONE page: with drip on, a member sees the page `days` days after joining. Skool's web client offers it in a **page's** menu, so `course_id` is a page id (from `get_course_tree`). `enabled=true` needs `days` 1 to 999 (the limit of Skool's own field; the server's is not known), `enabled=false` needs none. No default direction. The draft shows the id, not the current setting |
+| `move_course_to_folder` | course_id, parent_id, confirm | move a page into a folder, or back to the course root. `parent_id` = the folder's id (type `set` in `get_course_tree`), or the id of the course itself for "no folder". Sets the parent only: **where the page lands among its new siblings is not known**, `move_course_item` reorders afterwards. The web client moves pages only, never a folder into a folder; the two ids must differ |
+| `create_course_share_key` | course_id, confirm | Skool's "Share course key" (owner only in the web client): returns the key as `code`. **The key is a credential**: whoever holds it can duplicate the whole course into any community. Give it only to the person the human names; never post, store or paste it. catknows keeps it out of its audit log and error texts; the answer of this tool is the one place it appears. Whether a second call gives the same key is not known |
+| `import_course` | course_id, slug, clone_code, confirm | import a course INTO the community with a key its owner gave to the human. `clone_code` = the 64-character key; `course_id` = the **source** course = the first 32 characters of the key, and it must match (Skool's own form derives it that way). The draft shows the key's length, never the key. Skool copies on its side (1 import at a time); **whether the copy arrives as a draft or already visible to members is not known**: check `get_classroom` afterwards and unpublish it with `publish_course` if needed. Archived communities are refused |
+
+Open: what each call answers, whether the server enforces the drip limit, whether a
+course or folder id works for the drip as well as a page id, where a moved page lands,
+and whether importing needs a paid plan. Details: docs/API.md §7.8.
 
 ### Calendar
 

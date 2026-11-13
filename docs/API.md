@@ -735,6 +735,56 @@ Quirks:
 Implemented as `SkoolClient.leaderboards()`, `normalize.leaderboard()` and the
 `get_leaderboard` MCP tool (`period="all"|"30d"|"7d"`).
 
+### 1.11 Community rules and level names — api2 shape
+
+> **Status: read from Skool's own page code (build `1794436674711`, 12 Nov 2026),
+> never run against Skool by catknows.** The paths are the page client's; the
+> **shape of both answers was not measured.** Where a line says "inferred", that
+> is a reading of the minified code, not a measurement.
+
+Two plain GETs on `https://api2.skool.com`: no query, no body, no cookie beyond
+the usual session. `{gid}` is the group UUID (slug → id as everywhere else, §7.1).
+
+| Call (Skool's name) | Request | What the page reads from the answer |
+|---|---|---|
+| `getGroupRules` | `GET /groups/{gid}/rules` | `rules[]`, and per rule `title` and `content` (the form writes only `title`, at most 30 characters; at most 10 rules) |
+| `getGroupLevels` | `GET /groups/{gid}/levels` | not read anywhere in the captured page chunks; see below |
+
+**Rules** are shown to every member who can read the community: the Rules page
+(`/{slug}/-/rules`) lists them as a numbered list of titles (its data comes from a
+server-side page call, `readGroupRulesData`, not from this one), and the "Report to
+group admins" dialog of a post loads them **with this call** for an ordinary member
+and offers them as the reasons to pick from. The admin's Rules editor loads them the
+same way.
+
+**Levels.** No page chunk calls `getGroupLevels` itself; the Leaderboards page
+gets its level list from the server-side page data (`groupLevels.levels`), which
+the page then shows to every viewer (§1.10: `[{number 1..9, name "Level N",
+title, percentOfMembers, actions?}]`, the custom name in `title`). That the
+direct call `GET /groups/{gid}/levels` answers with the same `{levels: [...]}` is
+**inferred**, not run. The admin-only part (naming the levels, `PUT
+/groups/{gid}/levels/{number}` with `{title}`) is not built.
+
+**Access policy (`LEGAL.md`).** Both pass the test "can the logged-in user see this
+in normal use of Skool?": the rules and the level names are what every member of
+the community sees on the Rules and Leaderboards pages. Neither touches one of the
+five boundaries (no video, no embedded player, no limit to get around). Membership
+stays the gate on Skool's side. Rules and level names are community content, no
+personal data.
+
+Implemented as `SkoolClient.group_rules(slug)` and `group_levels(slug)` (raw
+answer, no archived guard: an archived community stays readable) and the
+`get_community_rules` and `get_community_levels` MCP tools, always on, flagged
+read-only. Both return Skool's answer **as it is, through the secret scrub**
+(`_safe_raw`), with no normalisation: the shape is not known well enough to
+reshape it. A security question (§3) is never swallowed and never retried.
+
+**Open, not verified live:** the shape of both answers (whether the list sits under
+`rules` / `levels`, and which other fields come with it, such as an order or a
+share of members), what a non-member or a logged-out account gets (the other group
+endpoints answer 401 `action not permitted` to a non-member, §3; not measured
+here), and whether the rules text in `content` is plain text or `[v2]` TipTap.
+
 ---
 
 ## 2. Timestamp & casing quirks (read before you parse)
@@ -1923,8 +1973,10 @@ PUT /courses/{courseId}/state?state=draft        // state -> 1
 `dst` is the 0-based target index among the unit's **siblings** (course tiles
 within the classroom, pages within their parent). No body. Re-parenting is
 **not** possible here: `move2` keeps the parent, and a PUT `parent_id` is
-ignored — to move a page into another folder, recreate it there and delete
-the original.
+ignored (both measured). Skool's page uses a separate call to put a page into
+another folder, `update-parent` (§7.8, read from the page code, not run live);
+until that is tried, recreating the page in the target folder and deleting the
+original is the proven way.
 
 ### 7.6 Deleting — `DELETE /courses/{id}`
 
@@ -1959,20 +2011,140 @@ Page (`module`) `metadata`: `title`, `desc` (`[v2]`), `video_link` *or*
 `video_id` (+ server-filled `video_len_ms`, `video_thumbnail`), `transcript`,
 `resources` (JSON string), `lock_free_trial`. Folders (`set`): `title` only.
 
-**Not yet mapped:** drip / time-based unlock (Skool's UI offers it per
-course; no drip field appeared in any captured payload — the communities
-tested never had it configured. Configure it once in the UI with DevTools
-open and the field will show up in the same flat course PUT), and cross-folder
-moves (see §7.5). Third-party docs claim `privacy: 3` (purchase) and
-`privacy: 4` (drip) exist — unverified here.
+**Not yet mapped:** how drip / time-based unlock shows in a payload (no drip
+field appeared in any captured payload — the communities tested never had it
+configured; the page reads it from `metadata.dripConfig`, a JSON text
+`{"enabled", "days"}`, and the create/update bodies spell it `drip_config`). Drip
+and cross-folder moves have their own calls (§7.8, read from the page code, not
+run live). Third-party docs claim `privacy: 3` (purchase) and `privacy: 4`
+(drip) exist — unverified here.
 
-### 7.8 In this repo
+### 7.8 Course settings — drip, folder, share key, import
+
+> **Status: read from Skool's own page code (build `1794436674711`, 12 Nov 2026),
+> never run against Skool.** Every path, query and field below is what the web
+> client sends; what Skool answers was not measured, which is why the end of this
+> section lists what is still open. Test with a throwaway course in a private
+> community before relying on any of it.
+
+Four calls on `https://api2.skool.com`, all `POST`, none with a body except the
+first:
+
+| Call (Skool's name) | Request | Body | In the web client |
+|---|---|---|---|
+| `updateCourseDrip` | `POST /courses/{id}/update-drip` | `{"enabled": true, "days": 7}` | a **page's** menu, "Drip status", dialog "Edit drip" (Drip ON / OFF, "Release page N days after members join") |
+| `updateCourseParent` | `POST /courses/{id}/update-parent?parent={parentId}` | none | a **page's** menu, "Change folder"; also dragging a page into a folder in the course tree |
+| `createCourseShareKey` | `POST /courses/{id}/clone-code` | none | the course tile's menu, "Share course key" (the owner only, inferred) |
+| `importCourse` | `POST /courses/{sourceCourseId}/import?group={groupId}&clone_code={key}` | none | classroom, "Import course with key" |
+
+**Drip.** The body is exactly `{"enabled": <bool>, "days": <number>}`. The web
+client offers it from a page's menu, so `{id}` is a page id (from
+`get_course_tree`); whether the server takes a course or folder id is not known,
+the page never sends one. The days field is clamped to **1 to 999** and sent as a
+whole number (`days: field ? +field : 0`). With drip on and no days the Save button
+stays off, so `enabled: true` always goes out with 1 to 999; with drip off the form
+sends whatever days are left in its field, or 0. catknows checks the same: a real
+boolean, a whole number (not a boolean), 1 to 999 when `enabled`, 0 to 999 when
+not (default 0). Whether the server enforces the same limits is not known. The page
+reads the setting back from `metadata.dripConfig`, a JSON text of the same two
+fields; the call does not read it first, so a draft cannot show the current one.
+
+**Folder.** `parent` is the new parent's id: a folder's id (`unit_type` `set`, from
+`get_course_tree`), or the id of the course itself, which is what the dialog sends
+for "None" (the page's `root_id`). No body. The web client moves pages only, and
+never puts a folder into a folder. The call sets the parent and nothing else: the
+page's place among its new siblings is not set (when a page is dropped at a spot in
+the tree, the page sends a second call, `moveCourse`, §7.5; the dialog sends only
+this one), so where it lands is not known. The two calls that could not re-parent
+are in §7.5.
+
+**Share key.** No body. The answer is an object with `code` (the page reads
+`data.code` and shows it in a dialog "Share course key": "Anybody with this key will
+be able to duplicate your course in any group."). The page keeps the key it got for
+the rest of the session; whether a second call returns the same key or a new one is
+not known. The key is 64 characters, and its first 32 are the course id (the import
+form takes the course id from them). **It is a credential**, see below.
+
+**Import.** The form refuses a key that is not exactly 64 characters, lowercases it,
+and sends the course id as `key.slice(0, 32)` in the path, the id of the community
+it is imported into as `group` (`currentGroup.id`: the **group id, not the slug**)
+and the whole key as `clone_code`. So the course id in the path is the **source**
+course, the one the key belongs to, and the copy goes into `group`. No body. The
+page reads nothing from a successful answer; it then says "Import in progress… Only
+1 course may be imported at a time. You will be notified when importing is
+complete." (the copy is made on Skool's side, the notice comes through the realtime
+channel). An error text it would show comes from `data.fields[0].error`. The notes
+list as unknown whether duplicating and importing are tied to a plan.
+
+**The share key is a credential.** Whoever holds it can duplicate the whole course
+into any community. catknows treats it like an access link (§5.13):
+
+- `clone_code` is a **query value**, and `catknows/audit.py` logs the path with its
+  query. `audit.redact()` replaces the value of `clone_code` with `[redacted]`
+  (the key name stays, so the line still says what was sent) before a line is
+  written, and `SkoolHTTP._write_api2` runs every error text it raises through it
+  as well (network error, HTTP error, auth error, bad JSON). The list of such query
+  names is `audit._SECRET_QUERY_KEYS`: a new one goes there, not into a call site.
+  The security-question error already drops the query.
+- `createCourseShareKey` returns the key **in the answer**. The audit line keeps of
+  an answer only `response_hash` (16 hex characters of a SHA-256, which does not give
+  the key back) and `created_id` when the answer has an `id`; the key is in neither.
+  The MCP tool returns it to its caller, which is its job; no error text repeats it.
+- The `import_course` draft shows the key's length, never the key.
+- `_AUDIT_ARGS` has no entry for `clone_code`, so the key never becomes an audit
+  field either.
+
+Implemented as `SkoolClient.set_course_drip(id, enabled, days=0)`,
+`move_course_to_folder(id, parent_id)`, `create_course_share_key(id)` and
+`import_course(course_id, slug, clone_code)` (the slug decides `group`, and an
+archived community is refused up front); all four return Skool's answer as it is.
+The MCP tools of the same names (behind `CATKNOWS_ALLOW_WRITE=1`) are draft-first
+and flagged destructive: `confirm=false` contacts nobody and returns what would be
+sent plus a fixed `not_verified` text. A security question (§3) is never swallowed
+and never retried. The audit line names the tool, the course (as
+`course_item_id`) and, for the import, the community; no content.
+
+**Checks before anything is sent** (a `ValueError` and zero requests on a
+violation): ids must be real text, not blank and not made only of dots (`..` would
+be folded away by libcurl and could aim the call at another endpoint), and are
+percent-encoded; `course_id` and `parent_id` must differ (a unit cannot sit inside
+itself); the drip limits above; for the import, the key must be exactly 64
+characters (it is lowercased as the page does) and `course_id` must be its first 32
+characters, which is the only form the page ever sends. The refusals name the
+argument, never its value, and never the key.
+
+**Access policy (`LEGAL.md`).** None of the four is a read, so the read test does
+not apply; against the five boundaries: no video file is downloaded, no embedded
+player is touched, and no limit is gone around. The share key is Skool's own
+feature, created by the owner of a course and handed over on purpose, and the import
+is Skool's own copy inside Skool. catknows sends the one request the page sends,
+with the key the user holds, and reports Skool's answer: a plan limit or a refusal
+is shown, not worked around. The tools are for a key its owner gave to the user.
+
+**Open, not verified live:**
+
+- `updateCourseDrip`: what it answers, whether the server enforces 1 to 999, whether
+  a course or folder id works as well as a page id, and what drip does to members
+  who already have access.
+- `updateCourseParent`: what it answers, where the page lands among its new siblings,
+  whether the server refuses a folder as `{id}` or a page as `parent`, and whether it
+  checks that both belong to the same course.
+- `createCourseShareKey`: what exactly the answer holds beside `code`, who the server
+  allows (the page shows the entry to the owner), and whether a second call gives the
+  same key.
+- `importCourse`: what a successful call answers, whether the copy arrives as a draft
+  or already published (visible to members), where in the classroom it lands, what
+  happens to a key whose course was deleted, and whether a plan is needed.
+
+### 7.9 In this repo
 
 `SkoolClient`: `classroom_courses`, `course_tree`, `create_course`,
 `create_course_item`, `update_course_item` (read-merge guard against the
 privacy reset), `set_course_state`, `move_course_item`, `delete_course_item`,
-plus the `tiptap()` helper (plain text → `[v2]` paragraphs). MCP tools (reads
-always on, writes behind `CATKNOWS_ALLOW_WRITE=1`, draft-first):
-`get_course_tree`, `create_course`, `create_course_item`,
+`set_course_drip`, `move_course_to_folder`, `create_course_share_key`,
+`import_course` (§7.8), plus the `tiptap()` helper (plain text → `[v2]`
+paragraphs). MCP tools (reads always on, writes behind `CATKNOWS_ALLOW_WRITE=1`,
+draft-first): `get_course_tree`, `create_course`, `create_course_item`,
 `update_course_item`, `publish_course`, `move_course_item`,
-`delete_course_item`.
+`delete_course_item`, `set_course_drip`, `move_course_to_folder`,
+`create_course_share_key`, `import_course`.
