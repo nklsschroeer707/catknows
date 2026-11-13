@@ -1,6 +1,6 @@
 """Self-check: a truncated members walk must SAY it is truncated.
 
-Dan Schaad's 2026-08-14 report: on a degraded session Skool re-serves page 1
+A user's 2026-08-14 report: on a degraded session Skool re-serves page 1
 for every follow-up members page. The dedupe (14.08.) stopped the duplicate
 rows, but the walk then ended silently at ~30 of 600 — a wrong result that
 LOOKS complete, which is worse than the duplicates were. members() now
@@ -275,7 +275,7 @@ def test_mcp_tool_appends_incomplete_trailer():
 
 
 def test_mcp_tool_flags_our_own_cap():
-    """Dan Schaad, 17.08.: hoomans has 592 members, limit=650 returned exactly
+    """A user's report, 17.08.: hoomans has 592 members, limit=650 returned exactly
     200 and said nothing. The cap is ours and deliberate; being silent about it
     was the bug, because 200 rows with no marker read as the whole community.
     The incomplete trailer never covered this — it only fires when SKOOL cuts

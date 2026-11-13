@@ -1,6 +1,6 @@
 """Self-check: an archived community is visible, and writes to it fail loudly.
 
-Dan Schaad, 2026-08-17: Skool states the state twice (outer ``archived: true``
+A user's report, 2026-08-17: Skool states the state twice (outer ``archived: true``
 plus ``metadata.archived: 1``) and the compact record passed on neither, so an
 agent could not tell a read-only community from a live one. Archiving leaves a
 community readable and turns posting, commenting and liking off, which means a

@@ -1,4 +1,4 @@
-"""Two writes in a row are at least WRITE_GAP_S apart (decision Niklas 2026-09-22).
+"""Two writes in a row are at least WRITE_GAP_S apart (owner's decision 2026-09-22).
 
 A fixed pause, no jitter: tempo hygiene, not disguise. Offline — the transport
 is faked, and so is the clock, so this runs in milliseconds.

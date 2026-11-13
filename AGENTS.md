@@ -117,7 +117,7 @@ over `SkoolClient`; don't duplicate client logic in it.
   `audit._SECRET_QUERY_KEYS`: the wire keeps the real value, the log line and
   every error text of `_write_api2` show `[redacted]`, and on such a path the
   error carries no exception chain (docs/API.md §7.8, §7.6).
-- **At least 15 s between two writes of the same Skool account** (decision Niklas
+- **At least 15 s between two writes of the same Skool account** (owner's decision
   2026-09-22, replaces the old rule D5 "no throttle"). Enforced in the same
   `http._write_api2`, so every write path waits, failed writes count as sent.
   Keyed by the account's token: a hosted server's users don't wait on each other.

@@ -1,6 +1,6 @@
 """Self-check: a reply to a reply is re-hung under its top-level comment.
 
-Skool threads are two levels deep. Dan's local write test (2026-09-15) sent 7
+Skool threads are two levels deep. A local write test (2026-09-15) sent 7
 replies: the 5 under top-level comments survived, the 2 under a *reply* were
 created, counted, then shown as "Comment was deleted". The same texts posted by
 hand stayed — Skool's own reply button posts under the top-level comment and
@@ -29,7 +29,7 @@ BY_ID = {
 TREE = {"post_tree": {"children": [
     {"post": {"id": TOP, "user": {"id": "u1", "first_name": "Ann", "last_name": "A"}},
      "children": [{"post": {"id": REPLY, "user": {"id": "u2", "name": "fabiola",
-                                                  "first_name": "Fabiola", "last_name": "B"}},
+                                                  "first_name": "Bea", "last_name": "B"}},
                    "children": []}]},
 ]}}
 
@@ -73,12 +73,12 @@ def test_reply_to_a_reply_goes_under_its_top_level_with_a_mention():
     body, = c.http.writes
     assert body["parent_id"] == TOP, f"third level gets deleted by Skool: {body}"
     assert body["root_id"] == POST, body
-    assert body["metadata"]["content"] == "[@Fabiola B](obj://user/u2) danke!", body
+    assert body["metadata"]["content"] == "[@Bea B](obj://user/u2) danke!", body
 
 
 def test_existing_mention_is_not_doubled():
-    m = "[@Fabiola B](obj://user/u2) "
-    already = "[@Fabiola B](obj://user/u2) schon erwähnt"
+    m = "[@Bea B](obj://user/u2) "
+    already = "[@Bea B](obj://user/u2) schon erwähnt"
     assert with_mention(m, already) == already
     assert with_mention("", "x") == "x"
 
@@ -172,7 +172,7 @@ def test_without_the_hint_a_reply_to_a_reply_is_still_rehung_with_the_mention():
         assert log[-1] == POST_COMMENT, log
         (_, body), = c.http.writes
         assert body["parent_id"] == TOP, body
-        assert body["metadata"]["content"] == "[@Fabiola B](obj://user/u2) danke!", body
+        assert body["metadata"]["content"] == "[@Bea B](obj://user/u2) danke!", body
 
 
 def test_only_a_real_true_counts_as_the_hint():

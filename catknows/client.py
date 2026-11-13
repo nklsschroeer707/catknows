@@ -1998,13 +1998,13 @@ class SkoolClient:
                      parent_comment_id: str) -> dict:
         """Where a reply may hang: ``{parent_id, flattened, mention}``.
 
-        Skool threads are two levels deep — comments, and one flat column of
-        replies under each. A comment whose ``parent_id`` is itself a reply
-        gets created, counted and indexed, then shows as "Comment was deleted"
-        (Dan's write test 2026-09-15: all 5 replies under top-level comments
-        survived, both replies under replies died; the same texts posted by
-        hand under the top-level comment stayed). So catknows never sends a
-        reply's id as ``parent_id``: a reply to a reply goes under the top-level
+        Skool's page shows threads two levels deep — comments, and one flat
+        column of replies under each. In one write test (2026-09-15) a comment
+        whose ``parent_id`` was itself a reply got created, counted and
+        indexed, then showed as "Comment was deleted": all 5 replies under
+        top-level comments survived, both replies under replies died; the same
+        texts posted by hand under the top-level comment stayed. So catknows
+        never sends a reply's id as ``parent_id``: a reply to a reply goes under the top-level
         comment and opens with an @-mention of the person. That is catknows' own
         rule. Skool's page code was read as sending ``parent_id`` = the reply's
         id for a reply to a reply; whether the server then re-hangs it under the
@@ -2267,7 +2267,7 @@ if __name__ == "__main__":  # python -m catknows.client
     p1 = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
     # Skool serving page 1 again (the degraded-session case): stop, don't
     # collect it twice — and SAY the list is truncated. A silently short list
-    # that looks complete is the bug Dan reported on 2026-08-14.
+    # that looks complete is the bug a user reported on 2026-08-14.
     repeat = _client([p1, p1, p1]).members("x")
     assert [u["id"] for u in repeat] == ["a", "b", "c"], repeat
     assert repeat.incomplete is True, "a repeated-page walk must flag incomplete"

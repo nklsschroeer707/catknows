@@ -15,7 +15,7 @@
 
 ## A good issue title
 `<what breaks> when <doing what>` — e.g. "Comment timestamps off by years
-when pulling old posts". Never "Bug from Dan" or "Feedback #3".
+when pulling old posts". Never "Bug from Anna" or "Feedback #3".
 
 ## Judgment calls
 - A reply that says "same here" attaches to the parent report, it is not new.

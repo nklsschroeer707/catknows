@@ -3,7 +3,7 @@
 skool.com/skoolers/-/games ranks Skool's top-earning communities (docs/API.md
 §6.1): 100 rows overall, 50 per category via &category={id}; p=2 is ignored,
 so that is all there is. mrr is in CENTS and arrives as a float. Measured
-2026-09-22, Hobbies id from Niklas' link.
+2026-09-22, Hobbies id from the owner's link.
 
 Run: python test_revenue_board.py    (no network, no pytest)
 """

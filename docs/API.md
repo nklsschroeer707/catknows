@@ -138,7 +138,7 @@ members too: `t=cancelling|churned|banned` (lifecycle), `admin=true`,
 `online=true` (status), `sortType=-memberapprovedat|-memberlastoffline|`
 `-memberpoints`, plus billing flags (`monthly|annual|oneTime|trials|free`,
 AND-combined), `tiers=a,b` (OR-combined) and `courseIds=a,b` (AND-combined —
-per Dan Schaad's captures, 2026-08-14).
+per a contributor's captures, 2026-08-14).
 
 **Pagination can silently degrade:** per community/role/session Skool
 re-serves page 1 for every later page instead of paging (measured 2026-08-15:
@@ -384,7 +384,7 @@ on every profile, no community needed. Payload sits under
 - **Pagination:** `&p=N`, 30 per page. Past the last page `follows.list` is
   `null`. Measured 2026-09-21 on @niklas: 110 followers = pages 30/30/30/20,
   page 5 `null`; 2 following on one page, page 2 `null`.
-- **Re-served page 1 on big profiles:** same day on @sam (778,891 followers)
+- **Re-served page 1 on big profiles:** same day on a very large profile (778,891 followers)
   pages 2 and 3 came back byte-identical to page 1 — the members-list
   degradation (§1.1) again. `follows()` dedupes and flags `incomplete`; only
   the first 30 of such a list are reachable this way.
@@ -1169,11 +1169,11 @@ POST https://api2.skool.com/posts?follow=false
 }
 ```
 
-**Two levels only.** `parent_id` must be the post or a *top-level* comment.
-A comment hung under a reply is created, counted and searchable, then shows
-as "Comment was deleted" (Dan's local write test, 2026-09-15: 5/5 replies
-under top-level comments survived, 2/2 under replies died; the same texts
-posted by hand stayed). So catknows never sends a reply's id as `parent_id`:
+**Two levels only.** catknows sends only the post or a *top-level* comment as
+`parent_id`. In one write test (2026-09-15) a comment hung under a reply was
+created, counted and searchable, then showed as "Comment was deleted": 5/5
+replies under top-level comments survived, 2/2 under replies died; the same
+texts posted by hand stayed. So catknows never sends a reply's id as `parent_id`:
 a reply to a reply goes under the top-level comment with an @-mention of the
 person. That is catknows' own rule. In Skool's page code a reply to a reply was
 read as sending `parent_id` = the reply's id; whether the server then re-hangs it
@@ -1331,10 +1331,10 @@ plus a fixed `not_verified` text. For create and update the draft's `event` is t
 request body, built by the same call as the one that is sent
 (`SkoolClient.calendar_event_body`); only `group_id` is a placeholder there,
 because the community's id is looked up from the slug on confirm (the update tool
-adds `group_id` to the body like create does). The `not_verified` text says
-(create: required fields and the time format;
-update: whether Skool keeps a field the update leaves out; delete: the draft cannot
-show the event's title, so the user must know which event the id is).
+adds `group_id` to the body like create does). The `not_verified` text names
+what is open: for create the required fields and the time format, for update
+whether Skool keeps a field the update leaves out, and for delete that the draft
+cannot show the event's title, so the user must know which event the id is.
 A security question (§3) is never swallowed and never retried. The audit line
 (`catknows/audit.py`) names the tool, the community and
 `calendar_event_id`, and carries no title, description or location.

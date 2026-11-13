@@ -10,7 +10,7 @@ against.
 
 It writes, it does not steer: no queue, no retry, nothing hangs off the log.
 A failure to log must never fail a write, so `record` swallows its own errors.
-The old rule D5 "no throttle" is replaced (decision Niklas 2026-09-22): there
+The old rule D5 "no throttle" is replaced (owner's decision 2026-09-22): there
 is now a fixed minimum gap between writes, but it lives in
 `http._write_api2`, not here, so the log stays a record and never a control.
 

@@ -10,7 +10,9 @@ Two request "shapes", because Skool has two backends:
 
 The header sets differ. The Next.js shape sends `x-nextjs-data: 1`; the api2
 shape sends `Authorization: Bearer` + `Origin` + the `x-aws-waf-token` header.
-Getting these wrong is the difference between 200 and a WAF 403.
+Getting the WAF token or the TLS handshake wrong is the difference between 200
+and a WAF 403; the Bearer header is catknows' own and whether api2 needs it is
+open (docs/API.md §0.1).
 
 Headers alone are not enough for api2: AWS WAF fingerprints the TLS handshake
 (JA3/JA4), so plain `requests` gets a CloudFront 403 even with a valid token

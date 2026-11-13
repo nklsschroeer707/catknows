@@ -165,7 +165,7 @@ def _batch_marker(capped: dict | None, rows: int, offset: int, *,
                   more: bool, also_cut: bool = False) -> dict | None:
     """The limit marker for one batch, or None when nothing was cut.
 
-    The 200 cap is a batch size, not the end of the list (Dan Schaad,
+    The 200 cap is a batch size, not the end of the list (a user's report,
     2026-09-24: list_posts(author=...) and get_follows could never get past
     200). ``more`` says the walk filled the batch, so rows may follow — the
     marker then carries ``next_offset`` for the follow-up call. ``also_cut``
@@ -594,7 +594,7 @@ def get_follows(user_name: str, direction: str = "followers", limit: int = 1000,
     the rest. If Skool stopped serving pages early, "incomplete" is true —
     don't treat that list as everyone. On other people's profiles Skool often
     re-serves page 1 for every page, so only the first 30 are reachable there
-    (measured 2026-10-11: @schaad 210 and @mindyy 940 followers → 30 each,
+    (measured 2026-10-11: two profiles with 210 and 940 followers → 30 each,
     incomplete; the caller's own 115 → all 115).
     """
     limit, capped = _cap(limit, False)
@@ -2019,10 +2019,11 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """Change an EXISTING calendar event, as the logged-in user.
 
         Same fields and limits as create_calendar_event. Only what you set is
-        sent (plus the community's group_id). ⚠ Skool's own form always sends the whole event; whether a field you
-        leave out is kept or reset is not verified, so pass every field the event
-        should keep. from_occurrence_id empty = the whole event; set = that
-        occurrence and all following ones of the series.
+        sent (plus the community's group_id). ⚠ Skool's own form always sends
+        the whole event; whether a field you leave out is kept or reset is not
+        verified, so pass every field the event should keep. from_occurrence_id
+        empty = the whole event; set = that occurrence and all following ones
+        of the series.
 
         Draft-first: with confirm=false NOTHING is changed and Skool is not
         contacted. The draft shows the ids and, as `event`, the request body
@@ -2107,7 +2108,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     _NV_CREATE_CATEGORY = (
         "Not verified: Skool's category form stops at 10 categories (the server's "
         "limit is not known) and catknows does not count them, so whether Skool refuses "
-        "one more shows only in its answer. No description is sent."
+        "one more shows only in its answer. No description is sent. The draft shows "
+        "the values flat; what is sent is {group_id, metadata}."
     )
     _NV_RENAME_CATEGORY = (
         "Not verified: only display_name is sent, and Skool's own form always sends "
