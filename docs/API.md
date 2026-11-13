@@ -1226,6 +1226,11 @@ probably refused by the server too, but that is not verified.
 `location_type`, and types `5` and `6` must not carry a `location_info` key at all.
 The checks look at the fields that are present; no required set is enforced.
 Nothing else is validated (recurrence maxima, privacy values, the time fields).
+The event id must be real text and not made only of dots: `.` and `..` survive
+percent-encoding and libcurl folds such a path piece away, which would aim a PUT
+or DELETE at the collection instead of one event. `from_occurrence_id` is a query
+value: empty means "not given", otherwise it must be non-blank text (it is
+percent-encoded). The refusals name the argument, never its value.
 
 Implemented as `SkoolClient.create_calendar_event(slug, event)` (adds `group_id`
 from the slug and refuses an archived community), `update_calendar_event(id,
@@ -1233,7 +1238,10 @@ event, from_occurrence_id=…)` (sends `event` as it is) and
 `delete_calendar_event(id, from_occurrence_id=…)`; all three return Skool's answer
 as it is. The `create_calendar_event`, `update_calendar_event` and
 `delete_calendar_event` MCP tools (behind `CATKNOWS_ALLOW_WRITE=1`) are
-draft-first: `confirm=false` contacts nobody and returns what would be sent.
+draft-first: `confirm=false` contacts nobody and returns what would be sent,
+plus a fixed `not_verified` text (create: required fields and the time format;
+update: whether Skool keeps a field the update leaves out; delete: the draft cannot
+show the event's title, so the user must know which event the id is).
 A security question (§3) is never swallowed and never retried. The audit line
 (`catknows/audit.py`) names the tool, the community and
 `calendar_event_id`, and carries no title, description or location.

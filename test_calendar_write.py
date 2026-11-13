@@ -243,6 +243,71 @@ def test_an_empty_or_odd_id_is_refused_before_any_call():
     assert c.http.calls == [], c.http.calls
 
 
+def _bad_id_calls(bad):
+    """Every way an event id (or occurrence id) can reach a request: client and tools."""
+    ev = lambda m: _fn(m.update_calendar_event)  # noqa: E731
+    de = lambda m: _fn(m.delete_calendar_event)  # noqa: E731
+    return [
+        lambda c: c.update_calendar_event(bad, EVENT),
+        lambda c: c.delete_calendar_event(bad),
+        lambda c: _with_client(c, lambda m: ev(m)(SLUG, bad, title="New")),
+        lambda c: _with_client(c, lambda m: ev(m)(SLUG, bad, title="New", confirm=True)),
+        lambda c: _with_client(c, lambda m: de(m)(SLUG, bad)),
+        lambda c: _with_client(c, lambda m: de(m)(SLUG, bad, confirm=True)),
+    ]
+
+
+def test_ids_made_only_of_dots_are_refused_before_any_call():
+    """Dots stay dots when percent-encoded, and libcurl folds `/calendar-events/..`
+    away: a DELETE would then hit the collection or the root, not one event."""
+    for bad in (".", "..", "...", "....."):
+        for call in _bad_id_calls(bad):
+            c = _client()
+            _refused(lambda: call(c))
+            assert c.http.calls == [], (bad, c.http.calls)
+    c = _client()
+    c.delete_calendar_event("a.b")  # a dot between other characters is an ordinary id
+    c.delete_calendar_event(".a")
+    c.update_calendar_event("ev1", EVENT)
+    assert [x[1] for x in c.http.calls] == [
+        "/calendar-events/a.b", "/calendar-events/.a", "/calendar-events/ev1"], c.http.calls
+
+
+def test_blank_and_non_text_ids_are_refused_by_client_and_tools():
+    for bad in ("", "   ", "\t", None, 7, ["ev1"]):
+        for call in _bad_id_calls(bad):
+            c = _client()
+            _refused(lambda: call(c))
+            assert c.http.calls == [], (bad, c.http.calls)
+
+
+def test_the_id_refusal_names_the_argument_not_the_value():
+    msg = _refused(lambda: _client().delete_calendar_event(".."))
+    assert "event_id" in msg and ".." not in msg, msg
+    msg = _refused(lambda: _client().update_calendar_event("....", EVENT))
+    assert "event_id" in msg and "...." not in msg, msg
+    msg = _refused(lambda: _client().delete_calendar_event(["secret-event-id"]))
+    assert "event_id" in msg and "secret-event-id" not in msg, msg
+    msg = _refused(lambda: _client().update_calendar_event("ev1", EVENT, from_occurrence_id="  "))
+    assert "from_occurrence_id" in msg, msg
+
+
+def test_a_given_occurrence_id_must_be_real_text():
+    """Empty means "not given" (the whole event). Given, it is non-empty text."""
+    for bad in ("  ", "\n", 5, ["occ-1"], None):
+        c = _client()
+        _refused(lambda: c.update_calendar_event("ev1", EVENT, from_occurrence_id=bad))
+        _refused(lambda: c.delete_calendar_event("ev1", from_occurrence_id=bad))
+        _refused(lambda: _with_client(c, lambda m: _fn(m.delete_calendar_event)(
+            SLUG, "ev1", from_occurrence_id=bad, confirm=True)))
+        assert c.http.calls == [], (bad, c.http.calls)
+    c = _client()
+    c.delete_calendar_event("ev1", from_occurrence_id="..")  # a query value, not a path piece
+    c.delete_calendar_event("ev1", from_occurrence_id="")
+    assert [x[1] for x in c.http.calls] == [
+        "/calendar-events/ev1?from_occurrence_id=..", "/calendar-events/ev1"], c.http.calls
+
+
 # -- client: the limits bite before anything is sent ---------------------------
 
 def _with_meta(**fields):
@@ -426,6 +491,31 @@ def test_prose_drafts_ask_for_the_humanizing_pass():
     assert "before_you_show_this" in titled
     assert "before_you_show_this" not in moved, "a time change has no prose"
     assert "before_you_show_this" not in deleted
+
+
+def test_every_draft_carries_a_fixed_not_verified_text():
+    """A warning that lives only in a docstring never reaches the human who confirms."""
+    c = _client()
+    created = _with_client(c, lambda m: _fn(m.create_calendar_event)(**_tool_args()))
+    changed = _with_client(c, lambda m: _fn(m.update_calendar_event)(
+        SLUG, "ev1", title="New title"))
+    deleted = _with_client(c, lambda m: _fn(m.delete_calendar_event)(SLUG, "ev1"))
+    assert c.http.calls == [], f"a draft must not touch Skool at all: {c.http.calls}"
+
+    nv_create, nv_update, nv_delete = (created["not_verified"], changed["not_verified"],
+                                       deleted["not_verified"])
+    # create: what only a live run can settle
+    assert "requires" in nv_create and "start_time" in nv_create \
+        and "timezone" in nv_create, nv_create
+    # update: whether Skool keeps a field the update leaves out
+    assert "keeps or resets" in nv_update and "leaves out" in nv_update, nv_update
+    # delete: the draft cannot show the title, so the human must know the event
+    assert "cannot show" in nv_delete and "title" in nv_delete \
+        and "which event" in nv_delete, nv_delete
+    # the same text every time: it is a constant, not built from the call
+    again = _with_client(c, lambda m: _fn(m.update_calendar_event)(
+        SLUG, "ev2", start_time=START, from_occurrence_id="occ-1"))
+    assert again["not_verified"] == nv_update, again
 
 
 def test_a_draft_already_refuses_what_the_client_would_refuse():

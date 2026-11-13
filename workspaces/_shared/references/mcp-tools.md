@@ -84,9 +84,11 @@ Ids come from `get_classroom` (courses) and `get_course_tree` (folders, pages).
 ### Calendar
 
 Same draft-first rule: `confirm=false` changes nothing **and does not contact
-Skool**; the draft shows what would be sent. Read from Skool's page code, **not
+Skool**; the draft shows what would be sent and carries a fixed `not_verified`
+text: **show it to the human with the draft.** Read from Skool's page code, **not
 yet run live** — try a throwaway event in a private community first. The web
-client offers these to community admins only.
+client offers these to community admins only. `event_id` must be real text, not
+only dots; `from_occurrence_id`, when given, non-blank text.
 
 | Tool | Args | Does |
 |---|---|---|

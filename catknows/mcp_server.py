@@ -1644,6 +1644,22 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         SkoolClient.check_calendar_event(event)  # a draft must not promise what would fail
         return event
 
+    # Fixed texts for the drafts: what only a live run can settle travels with the
+    # draft, because a docstring is not seen by the human who confirms.
+    _NV_CALENDAR_CREATE = (
+        "Not verified live: which fields Skool requires, and the format it wants for "
+        "start_time, end_time and timezone (they go out exactly as shown)."
+    )
+    _NV_CALENDAR_UPDATE = (
+        "Not verified: whether Skool keeps or resets a field this update leaves out "
+        "(its own form always sends the whole event), so every field the event should "
+        "keep must be in this draft. The current event is not read back."
+    )
+    _NV_CALENDAR_DELETE = (
+        "This draft cannot show the event's title. Make sure the user knows which "
+        "event belongs to this id before they confirm."
+    )
+
     def _calendar_scope(from_occurrence_id: str) -> str:
         if from_occurrence_id:
             return "this occurrence and all following ones of the series"
@@ -1687,7 +1703,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                                        privacy, recurrence)
         if not confirm:
             return _draft("DRAFT — nothing was created", "would_create",
-                          {"community": community_slug, "event": event})
+                          {"community": community_slug, "event": event},
+                          not_verified=_NV_CALENDAR_CREATE)
         created = _get_client().create_calendar_event(community_slug, event)
         return {"status": "created", "event": _safe_raw(created)}
 
@@ -1734,7 +1751,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                            "from_occurrence_id": from_occurrence_id,
                            "applies_to": _calendar_scope(from_occurrence_id),
                            "event": event},
-                          prose="title" in meta or "description" in meta)
+                          prose="title" in meta or "description" in meta,
+                          not_verified=_NV_CALENDAR_UPDATE)
         client = _get_client()
         group_id = client.group_id_for(community_slug, for_write=True)  # archived guard
         updated = client.update_calendar_event(
@@ -1760,7 +1778,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                           {"community": community_slug, "event_id": event_id,
                            "from_occurrence_id": from_occurrence_id,
                            "applies_to": _calendar_scope(from_occurrence_id)},
-                          prose=False)
+                          prose=False, not_verified=_NV_CALENDAR_DELETE)
         client = _get_client()
         client.group_id_for(community_slug, for_write=True)  # archived guard
         client.delete_calendar_event(event_id, from_occurrence_id=from_occurrence_id)

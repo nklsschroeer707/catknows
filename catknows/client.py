@@ -932,14 +932,18 @@ class SkoolClient:
         """``/calendar-events/{id}``, plus ``?from_occurrence_id=`` for a series.
 
         Without it a change or delete takes the whole event; with it, the
-        occurrence and everything after it (docs/API.md §5.11). Both parts are
-        percent-encoded, so an id cannot leave its path segment or add a query.
+        occurrence and everything after it (docs/API.md §5.11). The event id goes
+        through `_id_segment` (real text, not only dots: ``..`` would be folded
+        away and aim a PUT or DELETE at the collection). The occurrence id is a
+        query value: empty means "not given", anything else must be non-blank
+        text, and it is percent-encoded so it cannot add a parameter. Neither
+        refusal repeats the value.
         """
-        if not isinstance(event_id, str) or not event_id.strip():
-            raise ValueError("event_id is required.")
-        if not isinstance(from_occurrence_id, str):
-            raise ValueError("from_occurrence_id must be text.")
-        path = f"/calendar-events/{quote(event_id, safe='')}"
+        segment = _id_segment(event_id, "event_id")
+        if not isinstance(from_occurrence_id, str) or (
+                from_occurrence_id and not from_occurrence_id.strip()):
+            raise ValueError("from_occurrence_id must be non-empty text when given.")
+        path = f"/calendar-events/{segment}"
         if from_occurrence_id:
             path += f"?from_occurrence_id={quote(from_occurrence_id, safe='')}"
         return path
