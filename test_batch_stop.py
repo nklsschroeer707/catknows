@@ -112,11 +112,19 @@ class _PullClient:
 
     def __init__(self, posts: int, fail: dict[str, str]):
         self._trees, self.fail, self.comment_calls = _trees(posts), fail, []
+        self.list_calls = []      # "members" / "posts": the two reads before the loop
 
     def members(self, slug):
-        return _Members()
+        self.list_calls.append("members")
+        if "members" in self.fail:
+            _raise_for(self.fail["members"])
+        return _Members([{"id": "u1", "name": "test-person-1", "firstName": "Test",
+                          "lastName": "Person", "metadata": {}, "member": {}}])
 
     def posts(self, slug):
+        self.list_calls.append("posts")
+        if "posts" in self.fail:
+            _raise_for(self.fail["posts"])
         return self._trees
 
     def comments(self, post_id, group_id):
@@ -269,6 +277,37 @@ def test_cli_pull_goes_on_after_500_404_and_a_network_error():
             assert rc == 0 and "Done" in out, (status, rc, out)
             assert "stopped" not in err, err
             assert c.comment_calls == ["p0", "p1", "p2", "p3", "p4"], (status, c.comment_calls)
+
+
+def test_cli_pull_stops_before_the_loop_without_a_traceback():
+    for at, asked in (("members", ["members"]), ("posts", ["members", "posts"])):
+        for kind in (*STOPPING, CHALLENGE_AT):
+            with tempfile.TemporaryDirectory() as tmp:
+                c = _PullClient(5, {at: kind})
+                rc, out, err = _run_cli(c, tmp)     # an exception here is the traceback
+                where = f"{at} {kind}"
+                assert rc == 1, f"{where}: a stopped pull must exit 1, got {rc}"
+                named = "AUTH-SEC-501" if kind == CHALLENGE_AT else _names(kind)
+                assert "error: pull stopped" in err and named in err, (where, err)
+                assert "nothing more was requested" in err, (where, err)
+                assert "Done" not in out, where
+                assert c.list_calls == asked and c.comment_calls == [], \
+                    f"{where}: nothing may be requested after it: {c.list_calls} {c.comment_calls}"
+                members = list((Path(tmp) / "some-community" / "members").glob("*.md"))
+                assert len(members) == (1 if at == "posts" else 0), \
+                    f"{where}: member notes already written stay: {members}"
+
+
+def test_cli_pull_still_raises_an_ordinary_error_before_the_loop():
+    for at in ("members", "posts"):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = _PullClient(5, {at: 500})
+            try:
+                _run_cli(c, tmp)
+            except SkoolHTTPError as e:
+                assert e.status == 500, e.status
+            else:
+                raise AssertionError(f"{at}: a 500 before the loop is no stop, it stays the error it was")
 
 
 # -- snapshot: four loops -----------------------------------------------------

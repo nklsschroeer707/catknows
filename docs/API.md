@@ -861,6 +861,8 @@ requested. `pull_to_vault` raises a `SkoolHTTPError` with the same `.status`
 and how far it got in front of the message, `python -m catknows pull` exits
 with code 1, `python -m catknows.snapshot` exits with code 3 (in all four
 loops). catknows reads this from the error's `.status`, never from its text.
+The CLI pull does the same while it reads the members and the list of posts,
+before its loop: the stop line and exit code 1, no traceback.
 A 202 that Skool repeats until the three tries are used up (the other
 rate-limit answer in the table above) stops the job the same way; that error
 keeps `.status` 0 and carries `repeated_202`, and the message names it as HTTP
