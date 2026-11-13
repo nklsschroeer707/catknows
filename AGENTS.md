@@ -113,10 +113,11 @@ over `SkoolClient`; don't duplicate client logic in it.
   privacy policy, so a content field added here would make a public document
   untrue), and **the log never steers** — no queue, no retry hanging off it.
   It also must never break a write: `record()` swallows its own errors on purpose.
-  A credential that rides in a **query** (`clone_code`, `client_id`) belongs in
-  `audit._SECRET_QUERY_KEYS`: the wire keeps the real value, the log line and
-  every error text of `_write_api2` show `[redacted]`, and on such a path the
-  error carries no exception chain (docs/API.md §7.8, §7.6).
+  A credential that rides in a **query** (`clone_code`, `client_id`, the one-shot
+  `token` of the dashboard numbers) belongs in `audit._SECRET_QUERY_KEYS`: the
+  wire keeps the real value, the log line and every error text of the HTTP layer
+  (writes and reads) show `[redacted]` or name the URL without its query, and on
+  such a path the error carries no exception chain (docs/API.md §7.8, §7.6, §1.9).
 - **At least 15 s between two writes of the same Skool account** (owner's decision
   2026-09-22, replaces the old rule D5 "no throttle"). Enforced in the same
   `http._write_api2`, so every write path waits, failed writes count as sent.

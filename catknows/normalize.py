@@ -207,24 +207,45 @@ def post(tree: dict) -> dict:
     }
 
 
-# Local part, "@", dotted domain. `\w` keeps non-ASCII names working; the domain
-# must end in a label, so a full stop closing a sentence stays outside the match.
-_EMAIL_RE = re.compile(r"[\w.%+'\-]+@[\w\-]+(?:\.[\w\-]+)+")
+# Local part, "@", dotted domain. The domain must end in a label, so a full stop
+# closing a sentence stays outside the match.
+#
+# The local part is what RFC 5322 allows. Either a run of "atext" characters and
+# dots (`\w` keeps non-ASCII names working), taken whole: the lookbehind lets a
+# match start only where such a run starts, so a long text without an "@" is read
+# once and not once per start position (that was quadratic). Or the quoted form,
+# `"anna smith"@example.com`, at most 64 characters between the quotes (the RFC's
+# limit for a local part, and what keeps this branch linear too). Its closing quote
+# may be escaped (`\"`), which is how it arrives inside a JSON text. Its opening
+# quote does not follow a word character or a quote: that keeps the end of a JSON
+# key in `"key":"@handle.name"` from being taken for one, but only when the key
+# ends in a word character. After any other character (`"a key!":"@handle.name"`)
+# the key's closing quote, the colon and the value's opening quote are read as a
+# quoted local part and masked: too much hidden in a rare text, never too little.
+_LOCAL_CHARS = r"\w.!#$%&'*+/=?^`{|}~\-"
+_EMAIL_RE = re.compile(
+    r"(?:(?<![" + _LOCAL_CHARS + r"])[" + _LOCAL_CHARS + r"]+"
+    r'|(?<![\w"])"(?:[^"\\\r\n]|\\[^\r\n]){0,64}?\\?")'
+    r"@[\w\-]+(?:\.[\w\-]+)+")
 
 
 def _mask_match(mo: re.Match) -> str:
+    # The LAST "@" splits the address: a quoted local part may hold one itself.
     address = mo.group(0)
-    return address[0] + "***" + address[address.index("@"):]
+    return address[0] + "***" + address[address.rindex("@"):]
 
 
 def mask_email(text):
     """Hide the local part of every email address in ``text``.
 
     ``anna@example.com`` -> ``a***@example.com``: first character and domain
-    stay, enough to tell two applicants apart and to see where they signed up,
-    not enough to write to them. Text without an address comes back unchanged,
-    a text with several gets all of them masked, and anything that is not a
-    string (``None``, a number) passes through.
+    stay, mostly enough to tell two applicants apart and to see where they
+    signed up, not enough to write to them. A sign glued to the address counts
+    as its first character (``email=anna@example.com`` -> ``e***@example.com``),
+    and of a quoted local part the first character is its quote:
+    ``"anna smith"@example.com`` -> ``"***@example.com``. Text without an
+    address comes back unchanged, a text with several gets all of them masked,
+    and anything that is not a string (``None``, a number) passes through.
     """
     if not isinstance(text, str):
         return text
@@ -1041,7 +1062,7 @@ if __name__ == "__main__":
     odd = my_community({"name": "g", "metadata": {"member": '{"role": "wat"}'}})
     assert odd["role"] == "wat", odd
     # Missing/unparseable metadata.member must NOT quietly become the founding
-    # date. Dan Schaad measured `skoolers` as 2019 (its founding) while having
+    # date. A member reported `skoolers` as 2019 (its founding) while having
     # joined in 2024 — that is this branch, and it used to assert 2019 as if it
     # were right. joined_at stays None and the record says why.
     for broken in ({}, {"member": "not json"}, {"member": None}):

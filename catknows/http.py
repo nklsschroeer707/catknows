@@ -35,7 +35,7 @@ from urllib.parse import urlsplit
 from curl_cffi import requests
 from curl_cffi.requests.exceptions import RequestException
 
-from . import audit
+from . import audit, normalize
 
 SKOOL_BASE = "https://www.skool.com"
 SKOOL_API2 = "https://api2.skool.com"
@@ -53,7 +53,7 @@ CACHE_TTL_S = float(os.environ.get("CATKNOWS_CACHE_TTL", "600"))
 _CACHE_MAX_ENTRIES = 128
 _NEVER_CACHE = ("/self/chat-channels", "/self/notifications", "/analytics-")
 
-# Minimum gap between two writes to Skool, per Skool account (decision Niklas
+# Minimum gap between two writes to Skool, per Skool account (owner's decision
 # 2026-09-22, replaces the old "no throttle" rule D5). A fixed value, no
 # jitter: this is tempo hygiene, not disguise. Module-level and keyed by the
 # account's auth token, so it holds for every client of that account in the
@@ -234,14 +234,107 @@ def _auth_rejected(code: int, url: str, body: str = "") -> SkoolHTTPError:
 
 
 def _answer_excerpt(path_and_query: str, text: str, limit: int) -> str:
-    """The start of an answer, for an error text, unless the answer is a credential.
+    """The start of an answer, for an error text. Every error text takes it from here.
 
-    The one place that decides it (`audit.secret_answer`): on the share-key request
-    the body is the key, so an error about it says that the answer is held back.
+    An error text travels to logs (hosted: the journal), and an answer can name a
+    person or repeat a request. So this one place decides what of it is shown:
+
+    - nothing, when the answer is a credential (`audit.secret_answer`): on the
+      share-key request the body is the key, so the error says that it is held back;
+    - otherwise the first ``limit`` characters, with every e-mail address masked
+      (`normalize.mask_email`) and every secret query value replaced
+      (`audit.redact`). Masked before it is cut: an address the cut runs through
+      would lose its domain and no longer look like one.
+
+    Only the start of the answer is worked on, not all of it: an error body can
+    be megabytes. The window is the excerpt plus a margin wider than any address,
+    so what is shown is what masking the whole answer would show; it grows when
+    masking made the text so much shorter that the window's own edge came near.
+
+    The excerpt stays, because without Skool's reason an error cannot be read.
+    ``path_and_query`` may be empty when the request is not a Skool path.
     """
     if audit.secret_answer(path_and_query):
         return "(answer not shown: it can hold a credential)"
-    return text[:limit]
+    text = text or ""
+    window = limit + _EXCERPT_WINDOW_EXTRA
+    while True:
+        shown = audit.redact(normalize.mask_email(text[:window]))
+        if window >= len(text) or len(shown) >= limit + _EXCERPT_EDGE:
+            return shown[:limit]
+        window *= 2
+
+
+# An address is at most 254 characters long. The edge of the window can cut one,
+# and that piece must stay behind the excerpt: so this many characters of the
+# worked-on text lie between the excerpt's end and the window's edge.
+_EXCERPT_EDGE = 300
+_EXCERPT_WINDOW_EXTRA = 400
+
+# What a storage's XML error answer says about the failure. The rest of it
+# repeats the request: the access key id, the signed text, the signature.
+_STORAGE_CODE = re.compile(r"<Code>([^<]{1,80})</Code>")
+_STORAGE_MESSAGE = re.compile(r"<Message>([^<]{1,300})</Message>")
+
+
+def _storage_answer(text: str) -> str:
+    """What an error text shows of a foreign storage's answer (the upload).
+
+    `audit.redact` does not know a foreign service's names, so the start of the
+    answer is not shown here. A storage error in the usual XML form names a
+    ``<Code>`` and a ``<Message>``: these two are shown (addresses masked, links
+    removed), nothing else. Any other answer is not shown at all.
+    """
+    head = (text or "")[:4000]
+    code = _STORAGE_CODE.search(head)
+    if not code:
+        return "(answer not shown: it can repeat the access of the upload link)"
+    message = _STORAGE_MESSAGE.search(head)
+    said = code.group(1).strip() + (f": {message.group(1).strip()}" if message else "")
+    return _ANY_LINK.sub("[link removed]", normalize.mask_email(said))[:300]
+
+
+def _foreign_said(url: str, named: str, failed: RequestException) -> str:
+    """The library's message about a request to a foreign host, without its URL.
+
+    The query of such a URL is the access (a presigned upload link, a signed
+    playback link). The URL, with or without its scheme, is replaced by
+    ``named``, and any other link is removed.
+    """
+    said = str(failed)
+    for piece in (url, url.split("://", 1)[-1]):
+        said = said.replace(piece, named)
+    return _ANY_LINK.sub("[link removed]", audit.redact(said))
+
+
+def _url_for_error(url: str) -> tuple[str, bool]:
+    """How a request URL is named in an error text, and whether it carries a credential.
+
+    A URL whose query holds one (`audit.carries_secret`: the one-shot token of the
+    dashboard numbers, ``?token=``) is named without its query: scheme, host, path.
+    Any other URL is named as it is, its query explains the request.
+    """
+    parts = urlsplit(url)
+    if not audit.carries_secret(parts.path + (f"?{parts.query}" if parts.query else "")):
+        return url, False
+    return f"{parts.scheme}://{parts.netloc}{parts.path}", True
+
+
+def _network_error(url: str,
+                   failed: RequestException) -> tuple[SkoolHTTPError, BaseException | None]:
+    """The error for a request that never got an answer, and the cause to raise it from.
+
+    The library's own message can repeat the URL, so it goes through `audit.redact`.
+    When the URL carries a credential, or the redaction had something to replace,
+    the cause is ``None``: a logger prints the whole chain, and the library's
+    unredacted message would be in it. Raise it OUTSIDE the ``except`` block
+    (``raise error from cause``), so that ``__context__`` stays empty as well.
+    """
+    shown, secret = _url_for_error(url)
+    said = str(failed)
+    text = audit.redact(said)
+    return (SkoolHTTPError(f"Network error on {shown}: {text}"),
+            None if secret or text != said else failed)
 
 
 class SkoolHTTP:
@@ -286,15 +379,22 @@ class SkoolHTTP:
             return self._build_id
 
         url = f"{SKOOL_BASE}/{community_slug}"
-        resp = self._http.get(
-            url,
-            headers={
-                "Cookie": self._cookie_header(),
-                "User-Agent": self._profile["ua"],
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-            timeout=FETCH_TIMEOUT_S,
-        )
+        failed: RequestException | None = None
+        try:
+            resp = self._http.get(
+                url,
+                headers={
+                    "Cookie": self._cookie_header(),
+                    "User-Agent": self._profile["ua"],
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+                timeout=FETCH_TIMEOUT_S,
+            )
+        except RequestException as e:
+            failed = e
+        if failed is not None:
+            error, cause = _network_error(url, failed)
+            raise error from cause
         self._build_id = _extract_build_id(resp.text)
         if not self._build_id:
             raise SkoolHTTPError(
@@ -414,15 +514,21 @@ class SkoolHTTP:
         ``completed`` (docs/API.md §1.9). Never cached, no retry.
         """
         url = f"{SKOOL_API2}{path_and_query}"
+        shown, _ = _url_for_error(url)  # the token is one-shot, but no error text names it
+        failed: RequestException | None = None
         try:
             resp = self._http.get(url, headers=self._api2_headers(), timeout=FETCH_TIMEOUT_S)
         except RequestException as e:
-            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+            failed = e
+        if failed is not None:
+            error, cause = _network_error(url, failed)
+            raise error from cause
         if resp.status_code in (401, 403):
-            raise _auth_rejected(resp.status_code, url, resp.text)
+            raise _auth_rejected(resp.status_code, shown, resp.text)
         if not (200 <= resp.status_code < 300):
-            raise SkoolHTTPError(f"HTTP {resp.status_code} on {url}: {resp.text[:300]}",
-                                 resp.status_code)
+            raise SkoolHTTPError(
+                f"HTTP {resp.status_code} on {shown}: "
+                f"{_answer_excerpt(path_and_query, resp.text, 300)}", resp.status_code)
         if resp.status_code == 200:
             try:
                 parsed = json.loads(resp.text)
@@ -441,14 +547,25 @@ class SkoolHTTP:
         restriction, so the request MUST look like it came from the Skool
         player; without a Skool Referer Mux answers 403 ``E184-1``. Returns
         text (HLS manifests and WebVTT), never JSON.
+
+        A network error names the URL without its query (the token), repeats the
+        library's own message without the URL, and has no exception chain.
         """
-        r = self._http.get(url, headers={
-            "User-Agent": self._profile["ua"],
-            "Accept": "*/*",
-            "Accept-Language": self._profile["lang"],
-            "Referer": f"{SKOOL_BASE}/",
-            "Origin": SKOOL_BASE,
-        }, timeout=FETCH_TIMEOUT_S)
+        failed: RequestException | None = None
+        try:
+            r = self._http.get(url, headers={
+                "User-Agent": self._profile["ua"],
+                "Accept": "*/*",
+                "Accept-Language": self._profile["lang"],
+                "Referer": f"{SKOOL_BASE}/",
+                "Origin": SKOOL_BASE,
+            }, timeout=FETCH_TIMEOUT_S)
+        except RequestException as e:
+            failed = e
+        if failed is not None:
+            shown = url.split("?")[0]
+            raise SkoolHTTPError(
+                f"Network error on {shown}: {_foreign_said(url, '(the URL)', failed)}") from None
         if r.status_code != 200:
             raise SkoolHTTPError(
                 f"HTTP {r.status_code} from Mux ({url.split('?')[0]}). A 403 "
@@ -498,16 +615,21 @@ class SkoolHTTP:
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:
             kwargs["json"] = body
+        failed: RequestException | None = None
         try:
             resp = self._http.post(url, **kwargs)
         except RequestException as e:
-            raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+            failed = e
+        if failed is not None:
+            error, cause = _network_error(url, failed)
+            raise error from cause
         code, text = resp.status_code, resp.text or ""
         if not (200 <= code < 300):
             if code == 401 or code == 403:
-                raise _auth_rejected(code, url, text)
+                raise _auth_rejected(code, _url_for_error(url)[0], text)
+            excerpt = _answer_excerpt(path_and_query, text, 300)
             raise SkoolHTTPError(
-                f"HTTP {code} on {url}: {_ANY_LINK.sub('[link removed]', text[:300])}", code)
+                f"HTTP {code} on {url}: {_ANY_LINK.sub('[link removed]', excerpt)}", code)
         if not text.strip():
             return {}
         try:
@@ -629,14 +751,26 @@ class SkoolHTTP:
         Not a Skool endpoint — the presigned S3 URL carries its own auth in the
         query string, so this sends NO cookies, bearer or WAF token. Like
         `post_api2` it does not retry.
+
+        That query is the access to the upload, and `audit.redact` does not know a
+        foreign service's parameter names. So a network error names the host and
+        nothing else of the URL, the library's own message is repeated without
+        the URL and without any other link, and the error has no exception chain.
+        An HTTP error shows the storage's ``<Code>`` and ``<Message>`` and nothing
+        else of its answer, which repeats the request (`_storage_answer`).
         """
+        failed: RequestException | None = None
         try:
             resp = self._http.put(url, headers=headers, data=data, timeout=FETCH_TIMEOUT_S)
         except RequestException as e:
-            raise SkoolHTTPError(f"Network error uploading to {url[:80]}...: {e}") from e
+            failed = e
+        if failed is not None:
+            host = urlsplit(url).hostname or "(unknown host)"
+            raise SkoolHTTPError(f"Network error uploading to {host}: "
+                                 f"{_foreign_said(url, host, failed)}") from None
         if not (200 <= resp.status_code < 300):
             raise SkoolHTTPError(
-                f"HTTP {resp.status_code} uploading bytes: {resp.text[:300]}",
+                f"HTTP {resp.status_code} uploading bytes: {_storage_answer(resp.text)}",
                 resp.status_code,
             )
 
@@ -687,18 +821,27 @@ class SkoolHTTP:
                 # original must stay pristine.
                 return copy.deepcopy(hit[1])
 
+        # What an error text names: the URL, without its query when that holds a
+        # credential (the one-shot token of the dashboard numbers). On such a URL
+        # an error has no exception chain either.
+        shown, secret = _url_for_error(url)
+        path = urlsplit(url).path
         last_err = "unknown"
         for attempt in range(1, MAX_RETRIES_202 + 1):
+            failed: RequestException | None = None
             try:
                 resp = self._http.get(url, headers=headers, timeout=FETCH_TIMEOUT_S)
             except RequestException as e:
-                raise SkoolHTTPError(f"Network error on {url}: {e}") from e
+                failed = e
+            if failed is not None:
+                error, cause = _network_error(url, failed)
+                raise error from cause
 
             code = resp.status_code
             body = resp.text
 
             if code == 401 or code == 403:
-                raise _auth_rejected(code, url, body)
+                raise _auth_rejected(code, shown, body)
             if code == 202 or not body.strip():
                 # ISR deferred: page still building. Wait and retry.
                 last_err = f"HTTP {code} deferred/empty"
@@ -720,7 +863,7 @@ class SkoolHTTP:
                     if "/-/members.json" in url else ""
                 )
                 raise SkoolHTTPError(
-                    f"HTTP 404 on {url}: not found.\n{extra}"
+                    f"HTTP 404 on {shown}: not found.\n{extra}"
                     "Otherwise the logged-in Skool account has no access to this "
                     "community — not joined, or banned/removed (member/post data "
                     "is members-only). Use an account that's in it. Public info "
@@ -728,12 +871,19 @@ class SkoolHTTP:
                     code,
                 )
             if not (200 <= code < 300):
-                raise SkoolHTTPError(f"HTTP {code} on {url}: {body[:300]}", code)
+                raise SkoolHTTPError(
+                    f"HTTP {code} on {shown}: {_answer_excerpt(path, body, 300)}", code)
 
+            bad_json: json.JSONDecodeError | None = None
             try:
                 data = json.loads(body)
             except json.JSONDecodeError as e:
-                raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {body[:200]}", code) from e
+                bad_json = e
+            if bad_json is not None:
+                raise SkoolHTTPError(
+                    f"Bad JSON from {shown}: {bad_json} | "
+                    f"{_answer_excerpt(path, body, 200)}",
+                    code) from (None if secret else bad_json)
 
             if api2:
                 challenge = _security_challenge_code(code, data)
@@ -747,7 +897,7 @@ class SkoolHTTP:
                 self._cache[url] = (time.time(), copy.deepcopy(data))
             return data
 
-        err = SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {url}")
+        err = SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {shown}")
         err.repeated_202 = code == 202   # rate limit, not an empty body: see turned_away
         raise err
 

@@ -19,6 +19,7 @@ import inspect
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 os.environ["CATKNOWS_ALLOW_WRITE"] = "1"  # review_join_request only exists with this
@@ -259,6 +260,64 @@ def test_mask_email_masks_every_email_in_a_text():
 def test_mask_email_passes_non_text_through():
     assert normalize.mask_email(None) is None
     assert normalize.mask_email(3) == 3
+
+
+def test_mask_email_hides_the_whole_local_part_whatever_it_is_made_of():
+    """RFC 5322: a local part may hold any "atext" character and dots, or be quoted."""
+    for address, masked in (
+        ("a/b@x.com", "a***@x.com"),
+        ("anna!work@example.com", "a***@example.com"),
+        ("anna#1$2%3&4'5*6+7/8=9?0^_`{|}~-x@example.com", "a***@example.com"),
+        ("zoë.müller@example.com", "z***@example.com"),
+        ('"anna smith"@example.com', '"***@example.com'),
+        ('"anna@home"@example.com', '"***@example.com'),
+        ('"an\\"na"@example.com', '"***@example.com'),
+    ):
+        assert normalize.mask_email(address) == masked, (address, normalize.mask_email(address))
+        got = normalize.mask_email(f"write to {address}, thanks.")
+        assert got == f"write to {masked}, thanks.", (address, got)
+
+
+def test_mask_email_finds_a_quoted_local_part_inside_a_json_text():
+    """An error body is JSON: the quotes of a quoted local part arrive escaped."""
+    body = json.dumps({"error": 'no user "anna smith"@example.com', "to": "bob/x@example.org"})
+    got = normalize.mask_email(body)
+    assert "anna" not in got and "smith" not in got and "bob" not in got, got
+    assert "***@example.com" in got and '"to": "b***@example.org"' in got, got
+
+
+def test_mask_email_leaves_quotes_and_signs_without_an_address_alone():
+    for text in ('she said "hello" @ noon', '"quoted" text', 'a "b" c@d', "50% off + more!",
+                 '{"name": "@anna.smith", "x": "y"}', '{"": "@anna.smith"}',
+                 "path/to/file.txt", "x = y?z : w"):
+        assert normalize.mask_email(text) == text, (text, normalize.mask_email(text))
+
+
+def test_mask_email_takes_linear_time_on_a_long_text():
+    """It used to take seconds on a long text without an address (every start
+    position scanned to the end). The limit is wide so a slow machine passes."""
+    n = 200_000
+    cases = {
+        "letters only": "a" * n,
+        "dots and hyphens": ("anna.b-c.d--e." * (n // 14 + 1))[:n],
+        "signs of a local part": ("a!b#c/d=e?" * (n // 10))[:n],
+        "quotes": '"' * n,
+        "open quotes": ('"a\\' * (n // 3 + 1))[:n],
+        "at signs without a domain": "a@" * (n // 2),
+        "a domain without a dot": "a@" + "b-" * (n // 2),
+    }
+    for label, text in cases.items():
+        start = time.perf_counter()
+        got = normalize.mask_email(text)
+        took = time.perf_counter() - start
+        assert took < 2.0, f"{label}: {took:.2f} s for {len(text)} characters"
+        assert got == text, f"{label}: a text without an address was changed"
+    # and a long text WITH addresses still gets every one of them
+    many = "x anna@example.com y " * 5000
+    start = time.perf_counter()
+    got = normalize.mask_email(many)
+    assert time.perf_counter() - start < 2.0
+    assert "anna" not in got and got.count("a***@example.com") == 5000
 
 
 def _pending(i, name, answers, search_answer):
