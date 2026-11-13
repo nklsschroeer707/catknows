@@ -1071,8 +1071,15 @@ def update_catknows(confirm: bool = False) -> dict:
 def pull_to_vault(
     community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
 ) -> dict:
-    """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
-    from .http import SkoolSecurityChallenge
+    """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path.
+
+    A post whose comments fail to load is counted in `comments_failed` and the
+    pull goes on. Not so if Skool answers with HTTP 401, 403 or 429, with a 202
+    again and again, or with its security question: the pull stops there with
+    an error that says how far it got, and requests nothing more. The notes
+    already written stay. Do not start it again right away: tell the user.
+    """
+    from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
@@ -1104,7 +1111,20 @@ def pull_to_vault(
                              "were read, so nothing more was requested. The notes already "
                              "written stay in the vault; the rest was not pulled."),
                 ) from e
-            except Exception:  # one bad post shouldn't kill the pull
+            except Exception as e:  # one bad post shouldn't kill the pull
+                if turned_away(e):
+                    # 401/403/429 or a repeated 202: the account is being turned
+                    # away. Same stop as for the security question, the status
+                    # (0 for the repeated 202) and its mark stay on the error.
+                    stop = SkoolHTTPError(
+                        f"pull_to_vault stopped after {posts_written} of {len(trees)} "
+                        f"posts: Skool answered HTTP {e.status or 202} while the comments "
+                        "were read, so nothing more was requested. The notes already "
+                        f"written stay in the vault; the rest was not pulled. {e}",
+                        e.status,
+                    )
+                    stop.repeated_202 = getattr(e, "repeated_202", False)
+                    raise stop from e
                 comments_failed += 1
         vault.write_post(out, community_slug, prec, comment_recs)
         posts_written += 1
@@ -1526,7 +1546,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             # messages endpoint returns the channel object in one call; listing
             # /self/chat-channels instead cannot work: Skool refuses limit > 30
             # there, and accounts have hundreds of channels.
-            from .http import SkoolHTTPError, SkoolSecurityChallenge
+            from .http import REJECTED_STATUSES, SkoolHTTPError, SkoolSecurityChallenge
 
             try:
                 gid = (client.chat_messages(channel_id, count=1)
@@ -1536,7 +1556,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             except SkoolHTTPError as e:
                 # 401/403/429 or a network error: not an "unknown channel" either,
                 # and nothing more may go out after them.
-                if e.status in (401, 403, 429) or not e.status:
+                if e.status in REJECTED_STATUSES or not e.status:
                     raise
                 gid = ""
             if not gid:

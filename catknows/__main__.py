@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import SkoolClient, login, session_from_cookie
 from . import normalize, vault
-from .http import SkoolSecurityChallenge
+from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,6 +42,23 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def _stops(e: BaseException) -> bool:
+    """Skool's security question, 401/403/429 or a repeated 202: the pull ends here."""
+    return isinstance(e, SkoolSecurityChallenge) or turned_away(e)
+
+
+def _pull_stopped(e: SkoolHTTPError, how_far: str, vault_dir: Path) -> int:
+    """Say that the pull stopped and why, on stderr; the exit code is 1."""
+    if isinstance(e, SkoolSecurityChallenge):
+        why = f"Skool asked a security question (code {e.code}) on {e.method} {e.path}"
+        tail = ""
+    else:
+        why, tail = f"Skool answered HTTP {e.status or 202}", f" {e}"
+    print(f"error: pull stopped {how_far}: {why}, so nothing more was requested. "
+          f"The notes already written stay in {vault_dir}.{tail}", file=sys.stderr)
+    return 1
+
+
 def _pull(args) -> int:
     if args.cookie:
         session = session_from_cookie(args.cookie)
@@ -57,7 +74,12 @@ def _pull(args) -> int:
     community = args.community
 
     print(f"→ Fetching members of '{community}' ...")
-    members = client.members(community)
+    try:
+        members = client.members(community)
+    except SkoolHTTPError as e:
+        if not _stops(e):
+            raise
+        return _pull_stopped(e, "while the members were read", vault_dir)
     for u in members:
         vault.write_member(vault_dir, community, normalize.member(u))
     print(f"  {len(members)} members written.")
@@ -67,7 +89,12 @@ def _pull(args) -> int:
               f"only, not the full roster (Skool counts {members.total_members}).")
 
     print(f"→ Fetching posts of '{community}' ...")
-    trees = client.posts(community)
+    try:
+        trees = client.posts(community)
+    except SkoolHTTPError as e:
+        if not _stops(e):
+            raise
+        return _pull_stopped(e, "while the list of posts was read", vault_dir)
     group_id = ""
     for tree in trees:
         gid = (tree.get("post") or {}).get("groupId")
@@ -86,12 +113,12 @@ def _pull(args) -> int:
             except SkoolSecurityChallenge as e:
                 # Not "one bad post": after Skool's security question every further
                 # request would be an automaton ignoring it. Stop, exit non-zero.
-                print(f"error: pull stopped after {written_posts} of {len(trees)} posts: "
-                      f"Skool asked a security question (code {e.code}) on {e.method} "
-                      f"{e.path}, so nothing more was requested. The notes already "
-                      f"written stay in {vault_dir}.", file=sys.stderr)
-                return 1
+                return _pull_stopped(e, f"after {written_posts} of {len(trees)} posts", vault_dir)
             except Exception as e:  # one bad post shouldn't kill the run
+                if turned_away(e):
+                    # 401/403/429 or a repeated 202: turned away. Same stop.
+                    return _pull_stopped(e, f"after {written_posts} of {len(trees)} posts",
+                                         vault_dir)
                 print(f"  ! comments failed for {prec['skool_id']}: {e}", file=sys.stderr)
         vault.write_post(vault_dir, community, prec, comment_recs)
         written_posts += 1

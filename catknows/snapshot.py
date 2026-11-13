@@ -14,8 +14,9 @@ visitors, signups, conversion and signup sources to `<vault>/trends/growth.jsonl
 No AI involved and strictly headless: safe to run from a scheduler. If the
 persisted login has expired it exits with code 2 instead of opening a
 browser window — run any catknows tool interactively once to re-login.
-If Skool answers with its security question (AUTH-SEC-5xx) it stops at once,
-requests nothing more and exits with code 3; rows already appended stay.
+If Skool answers with its security question (AUTH-SEC-5xx), with HTTP 401,
+403 or 429 or with a 202 again and again it stops at once, requests nothing more and exits with code 3; rows
+already appended stay.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import SkoolClient, login, normalize
-from .http import SkoolSecurityChallenge
+from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
 
 def _profile_dir() -> Path:
@@ -117,10 +118,13 @@ def _growth_row(client: SkoolClient, slug: str) -> dict:
     }
 
 
-def _stopped(e: SkoolSecurityChallenge, what: str) -> int:
-    """Skool asked its security question: no entry after this one is requested."""
-    print(f"!! {what}: Skool asked a security question (code {e.code}) on {e.method} "
-          f"{e.path} - snapshot stopped, nothing more was requested. "
+def _stopped(e: SkoolHTTPError, what: str) -> int:
+    """Security question, 401/403/429 or a repeated 202: no entry after this one is requested."""
+    if isinstance(e, SkoolSecurityChallenge):
+        why = f"Skool asked a security question (code {e.code}) on {e.method} {e.path}"
+    else:
+        why = f"Skool answered HTTP {e.status or 202} ({e})"
+    print(f"!! {what}: {why} - snapshot stopped, nothing more was requested. "
           "Rows already appended stay.", file=sys.stderr)
     return 3
 
@@ -172,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         except SkoolSecurityChallenge as e:
             return _stopped(e, slug)
         except Exception as e:  # one broken slug must not kill the series of the rest
+            if turned_away(e):
+                return _stopped(e, slug)
             print(f"!! {slug}: {e}", file=sys.stderr)
             failed += 1
             continue
@@ -185,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         except SkoolSecurityChallenge as e:
             return _stopped(e, "discovery")
         except Exception as e:
+            if turned_away(e):
+                return _stopped(e, "discovery")
             print(f"!! discovery: {e}", file=sys.stderr)
             failed += 1
 
@@ -194,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
         except SkoolSecurityChallenge as e:
             return _stopped(e, f"rank {slug}")
         except Exception as e:
+            if turned_away(e):
+                return _stopped(e, f"rank {slug}")
             print(f"!! rank {slug}: {e}", file=sys.stderr)
             failed += 1
             continue
@@ -207,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         except SkoolSecurityChallenge as e:
             return _stopped(e, f"growth {slug}")
         except Exception as e:
+            if turned_away(e):
+                return _stopped(e, f"growth {slug}")
             print(f"!! growth {slug}: {e}", file=sys.stderr)
             failed += 1
             continue

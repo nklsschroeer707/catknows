@@ -24,7 +24,7 @@ from typing import Iterator
 from urllib.parse import quote, urlsplit
 
 from .auth import Session
-from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
+from .http import REJECTED_STATUSES, SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
 # CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
@@ -108,6 +108,10 @@ def _id_segment(value, name: str) -> str:
     away (``/posts/../pin`` becomes ``/pin``), so a model-supplied id could
     otherwise steer the request to another endpoint. Everything else is encoded,
     so an id cannot leave its path segment or add a query.
+
+    The ``www`` paths (``get_next``) send community slug, member handle and post
+    name through it too. Letters, digits, ``-``, ``_``, ``.`` and ``~`` are left
+    as they are, so a real slug, handle or post name goes out byte for byte.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} is required (non-empty text).")
@@ -138,6 +142,10 @@ def _members_query(slug: str, page: int, *, sort_type: str, lifecycle: str = "",
     the old hand-written tail omitted).
     """
     flags = flags or {}
+    # Each tier and course id is encoded on its own (the comma between them
+    # stays): a value can neither add a parameter nor cut the query off.
+    tiers = [quote(str(t), safe="") for t in tiers]
+    course_ids = [quote(str(c), safe="") for c in course_ids]
     q = []
     if lifecycle:
         q.append(f"t={lifecycle}")
@@ -223,16 +231,17 @@ class SkoolClient:
                  "monthly": monthly, "annual": annual, "oneTime": one_time,
                  "free": free}
         tiers, course_ids = list(tiers), list(course_ids)
+        slug = _id_segment(community_slug, "community_slug")
 
         out = MemberList()
         seen: set[str] = set()
         page = 1
         total_pages = 0
         while True:
-            q = _members_query(community_slug, page,
+            q = _members_query(slug, page,
                                sort_type=_MEMBER_SORTS[sort], lifecycle=lifecycle,
                                flags=flags, tiers=tiers, course_ids=course_ids)
-            data = self.http.get_next(q, community_slug)
+            data = self.http.get_next(q, slug)
             users = _dig(data, "pageProps", "users") or []
             tp = _dig(data, "pageProps", "totalPages")
             if tp:
@@ -330,20 +339,21 @@ class SkoolClient:
         """
         if sort not in POST_SORTS:
             raise ValueError(f"sort must be one of {', '.join(POST_SORTS)}")
+        slug = _id_segment(community_slug, "community_slug")
         filters = ""
         if unread_only:
             filters += "&s=newest&fl=unr"
         elif POST_SORTS[sort]:
             filters += f"&s={POST_SORTS[sort]}"
         if category_id:
-            filters += f"&c={category_id}"
+            filters += f"&c={quote(str(category_id), safe='')}"
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
         while True:
-            q = (f"/{community_slug}.json?group={community_slug}{filters}"
+            q = (f"/{slug}.json?group={slug}{filters}"
                  + (f"&p={page}" if page > 1 else ""))
-            data = self.http.get_next(q, community_slug)
+            data = self.http.get_next(q, slug)
             trees = _dig(data, "pageProps", "postTrees") or []
             fresh = []
             for tree in trees:
@@ -412,13 +422,15 @@ class SkoolClient:
         if not user:
             raise ValueError(f"no member @{user_name} in {community_slug}")
         uid = user["id"]
+        slug = _id_segment(community_slug, "community_slug")
+        handle = _id_segment(user_name, "user_name")
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
         while True:
-            q = (f"/@{user_name}.json?g={community_slug}&group=@{user_name}"
+            q = (f"/@{handle}.json?g={slug}&group=@{handle}"
                  + (f"&p={page}" if page > 1 else ""))
-            trees = _dig(self.http.get_next(q, community_slug),
+            trees = _dig(self.http.get_next(q, slug),
                          "pageProps", "postTrees") or []
             fresh = [t for t in trees if (t.get("post") or {}).get("id") not in seen]
             seen.update((t.get("post") or {}).get("id") for t in fresh)
@@ -466,8 +478,8 @@ class SkoolClient:
 
     def _post_categories_via_page(self, community_slug: str) -> list[dict]:
         """The categories as the feed page carries them (camelCase)."""
-        data = self.http.get_next(f"/{community_slug}.json?group={community_slug}",
-                                  community_slug)
+        slug = _id_segment(community_slug, "community_slug")
+        data = self.http.get_next(f"/{slug}.json?group={slug}", slug)
         labels = _dig(data, "pageProps", "currentGroup", "labels") or []
         return [{"id": lb.get("id", ""),
                  "name": (lb.get("metadata") or {}).get("displayName", ""),
@@ -499,9 +511,10 @@ class SkoolClient:
             raise ValueError("kind must be 'posts' or 'members'")
         if page < 1:
             raise ValueError("page starts at 1")
-        q = (f"/{community_slug}/-/search.json?q={quote(query, safe='')}"
-             f"&t={kind}&group={community_slug}" + (f"&p={page}" if page > 1 else ""))
-        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
+        slug = _id_segment(community_slug, "community_slug")
+        q = (f"/{slug}/-/search.json?q={quote(query, safe='')}"
+             f"&t={kind}&group={slug}" + (f"&p={page}" if page > 1 else ""))
+        return (self.http.get_next(q, slug) or {}).get("pageProps") or {}
 
     def post_detail(self, community_slug: str, post_name: str) -> dict:
         """One post's own page (raw ``pageProps``), by its URL slug.
@@ -514,9 +527,10 @@ class SkoolClient:
         ``post_name`` is the post's ``name`` (URL slug), not its UUID — that is
         what the Next.js route keys on.
         """
+        slug = _id_segment(community_slug, "community_slug")
+        name = _id_segment(post_name, "post_name")
         return self.http.get_next(
-            f"/{community_slug}/{post_name}.json?group={community_slug}",
-            community_slug,
+            f"/{slug}/{name}.json?group={slug}", slug,
         ).get("pageProps", {})
 
     def video_transcript(self, community_slug: str, post_name: str) -> list[dict]:
@@ -569,8 +583,10 @@ class SkoolClient:
         dailyActivities, groupsMemberOf[], groupsCreatedByUser[]). ``user_name``
         is the Skool handle (the ``@handle`` slug), not the display name.
         """
-        q = f"/@{user_name}.json?g={community_slug}&group=@{user_name}"
-        data = self.http.get_next(q, community_slug)
+        slug = _id_segment(community_slug, "community_slug")
+        handle = _id_segment(user_name, "user_name")
+        q = f"/@{handle}.json?g={slug}&group=@{handle}"
+        data = self.http.get_next(q, slug)
         user = _dig(data, "pageProps", "currentUser")
         if not user or not user.get("id"):
             user = _dig(data, "pageProps", "renderData", "user")
@@ -591,6 +607,7 @@ class SkoolClient:
         """
         if direction not in ("followers", "following"):
             raise ValueError("direction must be 'followers' or 'following'")
+        handle = _id_segment(user_name, "user_name")
         self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
         total_key = "totalFollowers" if direction == "followers" else "totalFollowing"
         entries: list[dict] = []
@@ -600,7 +617,7 @@ class SkoolClient:
         while True:
             if page > 1:
                 time.sleep(_INTER_PAGE_DELAY_S)
-            q = f"/@{user_name}.json?t={direction}&group=@{user_name}"
+            q = f"/@{handle}.json?t={direction}&group=@{handle}"
             if page > 1:
                 q += f"&p={page}"
             data = self.http.get_next(q, "")
@@ -737,9 +754,8 @@ class SkoolClient:
 
     def community_about(self, community_slug: str) -> dict:
         """The community's About page data (raw ``pageProps``)."""
-        return self.http.get_next(
-            f"/{community_slug}/about.json?group={community_slug}", community_slug
-        )
+        slug = _id_segment(community_slug, "community_slug")
+        return self.http.get_next(f"/{slug}/about.json?group={slug}", slug)
 
     def group_info(self, group_skool_id: str) -> dict:
         """Group metadata by UUID (raw api2 response)."""
@@ -777,7 +793,7 @@ class SkoolClient:
         """
         q = "/skoolers/-/games.json?group=skoolers"
         if category_id:
-            q += f"&category={category_id}"
+            q += f"&category={quote(str(category_id), safe='')}"
         return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
 
     def leaderboards(self, community_slug: str) -> dict:
@@ -790,8 +806,9 @@ class SkoolClient:
         full user object and the viewer's own carries credential-class fields:
         flatten with :func:`normalize.leaderboard`, never return it raw.
         """
+        slug = _id_segment(community_slug, "community_slug")
         return (self.http.get_next(
-            f"/{community_slug}/-/leaderboards.json?group={community_slug}", community_slug
+            f"/{slug}/-/leaderboards.json?group={slug}", slug
         ) or {}).get("pageProps") or {}
 
     def discovery_rank(self, group_skool_id: str) -> dict:
@@ -829,10 +846,11 @@ class SkoolClient:
         (``member.id`` is what a decision needs). ``total``/``totalPages``
         count the whole queue. Owner/moderator only.
         """
-        q = f"/{community_slug}/-/pending.json?group={community_slug}"
+        slug = _id_segment(community_slug, "community_slug")
+        q = f"/{slug}/-/pending.json?group={slug}"
         if page > 1:
             q += f"&p={page}"
-        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
+        return (self.http.get_next(q, slug) or {}).get("pageProps") or {}
 
     def decide_join_request(self, member_id: str, decision: str) -> dict:
         """Approve or decline one request, as the pending page's buttons do.
@@ -893,10 +911,11 @@ class SkoolClient:
     def calendar(self, community_slug: str, cal_date: int = 0) -> dict:
         """Calendar/events (raw ``pageProps``). ``cal_date`` = unix ts for a
         future month, 0 = current month."""
-        q = f"/{community_slug}/calendar.json?group={community_slug}"
+        slug = _id_segment(community_slug, "community_slug")
+        q = f"/{slug}/calendar.json?group={slug}"
         if cal_date > 0:
-            q = f"/{community_slug}/calendar.json?calDate={cal_date}&group={community_slug}"
-        return self.http.get_next(q, community_slug)
+            q = f"/{slug}/calendar.json?calDate={cal_date}&group={slug}"
+        return self.http.get_next(q, slug)
 
     # -- calendar write path (docs/API.md §5.11) -------------------------------
     # Read from Skool's own page code and NOT yet run live: the limits and the
@@ -1330,9 +1349,8 @@ class SkoolClient:
 
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""
-        return self.http.get_next(
-            f"/{community_slug}/classroom.json?group={community_slug}", community_slug
-        )
+        slug = _id_segment(community_slug, "community_slug")
+        return self.http.get_next(f"/{slug}/classroom.json?group={slug}", slug)
 
     # -- classroom write path (docs/API.md §7) ---------------------------------
     # Course, folder and page are ONE object type ("unit") in a tree:
@@ -1385,15 +1403,18 @@ class SkoolClient:
         if not name:
             return None
 
-        base = f"/{community_slug}/classroom/{name}.json?group={community_slug}"
-        data = self.http.get_next(base, community_slug)
+        slug = _id_segment(community_slug, "community_slug")
+        # name and md come from Skool's answer, not from the caller; encoded all
+        # the same, so that neither can add a path piece or a parameter.
+        base = f"/{slug}/classroom/{quote(str(name), safe='')}.json?group={slug}"
+        data = self.http.get_next(base, slug)
         pp = data.get("pageProps") or {}
         if not pp.get("course"):
             target = str(pp.get("__N_REDIRECT") or "")
             md = target.partition("md=")[2].split("&", 1)[0]
             if not md:
                 return None
-            data = self.http.get_next(f"{base}&md={md}", community_slug)
+            data = self.http.get_next(f"{base}&md={quote(md, safe='')}", slug)
             pp = data.get("pageProps") or {}
         return pp.get("course") or None
 
@@ -1501,7 +1522,7 @@ class SkoolClient:
             raise  # Skool's security question is no "not a root unit": no blind PUT
         except SkoolHTTPError as e:
             # 401/403/429 or a network error say nothing about the unit: no blind PUT.
-            if e.status in (401, 403, 429) or not e.status:
+            if e.status in REJECTED_STATUSES or not e.status:
                 raise
             cur = None  # not a root unit -> flat update, caller sends full set
         if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
@@ -2140,7 +2161,7 @@ class SkoolClient:
         except SkoolHTTPError as e:
             # 401/403/429: the account is being turned away; one more request
             # (and above all the write that would follow) is what must not happen.
-            if for_write or e.status in (401, 403, 429):
+            if for_write or e.status in REJECTED_STATUSES:
                 raise
             # any other read failure: the posts bootstrap still works
         # Outside the try: an archived community is a definitive answer, not a

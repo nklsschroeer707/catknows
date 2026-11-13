@@ -864,6 +864,21 @@ and then stops:
   catknows.snapshot` exits with code 3. None of them requests anything after it;
   notes and rows already written stay.
 
+**401, 403 and 429 stop a batch job the same way.** The three batch jobs above
+treat an answer of 401, 403 or 429 like the security question: the account is
+being turned away, so the entry is not counted as failed and nothing more is
+requested. `pull_to_vault` raises a `SkoolHTTPError` with the same `.status`
+and how far it got in front of the message, `python -m catknows pull` exits
+with code 1, `python -m catknows.snapshot` exits with code 3 (in all four
+loops). catknows reads this from the error's `.status`, never from its text.
+The CLI pull does the same while it reads the members and the list of posts,
+before its loop: the stop line and exit code 1, no traceback.
+A 202 that Skool repeats until the three tries are used up (the other
+rate-limit answer in the table above) stops the job the same way; that error
+keeps `.status` 0 and carries `repeated_202`, and the message names it as HTTP
+202. Any other error (404, 500, a network error, a body that stays empty, an
+empty payload) is still one failed entry and the job goes on.
+
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.
 
@@ -1584,6 +1599,36 @@ only of dots (`/channels/../read` would fold to `/read`), and are percent-encode
 `expire`, when given, must be a whole number of 1 or more (nothing else about it is
 known); the search needs a non-blank `query`, and the tool's `limit` must be a whole
 number of 1 or more (not a boolean). The refusals name the argument, never its value.
+
+**Only two paths go through the read door.** `SkoolHTTP.post_api2_read` skips the
+write gap and the audit log, so it sends nothing but the two read-POSTs of the
+table above, matched in full against the path and query:
+
+- `/search/users`, exactly, with no query;
+- `/files/{id}/download-url`, optionally followed by `?expire={n}` with `n` made of
+  the digits 0-9 only. `{id}` is exactly one path piece: not empty, not made only
+  of dots, and without `/`, `?` or `#` (`file_download_path` percent-encodes it).
+
+Every other path raises a `ValueError` before anything is sent: another endpoint,
+a second query parameter, an empty `expire=`, a fragment, a missing leading `/`.
+A call that changes something therefore cannot slip past the write gap and the
+audit log this way; it belongs in `post_api2`.
+
+**What counts as a download link.** `file_download_url` returns the answer only if
+all of this holds, and raises a `SkoolHTTPError` that does not show the answer
+otherwise:
+
+- the answer is one text (a JSON string or plain text; white space around it is
+  cut off first), not an object, a list or an empty answer;
+- it starts with `https://`, in lower case (`http://` and every other scheme are
+  refused);
+- it names a host that is not empty (`https:///x`, `https://?a=1`, `https://@/x`
+  and `https://:443/x` have none; a link that cannot be parsed, such as a broken
+  IPv6 part, counts as having none);
+- it holds no white space anywhere (no blank, tab or line break).
+
+There is no list of allowed hosts, because none is documented. Both rules are
+catknows' own safeguards, not checked against Skool.
 
 **Access policy (`LEGAL.md`).** The member search passes the test "can the logged-in
 user see this in normal use of Skool?" for what the page itself asks (the first 5
