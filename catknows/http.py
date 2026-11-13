@@ -109,8 +109,10 @@ class SkoolSecurityChallenge(SkoolHTTPError):
     """Skool answered HTTP 200 with a security question instead of the data.
 
     The body is ``{"code": "AUTH-SEC-5xx", ...}`` (docs/API.md §3): Skool wants
-    a security nonce for that path. It is no HTTP error, which is why it needs
-    its own exception, or a write would pass for sent and a read for empty.
+    a security check for that path (a nonce for 501). Today only eight
+    ``/auth/*`` paths, which catknows does not call, are affected. It is no HTTP
+    error, which is why it needs its own exception, or a write would pass for
+    sent and a read for empty.
     ``.status`` is 200, ``.code`` the AUTH-SEC code, ``.method`` and ``.path``
     the request (path without its query string).
 
@@ -493,7 +495,7 @@ class SkoolHTTP:
         """Every write catknows sends to Skool goes through here.
 
         Which makes it the one place the write-audit log belongs (board D8):
-        the 13 write tools, the CLI and the doc examples all funnel into these
+        the write tools, the CLI and the doc examples all funnel into these
         three verbs, so a log here cannot be forgotten by a caller or by the
         next write method somebody adds. See `catknows/audit.py`.
 

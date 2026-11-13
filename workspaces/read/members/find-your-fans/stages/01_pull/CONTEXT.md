@@ -7,7 +7,9 @@
 ## Process
 1. `list_posts(community_slug, limit=25)` → post ids and titles.
 2. For every post: `get_post_likes` (who liked) and `get_post_comments`
-   (who commented, how often).
+   (who commented, how often). `get_post_likes` returns ONE page of up to 10
+   likers: while `has_more` is true, call it again with `cursor` set to the
+   `cursor` of the last answer, so a post with 40 likes takes four calls.
 3. More than ~10 posts? Fan out: spawn subagents, each taking a batch of ~5
    posts and running step 2 exactly as written here. Collect their results.
 4. Write one flat list: per post — title, likers (@handles), commenters

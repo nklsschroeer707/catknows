@@ -645,7 +645,8 @@ The search box inside a community (measured 2026-09-22). `t=posts`:
 `pageProps.members[]`, `totalMembers`. **A member hit is the membership**
 (`id` = member id, `role`, `groupId`, `approvedAt`, `lastOffline`, `metadata`)
 with the person under `user` — the reverse nesting of `members.json`.
-`members.json` itself ignores a `q` parameter: this is the only member search.
+`members.json` itself ignores a `q` parameter: this is the only member search of the
+Next.js routes (the api2 `@mention` search below is another).
 `settings.secondaryMenusItems` carries the hit count per tab.
 
 Implemented as `SkoolClient.search()` / the `search_community` MCP tool
@@ -819,9 +820,13 @@ back to camelCase.
 
 **The security question (HTTP 200, no data).** Skool can answer an api2 call with
 HTTP 200 and a JSON body whose top-level `code` is a text matching
-`^AUTH-SEC-5\d\d$` (known: `AUTH-SEC-501`), instead of the data. It means Skool
-wants a security nonce for that path. It is not an HTTP error: the page's own
-client reads `code` only on HTTP 200. catknows raises
+`^AUTH-SEC-5\d\d$` (known: `AUTH-SEC-501`, `AUTH-SEC-502`), instead of the data.
+It means Skool wants a security check for that path (a nonce for 501; 502 is a
+Turnstile refusal, read from the page code). It is not an HTTP error: the page's
+own client reads `code` only on HTTP 200. Today the nonce is required on eight
+`/auth/*` paths (login, sign-up, password reset) that catknows does not call, and
+the Turnstile check is switched off in the page data. Skool can extend the nonce to
+more paths without a new client, and this is how that would show. catknows raises
 `catknows.http.SkoolSecurityChallenge` (a `SkoolHTTPError`, `.status` 200,
 `.code` the AUTH-SEC code) on `get_api2`, `get_api2_text`, `post_api2`,
 `post_api2_read` (the POSTs that only read, §5.13), `put_api2` and `delete_api2`,
@@ -1281,8 +1286,9 @@ probably refused by the server too, but that is not verified.
 The checks look at the fields that are present; no required set is enforced.
 Nothing else is validated (recurrence maxima, privacy values, the time fields).
 The event id must be real text and not made only of dots: `.` and `..` survive
-percent-encoding and libcurl folds such a path piece away, which would aim a PUT
-or DELETE at the collection instead of one event. `from_occurrence_id` is a query
+percent-encoding and libcurl folds such a path piece away (`/calendar-events/..`
+becomes `/`, the root), which would aim a PUT or DELETE at the API root instead of
+one event. `from_occurrence_id` is a query
 value: empty means "not given", otherwise it must be non-blank text (it is
 percent-encoded). The refusals name the argument, never its value.
 
@@ -1336,15 +1342,15 @@ the query).
 
 | Call (Skool's name) | Request | Body | Web client |
 |---|---|---|---|
-| `updatePostVote` | `PUT /posts/{id}/vote` | `{"old": "", "new": "up"}` (like) or `{"old": "up", "new": ""}` (take it back) | any member |
+| `updatePostVote` | `PUT /posts/{id}/vote` | `{"old": "", "new": "up"}` (like) or `{"old": "up", "new": ""}` (take it back) | no restriction read from the page code; who the server lets vote is not verified |
 | `pinPost` | `POST /posts/{id}/pin` | none in Skool's client; catknows sends `{}` | "Pin to feed", group admin only |
 | `unpinPost` | `POST /posts/{id}/unpin` | same as `pinPost` | "Unpin from feed" |
 | `createLabel` | `POST /labels` | `{"group_id": "…", "metadata": {"display_name": "…", "default_sort": "…", "post_write_role": 4}}` | Settings, Community, Categories |
-| `updateLabel` | `PUT /labels/{labelId}` | `{"display_name": "…"}` (see below) | same |
+| `updateLabel` | `PUT /labels/{labelId}` | Skool's client sends the whole form object (name, sort, write role); **catknows sends only** `{"display_name": "…"}` (see below) | same |
 | `updateLandingPageDescription` | `POST /groups/{gid}/update-landing-page-description` | `{"description": "…"}` | About page, admin only |
-| `disablePostComments` | `POST /posts/{id}/disable-comments` | none | "Turn off comments", admin / moderator |
+| `disablePostComments` | `POST /posts/{id}/disable-comments` | none | "Turn off comments", at least admin / moderator (the post's author: not checked) |
 | `enablePostComments` | `POST /posts/{id}/enable-comments` | none | "Turn on comments" |
-| `pinComment` | `POST /posts/{id}/pin-comment?comment={commentId}` | none | "Pin comment", admin / moderator |
+| `pinComment` | `POST /posts/{id}/pin-comment?comment={commentId}` | none | "Pin comment", at least admin / moderator |
 | `unpinComment` | `POST /posts/{id}/unpin-comment?comment={commentId}` | none | "Unpin comment" |
 | `followPost` | `POST /posts/{id}/follow` | none | the bell on a post |
 | `unfollowPost` | `POST /posts/{id}/unfollow` | none | same |
@@ -1361,8 +1367,12 @@ and got HTTP 400 once in 8 days (cause not clarified, not tested live), so the
 body question is open (below). Pinning to a *course page* (`pin-module`) and
 re-ordering pinned posts (`move-pinned`) are different calls and **not built**.
 
-**Categories.** The community settings allow at most 10 categories and at least
-1; the name has at most 30 characters. `post_write_role` is `4` (members and
+**Categories.** The category form in the community settings stops at 10 categories
+(and keeps at least 1) and at 30 characters for a name. These are limits of the
+form as read from the page code, not limits measured on the server. How Skool
+counts the 30 is not checked either: catknows counts Python characters (code
+points), while a JavaScript string length counts UTF-16 units, where an emoji
+counts 2. `post_write_role` is `4` (members and
 admins may post) or `3` (admins only). `default_sort` is `newest-cm` (shown as
 "Default"), `newest` ("New"), `best-1w` ("Top (week)") or `best-1m` ("Top
 (month)"); `best-1y` is shown in the feed but is not selectable in the form.
@@ -1408,15 +1418,18 @@ security question (§3) is never swallowed and never retried. The audit line
 `comment_id`, `category_id`) and carries no category name and no About text.
 
 **Checks before anything is sent** (a `ValueError` and zero requests on a
-violation): every id that goes into a path or the `comment` query must be
+violation). These are catknows' own rules; none of them is known to be a rule of
+Skool's server. Every id that goes into a path or the `comment` query must be
 non-empty text and not made only of dots (`.` and `..` stay as they are when
 percent-encoded, and libcurl folds `/posts/../pin` into `/pin`); the vote values
-must be `""` or `"up"` and differ; a category name must be non-blank text of at
-most 30 characters; `default_sort` and `post_write_role` must be one of the values
-above (create has no defaults of its own); the About text must be non-blank text
-(a blank text would wipe the public About page, which is not what these tools are
-for); the on/off flags must be real booleans. Ids and the `comment` value are
-percent-encoded into the path text.
+must be `""` or `"up"` (the two values Skool's client sends) and differ, because
+`old == new` changes nothing; a category name must be non-blank text of at most 30
+characters (the form's limit, see above); `default_sort` and `post_write_role` must
+be one of the values above (create has no defaults of its own); the About text must
+be non-blank text, because a blank text could empty the public About page and
+nobody has checked what Skool does with one (see the open points); the on/off flags
+must be real booleans. Ids and the `comment` value are percent-encoded into the
+path text.
 
 **Open, not verified live:**
 
@@ -1427,7 +1440,9 @@ percent-encoded into the path text.
   write role. Skool's own form always sends all three; the only evidence for the
   short form is the autopilot, which sends `{display_name}`, and nobody checked
   what happened to the sort and the role.
-- The 10-category limit is Skool's to enforce; catknows does not count.
+- The 10-category limit and the 30-character name limit are the category form's;
+  what the server enforces is not known. catknows does not count categories, and
+  it counts name characters the Python way (not checked against how Skool counts).
 - The wire format of the About `description`, how the 1000 characters are counted
   for a stored string, and what a blank text does (catknows refuses it).
 - What a second pinned comment does, and what the comments switch does to
@@ -1483,6 +1498,9 @@ the client. The tool's `limit` (1 to 7, default 7) only shortens the output; a l
 value is lowered to 7 and a `limit_capped` entry says so. The page reads `users[]` from the
 answer, each with `id`, `firstName` and `lastName` after its own conversion; the
 wire spelling is snake_case (`first_name`), and `normalize.search_user` reads both.
+Whether a user object also carries the membership (`role`, `groupId`) is not known:
+the record passes on what arrives, and an empty `role` or `group_id` means "not
+delivered", not "has no role".
 It is a read: `SkoolHTTP.post_api2_read`, which does not write an audit line, does
 not wait for the 15 s write gap and does not clear the read cache (§3 still
 applies: a security question stops it). The answer carries whatever Skool puts on
@@ -1503,8 +1521,10 @@ tool returns it (that is its job); catknows writes it nowhere: no audit line (a
 read leaves none), and no error message repeats an answer: a successful answer is
 never echoed, an answer that is not ONE `https://` text without white space (an
 object, an HTML page such as a challenge page, `in-progress`, an `http://` link, a
-link with a line break) is reported as "not a link" without being shown, and a
-link inside an error body is replaced by `[link removed]`. `get_post` already
+link with a line break) is reported as "not a link" without being shown (the
+"https only" requirement is catknows' own safeguard, not checked against Skool: a
+link of another form would be refused too), and a link inside an error body is
+replaced by `[link removed]`. `get_post` already
 carries ready links for a post's attachments (§1.2b): this call is for a file id
 without one. For files only: the page never asks for a link of a Mux video or an
 embedded video this way (Skool's video download is a separate admin call that is
@@ -1547,8 +1567,8 @@ to the vault or a log, no email and no contact data come out.
   whole chat, whether the other person sees a read mark, what the call answers.
 - `markAllChatMessageRead`: what it answers, whether the other people see read marks.
 - `searchUsers`: the answer's shape beyond `users[]` (whether `has_more` comes back,
-  and what else), what a query is matched against (name, handle, bio), whether
-  `group_id` is required. Not built and not to be probed without a new decision:
+  whether a user carries `role` and `groupId`, and what else), what a query is
+  matched against (name, handle, bio), whether `group_id` is required. Not built and not to be probed without a new decision:
   a `cursor` and any `limit` other than 7, because their effect is not documented
   and paging the search would route around the member-list limit.
 - `getResourceUrl`: the unit and the allowed range of `expire`, the default

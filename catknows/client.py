@@ -934,10 +934,10 @@ class SkoolClient:
         Without it a change or delete takes the whole event; with it, the
         occurrence and everything after it (docs/API.md §5.11). The event id goes
         through `_id_segment` (real text, not only dots: ``..`` would be folded
-        away and aim a PUT or DELETE at the collection). The occurrence id is a
-        query value: empty means "not given", anything else must be non-blank
-        text, and it is percent-encoded so it cannot add a parameter. Neither
-        refusal repeats the value.
+        away, ``/calendar-events/..`` becoming ``/``, and aim a PUT or DELETE at
+        the API root). The occurrence id is a query value: empty means "not
+        given", anything else must be non-blank text, and it is percent-encoded
+        so it cannot add a parameter. Neither refusal repeats the value.
         """
         segment = _id_segment(event_id, "event_id")
         if not isinstance(from_occurrence_id, str) or (
@@ -1034,7 +1034,12 @@ class SkoolClient:
 
     @staticmethod
     def check_category_name(display_name) -> None:
-        """A category name: non-blank text, at most 30 characters. Never echoes it."""
+        """A category name: non-blank text, at most 30 characters. Never echoes it.
+
+        30 is the limit of Skool's category form, read from the page code; the
+        server's own limit is not known, and neither is whether Skool counts
+        characters the way ``len()`` does (docs/API.md §5.12).
+        """
         if not isinstance(display_name, str) or not display_name.strip():
             raise ValueError("display_name must be non-blank text.")
         if len(display_name) > SkoolClient.CATEGORY_NAME_MAX:
@@ -1094,7 +1099,8 @@ class SkoolClient:
         the slug decides the group (an archived community is refused up front).
         No defaults of our own: the caller names the sort (``newest-cm``,
         ``newest``, ``best-1w``, ``best-1m``) and the role (4 members and admins,
-        3 admins only). Skool allows 10 categories at most; that is not counted.
+        3 admins only). The category form stops at 10 categories (the server's
+        limit is not known); catknows does not count them.
         """
         self.check_category_name(display_name)
         self.check_category_options(default_sort, post_write_role)
@@ -1259,8 +1265,9 @@ class SkoolClient:
 
         Reads only (`post_api2_read`), no body. Returns the link as text. The page
         code uses the answer as the link itself, so ONE text starting with
-        ``https://`` and holding no white space is the only thing accepted. Anything
-        else (an object, a list, empty, ``http://``, a line break, an HTML page such
+        ``https://`` and holding no white space is the only thing accepted (the
+        "https only" part is catknows' own safeguard, not checked against Skool).
+        Anything else (an object, a list, empty, ``http://``, a line break, an HTML page such
         as a WAF challenge or login page, a progress word like ``in-progress``) is an
         error that does NOT show the answer, because it may hold the access link.
         The link must not be logged and is not: nothing here writes it anywhere.
@@ -1466,8 +1473,11 @@ class SkoolClient:
         """Reorder a unit among its siblings; ``position`` is the 0-based target.
 
         Course tiles reorder within the classroom, pages within their parent.
-        This does NOT re-parent (Skool ignores a PUT ``parent_id`` too) — to
-        move a page into another folder, recreate it there and delete the old.
+        This does NOT re-parent (Skool ignores a PUT ``parent_id`` too). To move
+        a page into a folder or out of one, use `move_course_to_folder` (read
+        from Skool's page code, not run live yet); until that has been tried,
+        recreating the page in the target folder and deleting the old one is
+        the proven way.
         """
         return self.http.post_api2(f"/courses/{unit_id}/move2?dst={position}", {})
 

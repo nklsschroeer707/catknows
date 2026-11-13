@@ -442,12 +442,11 @@ def search_members(community_slug: str, query: str, limit: int = 7, raw: bool = 
 
     catknows asks Skool for 7 hits and sends only that one request (the one
     Skool's own page sends; what another limit or a paging cursor would do is
-    not documented, so there is no cursor). `limit`
-    (1 to 7, default 7) only shortens what you get back; a larger value is
-    lowered to 7 and a `limit_capped` entry says so. To find someone further
-    down, make the query more specific. `has_more` appears only when Skool
-    sends it. Names and bios are personal data: use them for the task at hand,
-    do not collect them.
+    not documented, so there is no cursor). `limit` (1 to 7, default 7) only
+    shortens what you get back; a larger value is lowered to 7 and a
+    `limit_capped` entry says so. To find someone further down, make the query
+    more specific. `has_more` appears only when Skool sends it. Names and bios
+    are personal data: use them for the task at hand, do not collect them.
     """
     from .client import SkoolClient
 
@@ -552,8 +551,9 @@ def get_post_likes(community_slug: str, post_id: str, limit: int = 10, cursor: s
     `total_downvotes`. To read the next page, call again with the same post and
     `cursor` set to the `cursor` of the previous answer, and stop when
     `has_more` is false. The first call needs no cursor; `limit` is how many
-    people one page holds (the website asks for 10). `community_slug` is not
-    needed for the lookup any more but is still accepted.
+    people one page holds (the website asks for 10; the highest value Skool
+    accepts is not measured). `community_slug` is not needed for the lookup any
+    more but is still accepted.
     """
     data = _get_client().likes_page(post_id, limit=limit, cursor=cursor, tab=tab)
     # Raw liker objects carry full user metadata — including the caller's own
@@ -1666,8 +1666,10 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     def move_course_item(item_id: str, position: int, confirm: bool = False) -> dict:
         """Reorder a course/folder/page among its siblings (position = 0-based target index).
 
-        Moving between folders is NOT possible via the API — recreate the page
-        in the target folder instead. Draft-first: confirm=true executes.
+        This does not change the parent. To move a page into a folder or out of
+        one, use move_course_to_folder (read from Skool's page code, not run live
+        yet); until that has been tried, recreating the page in the target folder
+        is the proven way. Draft-first: confirm=true executes.
         """
         if not confirm:
             return {"status": "DRAFT — nothing was moved",
@@ -2164,12 +2166,13 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                         post_write_role: int, confirm: bool = False) -> dict:
         """Create a feed category (Skool calls it a label) in the community, as the logged-in user.
 
-        display_name: at most 30 characters, public. default_sort: newest-cm
+        display_name: at most 30 characters (the category form's limit, not
+        measured on the server), public. default_sort: newest-cm
         (shown as "Default", latest activity), newest ("New"), best-1w ("Top
         (week)") or best-1m ("Top (month)"). post_write_role: 4 = members and
         admins may post in it, 3 = admins only. There are no defaults: choose the
-        values with the user. Skool allows at most 10 categories. The answer
-        carries the new category's id.
+        values with the user. The category form stops at 10 categories (the
+        server's limit is not known). The answer carries the new category's id.
 
         Draft-first: with confirm=false NOTHING is created and Skool is not
         contacted. Call again with confirm=true once the user approved the name.
@@ -2194,8 +2197,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """Rename an EXISTING feed category (Skool calls it a label), as the logged-in user.
 
         category_id is the `category_id` of a post from list_posts. display_name:
-        at most 30 characters, public. Only the name changes; the category's
-        sort and write role are not sent. Deleting a category is not available.
+        at most 30 characters (the category form's limit, not measured on the
+        server), public. Only the name changes; the category's sort and write
+        role are not sent. Deleting a category is not available.
 
         Draft-first: with confirm=false NOTHING is changed and Skool is not
         contacted. The draft shows the id and the new name; the current name is
@@ -2223,9 +2227,15 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         allows 1000 plain characters). Skool's web client offers the editor to
         admins only. A blank text is refused.
 
+        This overwrites a public text, and the draft shows the NEW text only, so
+        read the current About text first and show it to the user next to the
+        new one. The compact get_community_about does not carry it; raw=true
+        does (pageProps.currentGroup.metadata.lpDescription) but is large and
+        may exceed the tool-result size limit.
+
         Draft-first: with confirm=false NOTHING is changed and Skool is not
-        contacted. The draft shows the new text only, not the current one. Call
-        again with confirm=true once the user approved that exact text.
+        contacted. Call again with confirm=true once the user approved that
+        exact text.
         """
         _skool().check_about_description(description)
         if not confirm:
@@ -2240,8 +2250,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                           confirm: bool = False) -> dict:
         """Turn comments OFF (enabled=false) or back ON (enabled=true) for one post.
 
-        Skool's web client offers this to admins and moderators. post_id comes
-        from list_posts. There is no default: say which direction you mean.
+        Skool's web client offers this to at least admins and moderators (whether
+        the post's author can switch it is not known). post_id comes from
+        list_posts. There is no default: say which direction you mean.
 
         Draft-first: with confirm=false NOTHING is sent and Skool is not
         contacted. The draft shows the id, not the post's title. Call again with
@@ -2269,7 +2280,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
         post_id is the post the comment sits under, comment_id the comment's own
         id (both from get_post_comments / list_posts). Skool's web client offers
-        this to admins and moderators and allows one pinned comment per post.
+        this to at least admins and moderators and allows one pinned comment per
+        post.
 
         Draft-first: with confirm=false NOTHING is sent and Skool is not
         contacted. The draft shows the ids, not the comment's text. Call again
@@ -2391,9 +2403,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 # what needs a confirmation prompt. Everything here talks to Skool, so all tools
 # are open-world; the only question per tool is whether it changes anything.
 #
-# Set in one place rather than as 17 decorator arguments: the safe default is
-# "not read-only", so a tool added later is treated as a writer until someone
-# lists it here on purpose. Failing closed beats a forgotten annotation.
+# Set in one place rather than as a decorator argument on every tool: the safe
+# default is "not read-only", so a tool added later is treated as a writer until
+# someone lists it here on purpose. Failing closed beats a forgotten annotation.
 
 _READ_ONLY = {
     "list_members", "list_posts", "get_post_comments", "get_post_likes",
@@ -2419,7 +2431,7 @@ _DESTRUCTIVE = {
 
 def _annotate_tools() -> None:
     # mcp._tool_manager is private SDK API — the decorator takes annotations
-    # per tool, but that means repeating the same block 17 times. The
+    # per tool, but that means repeating the same block on every tool. The
     # self-check asserts the annotations actually land, so an SDK rename
     # fails loudly instead of silently shipping unannotated tools.
     from mcp.types import ToolAnnotations

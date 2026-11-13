@@ -401,8 +401,10 @@ def search_user(hit: dict) -> dict:
     The entry is a user object, like the ones in ``members.json``, but api2 spells
     the top-level names snake_case (``first_name``) where the Next.js routes use
     camelCase: both are read. The record has exactly the fields of ``member()``,
-    so no ``email`` and no other contact data can come along. A search hit does
-    not carry the membership, so ``role`` and ``group_id`` stay empty.
+    so no ``email`` and no other contact data can come along. Whether a hit also
+    carries the membership is not known (§5.13 lists it as open): ``role`` and
+    ``group_id`` come out as they are delivered, and an empty one means "not
+    delivered", not "has no role".
     """
     user = dict(hit)
     for camel, snake in (("firstName", "first_name"), ("lastName", "last_name")):
