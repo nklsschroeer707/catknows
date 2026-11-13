@@ -20,12 +20,17 @@ catalogue (`skool-re-api-katalog-rest`, sections /channels, /search, /files,
         leaves the query out when none is given. What the server does with it
         was not run.
     markAllChatMessageRead   POST /self/chat-channels/read          no query, no body
-    searchUsers              POST /search/users                     {query, group_id, limit, cursor}
+    searchUsers              POST /search/users                     {query, group_id, limit: 7}
         Reads only, although it is a POST. The page's @mention search sends
         query, group id and limit (5 on a phone, 7 on desktop) and never a
-        cursor (JSON.stringify drops the undefined key): catknows sends `cursor`
-        only when the caller gives one. The answer is `{users: [...]}` in the
-        page code; whatever else it carries is not documented.
+        cursor (JSON.stringify drops the undefined key). catknows sends only
+        that one documented desktop form: the body is always exactly
+        {query, group_id, limit: 7}, with no cursor and no other limit. What a
+        cursor or another limit does is not documented (contracts, not
+        guesses), and paging a search would be a detour around the member-list
+        limit (LEGAL.md boundary 4). The tool's `limit` only shortens the
+        OUTPUT (1 to 7). The answer is `{users: [...]}` in the page code;
+        whatever else it carries is not documented.
     getResourceUrl           POST /files/{id}/download-url?expire={n}   no body
         The page's own name for `expire` is `expireSecs` (28800 for chat
         attachments, none for a course attachment and for an export file). The
@@ -33,8 +38,8 @@ catalogue (`skool-re-api-katalog-rest`, sections /channels, /search, /files,
 
 Deliberately NOT asserted, because the notes do not say: what Skool answers to
 the two marks, the unit and the allowed range of `expire`, whether the answer
-to getResourceUrl is JSON or plain text (both are read), the paging fields of
-the member search, whether the other person sees a read mark.
+to getResourceUrl is JSON or plain text (both are read), what else the member
+search answers, whether the other person sees a read mark.
 
 Run: python test_chat_search_files.py    (no network, no pytest)
 """
@@ -215,28 +220,38 @@ def test_a_security_question_on_a_mark_goes_through_and_is_never_retried():
 
 def test_search_members_posts_query_group_id_and_limit_through_the_read_channel():
     c = _client(_FakeHTTP(read_answer={"users": [{"id": "u1"}]}))
-    out = c.search_members(SLUG, "Test Person", limit=5)
+    out = c.search_members(SLUG, "Test Person")
     assert out == {"users": [{"id": "u1"}]}, "the client hands back Skool's answer as it is"
     assert c.http.calls == [
         ("GET", f"/groups/{SLUG}", None),  # group_id_for: slug -> uuid, no archived guard (a read)
-        ("POST-READ", "/search/users", {"query": "Test Person", "group_id": GID, "limit": 5}),
+        ("POST-READ", "/search/users", {"query": "Test Person", "group_id": GID, "limit": 7}),
     ], c.http.calls
 
 
-def test_search_members_has_the_pages_own_limit_by_default():
+def test_search_members_always_sends_exactly_the_documented_desktop_body():
     c = _client()
     c.search_members(SLUG, "x")
-    assert c.http.read_posts[0][2]["limit"] == 7, c.http.calls  # desktop mention list: 7
+    c.search_members(SLUG, "  padded query  ")
+    assert [x[2] for x in c.http.read_posts] == [
+        {"query": "x", "group_id": GID, "limit": 7},
+        {"query": "  padded query  ", "group_id": GID, "limit": 7},
+    ], c.http.read_posts  # the page's desktop form: limit 7 and no cursor, nothing else
 
 
-def test_search_members_sends_a_cursor_only_when_given():
-    c = _client()
-    c.search_members(SLUG, "x")
-    c.search_members(SLUG, "x", cursor="")
-    c.search_members(SLUG, "x", cursor="next-1")
-    bodies = [x[2] for x in c.http.read_posts]
-    assert "cursor" not in bodies[0] and "cursor" not in bodies[1], bodies
-    assert bodies[2]["cursor"] == "next-1", bodies
+def test_search_members_has_no_cursor_and_no_limit_parameter():
+    import inspect
+    assert list(inspect.signature(SkoolClient.search_members).parameters) == [
+        "self", "community_slug", "query"], "the one documented request has nothing to vary"
+    for kw in (dict(cursor="next-1"), dict(cursor=""), dict(limit=5), dict(limit=7),
+               dict(limit=500)):
+        c = _client()
+        try:
+            c.search_members(SLUG, "x", **kw)
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f"the client accepted {kw}: there must be no such parameter")
+        assert c.http.calls == [], f"a refused search must cause no call at all: {kw}"
 
 
 def test_search_members_never_uses_the_write_channel():
@@ -246,19 +261,15 @@ def test_search_members_never_uses_the_write_channel():
 
 
 def test_search_members_refuses_odd_input_before_any_call():
-    bad = [dict(query=""), dict(query="   "), dict(query=None), dict(query=5), dict(query=["a"]),
-           dict(query="x", limit=0), dict(query="x", limit=-3), dict(query="x", limit=True),
-           dict(query="x", limit="7"), dict(query="x", limit=None), dict(query="x", limit=2.5),
-           dict(query="x", cursor=5), dict(query="x", cursor=None), dict(query="x", cursor=["c"])]
-    for kw in bad:
+    for bad in ("", "   ", None, 5, ["a"]):
         c = _client()
-        _refused(lambda: c.search_members(SLUG, **kw))
-        assert c.http.calls == [], f"a refused search must cause no call at all: {kw}"
+        _refused(lambda: c.search_members(SLUG, bad))
+        assert c.http.calls == [], f"a refused search must cause no call at all: {bad!r}"
 
 
-def test_the_search_refusal_never_echoes_the_query():
-    msg = _refused(lambda: _client().search_members(SLUG, "  ", limit=0))
-    assert "query" in msg or "limit" in msg, msg
+def test_the_search_refusal_names_the_argument():
+    msg = _refused(lambda: _client().search_members(SLUG, "  "))
+    assert "query" in msg, msg
 
 
 def test_a_search_answer_that_is_no_object_is_an_error_without_the_answer():
@@ -764,34 +775,82 @@ def test_the_search_tool_raw_mode_goes_through_the_scrub_and_has_no_email():
     assert out["members"][0]["id"] == "u-1", out
 
 
-def test_the_search_tool_hard_caps_limit_and_says_so():
-    c = _client()
-    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=500))
-    assert c.http.read_posts[0][2]["limit"] == 200, c.http.read_posts
-    assert out["limit_capped"]["requested"] == 500 and out["limit_capped"]["ceiling"] == 200, out
-    c = _client()
-    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=100, raw=True))
-    assert c.http.read_posts[0][2]["limit"] == 30, "raw records are capped harder"
-    assert out["limit_capped"]["requested"] == 100, out
-    c = _client()
-    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=7))
-    assert c.http.read_posts[0][2]["limit"] == 7 and "limit_capped" not in out, out
+def _seven_hits():
+    return {"users": [_hit(id=f"u-{i}", name=f"person-{i}") for i in range(1, 8)]}
 
 
-def test_the_search_tool_passes_paging_fields_on_only_when_skool_sent_them():
-    c = _client(_FakeHTTP(read_answer={"users": [], "cursor": "c-2", "has_more": True}))
+def test_the_search_body_is_the_same_for_every_tool_limit():
+    for limit in (1, 3, 7, 8, 20, 500):
+        for raw in (False, True):
+            c = _client(_FakeHTTP(read_answer=_seven_hits()))
+            _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=limit, raw=raw))
+            assert [x[2] for x in c.http.read_posts] == [
+                {"query": "x", "group_id": GID, "limit": 7}], (limit, raw, c.http.read_posts)
+
+
+def test_the_search_tool_limit_only_shortens_the_output():
+    c = _client(_FakeHTTP(read_answer=_seven_hits()))
+    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=3))
+    assert [r["skool_id"] for r in out["members"]] == ["u-1", "u-2", "u-3"], out
+    assert out["returned"] == 3 and "limit_capped" not in out, out
+    c = _client(_FakeHTTP(read_answer=_seven_hits()))
+    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=3, raw=True))
+    assert [r["id"] for r in out["members"]] == ["u-1", "u-2", "u-3"], out
+    c = _client(_FakeHTTP(read_answer=_seven_hits()))
     out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x"))
-    assert out["cursor"] == "c-2" and out["has_more"] is True, out
+    assert out["returned"] == 7 and "limit_capped" not in out, "the default is 7, no cut"
+    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=7))
+    assert out["returned"] == 7 and "limit_capped" not in out, out
+
+
+def test_a_tool_limit_above_7_is_lowered_to_7_and_says_so():
+    for raw in (False, True):
+        c = _client(_FakeHTTP(read_answer=_seven_hits()))
+        out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=20, raw=raw))
+        assert out["returned"] == 7 and len(out["members"]) == 7, out
+        cap = out["limit_capped"]
+        assert (cap["requested"], cap["returned"], cap["ceiling"]) == (20, 7, 7), cap
+        assert "at most 7" in cap["note"] and "Narrow the query" in cap["note"], cap
+    c = _client(_FakeHTTP(read_answer=_seven_hits()))  # even when Skool sent fewer than 7
+    c.http.read_answer = {"users": [_hit()]}
+    out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=8))
+    assert out["returned"] == 1 and out["limit_capped"]["requested"] == 8, out
+
+
+def test_the_search_tool_refuses_a_limit_that_is_no_whole_number_of_1_or_more():
+    for bad in (0, -1, -3, True, False, "3", "", None, 2.5, [3]):
+        c = _client()
+        _refused(lambda: _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=bad)))
+        assert c.http.calls == [], (bad, c.http.calls)
+
+
+def test_the_search_tool_has_no_cursor_parameter():
+    import inspect
+    import catknows.mcp_server as m
+    params = list(inspect.signature(_fn(m.search_members)).parameters)
+    assert params == ["community_slug", "query", "limit", "raw"], params
+    c = _client()
+    try:
+        _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", cursor="c-1"))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("the tool accepted a cursor")
+    assert c.http.calls == [], c.http.calls
+
+
+def test_a_cursor_in_skools_answer_never_reaches_the_output():
+    answer = {"users": [_hit()], "cursor": "CURSOR-FROM-SKOOL", "has_more": True}
+    for raw in (False, True):
+        c = _client(_FakeHTTP(read_answer=dict(answer)))
+        out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", raw=raw))
+        assert "CURSOR-FROM-SKOOL" not in json.dumps(out), (raw, out)
+        assert "cursor" not in out, (raw, out)
+        assert out["has_more"] is True, "has_more stays when Skool sends it"
+        assert len(c.http.read_posts) == 1, "one call, even when Skool says there is more"
     c = _client(_FakeHTTP(read_answer={"users": []}))
     out = _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x"))
-    assert "cursor" not in out and "has_more" not in out, "no claim about more or less pages"
-
-
-def test_the_search_tool_sends_the_cursor_and_never_walks_by_itself():
-    c = _client(_FakeHTTP(read_answer={"users": [], "cursor": "c-2", "has_more": True}))
-    _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", cursor="c-1"))
-    assert len(c.http.read_posts) == 1, "one call, one page, even when Skool says there is more"
-    assert c.http.read_posts[0][2]["cursor"] == "c-1", c.http.read_posts
+    assert "has_more" not in out and "cursor" not in out, "no claim about more or less pages"
 
 
 def test_the_search_tool_makes_no_write_and_refuses_what_the_client_refuses():
@@ -800,13 +859,10 @@ def test_the_search_tool_makes_no_write_and_refuses_what_the_client_refuses():
     assert c.http.writes == [], c.http.writes
     for call in (lambda m: _fn(m.search_members)(SLUG, ""),
                  lambda m: _fn(m.search_members)(SLUG, "  "),
-                 lambda m: _fn(m.search_members)(SLUG, "x", cursor=5)):
+                 lambda m: _fn(m.search_members)(SLUG, None)):
         c = _client()
         _refused(lambda: _with_client(c, call))
         assert c.http.calls == [], c.http.calls
-    c = _client()  # like list_members, a limit below 1 is lifted to 1 by _cap
-    _with_client(c, lambda m: _fn(m.search_members)(SLUG, "x", limit=0))
-    assert c.http.read_posts[0][2]["limit"] == 1, c.http.read_posts
 
 
 # -- tools: the file download link ----------------------------------------------

@@ -1215,28 +1215,38 @@ class SkoolClient:
         """
         return self.http.post_api2("/self/chat-channels/read", None)
 
-    def search_members(self, community_slug: str, query: str, *, limit: int = 7,
-                       cursor: str = "") -> dict:
+    # The one member-search request catknows sends. Skool's page code (build
+    # 1794436674711, `static_chunks_8402`) asks for 7 hits on desktop (5 on a phone)
+    # and never sends a cursor. Effect of a cursor or of another limit is not
+    # documented ("contracts, not guesses"), and paging a search would be a detour
+    # around the member-list limit (LEGAL.md boundary 4: a non-owner is served the
+    # first page only). So the body is always exactly {query, group_id, limit: 7}.
+    # That is sticking to the documented request, not a disguise of the client.
+    SEARCH_USERS_LIMIT = 7
+
+    @staticmethod
+    def check_search_limit(limit) -> int:
+        """A result limit for the tool: a whole number of 1 or more (not a boolean)."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a whole number of 1 or more.")
+        return limit
+
+    def search_members(self, community_slug: str, query: str) -> dict:
         """The @mention member search of one community: ``POST /search/users`` (§5.13).
 
-        Reads only, although it is a POST (`post_api2_read`). Body ``{query,
-        group_id, limit}``, plus ``cursor`` when one is given: Skool's own client
-        never sends one, the field is in its function signature. ``limit`` 7 is
-        the desktop mention list's value. A blank query is refused: this is a
-        search, not a way to list a community. Returns Skool's answer (an object,
-        ``users[]`` in the page code) as it is; flatten it with
-        ``normalize.search_user``. Archived communities stay searchable.
+        Reads only, although it is a POST (`post_api2_read`). The body is always
+        exactly ``{query, group_id, limit: 7}``: Skool's own client sends no
+        cursor and no other limit, and catknows sends only that documented form
+        (`SEARCH_USERS_LIMIT`), so there is no ``limit`` or ``cursor`` argument.
+        A blank query is refused: this is a name search, not a way to list a
+        community. Returns Skool's answer (an object, ``users[]`` in the page
+        code) as it is; flatten it with ``normalize.search_user``. Archived
+        communities stay searchable.
         """
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must be non-blank text.")
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-            raise ValueError("limit must be a whole number of 1 or more.")
-        if not isinstance(cursor, str):
-            raise ValueError("cursor must be text (empty = first page).")
-        body: dict = {"query": query, "group_id": self.group_id_for(community_slug),
-                      "limit": limit}
-        if cursor:
-            body["cursor"] = cursor
+        body = {"query": query, "group_id": self.group_id_for(community_slug),
+                "limit": self.SEARCH_USERS_LIMIT}
         answer = self.http.post_api2_read("/search/users", body)
         if not isinstance(answer, dict):
             raise SkoolHTTPError(

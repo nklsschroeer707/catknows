@@ -1396,7 +1396,7 @@ account (writes), two only read although they are POSTs.
 |---|---|---|---|
 | `markChatMessageRead` | `POST /channels/{id}/read?last={last}` | none | write |
 | `markAllChatMessageRead` | `POST /self/chat-channels/read` | none | write |
-| `searchUsers` | `POST /search/users` | `{"query": "…", "group_id": "…", "limit": 7}` (+ `"cursor": "…"`) | **read** |
+| `searchUsers` | `POST /search/users` | `{"query": "…", "group_id": "…", "limit": 7}` | **read** |
 | `getResourceUrl` | `POST /files/{id}/download-url?expire={n}` | none | **read** |
 
 **Read mark of one chat.** `{id}` is a chat channel id (`list_chat_channels`).
@@ -1417,9 +1417,16 @@ body, and no way to name a community or a channel: it is **every chat of the
 account**. The MCP draft says so in words.
 
 **Member search.** The `@mention` search of the editors (debounced 300 ms). The
-page sends `query`, the group id and `limit` (5 or 7, 7 on desktop) and **never a
-`cursor`** (the function takes one, the JSON drops the unset key), so catknows
-sends `cursor` only when the caller gives one. The page reads `users[]` from the
+page sends `query`, the group id and `limit` (5 on a phone, 7 on desktop) and
+**never a `cursor`** (the function takes one, the JSON drops the unset key).
+catknows sends only that one documented desktop form: the body is always exactly
+`{query, group_id, limit: 7}` (`SkoolClient.SEARCH_USERS_LIMIT`), with no cursor and
+no other limit, so neither the client method nor the tool has a `cursor` argument.
+The reason is "contracts, not guesses": what a cursor or another `limit` does is not
+documented, and paging a search would be a detour around the member-list limit
+(`LEGAL.md` boundary 4). It is sticking to the documented request, not a disguise of
+the client. The tool's `limit` (1 to 7, default 7) only shortens the output; a larger
+value is lowered to 7 and a `limit_capped` entry says so. The page reads `users[]` from the
 answer, each with `id`, `firstName` and `lastName` after its own conversion; the
 wire spelling is snake_case (`first_name`), and `normalize.search_user` reads both.
 It is a read: `SkoolHTTP.post_api2_read`, which does not write an audit line, does
@@ -1448,14 +1455,16 @@ embedded video this way (Skool's video download is a separate admin call that is
 **not built**, `LEGAL.md` boundary 1).
 
 Implemented as `SkoolClient.mark_chat_read(channel_id, last=None)`,
-`mark_all_chats_read()`, `search_members(slug, query, *, limit=7, cursor="")` and
+`mark_all_chats_read()`, `search_members(slug, query)` and
 `file_download_url(file_id, expire=None)`. The first two return Skool's answer as
 it is; `search_members` returns the answer object, `file_download_url` the link.
 The `mark_chat_read` and `mark_all_chats_read` MCP tools (behind
 `CATKNOWS_ALLOW_WRITE=1`) are draft-first and flagged destructive: `confirm=false`
 contacts nobody and returns what would be sent plus a fixed `not_verified` text.
 The `search_members` and `get_file_download_url` tools are read tools, always on,
-flagged read-only; the search is capped with `_cap` (`limit_capped` says when).
+flagged read-only; `search_members(slug, query, limit=7, raw=false)` returns at most
+`limit` of Skool's 7 hits and says so in `limit_capped` when `limit` was above 7; a
+`has_more` from Skool is passed on, its cursor never is.
 The audit line of a mark names the tool and `dm_channel_id` (and the path, which
 carries `last`), no community and no content. A security question (§3) is never
 swallowed and never retried, on the marks and on the two reads.
@@ -1464,16 +1473,16 @@ swallowed and never retried, on the marks and on the two reads.
 violation): `channel_id`, `last` and `file_id` must be text, not blank and not made
 only of dots (`/channels/../read` would fold to `/read`), and are percent-encoded;
 `expire`, when given, must be a whole number of 1 or more (nothing else about it is
-known); the search needs a non-blank `query`, a whole `limit` of 1 or more and a
-text `cursor`. The refusals name the argument, never its value.
+known); the search needs a non-blank `query`, and the tool's `limit` must be a whole
+number of 1 or more (not a boolean). The refusals name the argument, never its value.
 
 **Access policy (`LEGAL.md`).** The member search passes the test "can the logged-in
 user see this in normal use of Skool?" for what the page itself asks (the first 5
 to 7 matches of a name in a community the account is in). Paging with `cursor` is
-**not** something the page does; the tool passes a cursor on only when asked, never
-walks, and requires a query, so it is a name search and no list of a community
-(a member list is served to non-owners as the first page only, and a workaround is
-not a bugfix task). Names, handles and bios are personal data: nothing is written
+**not** something the page does, so catknows does not offer it: it sends the one
+request, never walks, and requires a query, so it is a name search and no list of a
+community (a member list is served to non-owners as the first page only, and a
+workaround is not a bugfix task). Names, handles and bios are personal data: nothing is written
 to the vault or a log, no email and no contact data come out.
 
 **Open, not verified live:**
@@ -1481,10 +1490,11 @@ to the vault or a log, no email and no contact data come out.
 - `markChatMessageRead`: what `last` does on the server, whether no `last` marks the
   whole chat, whether the other person sees a read mark, what the call answers.
 - `markAllChatMessageRead`: what it answers, whether the other people see read marks.
-- `searchUsers`: the answer's shape beyond `users[]` (whether `cursor` and `has_more`
-  come back, and under which names), the highest `limit`, whether a `cursor` is
-  accepted and what a regular member gets beyond the first page, what a query is
-  matched against (name, handle, bio), whether `group_id` is required.
+- `searchUsers`: the answer's shape beyond `users[]` (whether `has_more` comes back,
+  and what else), what a query is matched against (name, handle, bio), whether
+  `group_id` is required. Not built and not to be probed without a new decision:
+  a `cursor` and any `limit` other than 7, because their effect is not documented
+  and paging the search would route around the member-list limit.
 - `getResourceUrl`: the unit and the allowed range of `expire`, the default
   lifetime of a link, whether the answer is a JSON string or plain text, and what
   Skool answers for a file the account may not see or for a video.

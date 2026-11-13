@@ -430,8 +430,7 @@ def search_community(community_slug: str, query: str, kind: str = "posts",
 
 
 @mcp.tool()
-def search_members(community_slug: str, query: str, limit: int = 7, cursor: str = "",
-                   raw: bool = False) -> dict:
+def search_members(community_slug: str, query: str, limit: int = 7, raw: bool = False) -> dict:
     """Find members of one community by name with Skool's @mention search: id, handle, name, points, level.
 
     A quick answer to "who is X?" when you need a person's handle or id. It
@@ -441,35 +440,35 @@ def search_members(community_slug: str, query: str, limit: int = 7, cursor: str 
     a way to list a community (use list_members for that, and note that
     Skool's role limits on member lists still apply).
 
-    ONE page per call and no walking: `limit` is how many hits to ask for
-    (default 7, what Skool's own mention list asks for; hard cap 200, 30 with
-    raw=True, and a `limit_capped` entry says when it cut). Skool's own client
-    never pages this search; `cursor` is passed on as given, and `cursor` /
-    `has_more` appear in the answer only when Skool sends them. Names and
-    bios are personal data: use them for the task at hand, do not collect
-    them.
+    catknows asks Skool for 7 hits and sends only that one request (the one
+    Skool's own page sends; what another limit or a paging cursor would do is
+    not documented, so there is no cursor). `limit`
+    (1 to 7, default 7) only shortens what you get back; a larger value is
+    lowered to 7 and a `limit_capped` entry says so. To find someone further
+    down, make the query more specific. `has_more` appears only when Skool
+    sends it. Names and bios are personal data: use them for the task at hand,
+    do not collect them.
     """
-    effective, capped = _cap(limit, raw)
-    answer = _get_client().search_members(community_slug, query, limit=effective,
-                                          cursor=cursor)
-    users = answer.get("users") or []
+    from .client import SkoolClient
+
+    effective = min(SkoolClient.check_search_limit(limit), SkoolClient.SEARCH_USERS_LIMIT)
+    answer = _get_client().search_members(community_slug, query)
+    users = (answer.get("users") or [])[:effective]
     if raw:
         members = normalize.strip_contact(_safe_raw(users))
     else:
         members = [_jsonable(normalize.search_user(u)) for u in users]
     out: dict = {"query": query, "community": community_slug,
                  "returned": len(members), "members": members}
-    for key in ("cursor", "has_more"):  # as Skool sent them; never invented
-        if key in answer:
-            out[key] = answer[key]
-    if capped:
+    if "has_more" in answer:  # as Skool sent it; never invented. Its cursor is not passed on.
+        out["has_more"] = answer["has_more"]
+    if limit > effective:
         out["limit_capped"] = {
-            "requested": capped["requested"], "returned": len(members),
-            "ceiling": capped["ceiling"],
-            "note": (f"catknows asks Skool for at most {capped['ceiling']} hits per call"
-                     f"{' (raw records are much bigger)' if raw else ''}, so the "
-                     "response stays inside the tool-result size limit. Narrow the query "
-                     "instead of asking for more."),
+            "requested": limit, "returned": len(members), "ceiling": effective,
+            "note": (f"catknows asks Skool for {effective} hits per call, the one request "
+                     f"Skool's own page sends, so you get at most {effective}: limit {limit} "
+                     f"was lowered to {effective}. Narrow the query to find someone further "
+                     "down."),
         }
     return out
 
