@@ -1891,6 +1891,7 @@ class SkoolClient:
         content: str,
         *,
         parent_comment_id: str = "",
+        parent_is_top_level: bool = False,
         attachments: str = "",
     ) -> dict:
         """Comment on a post, or reply to a comment (§5.8).
@@ -1902,8 +1903,18 @@ class SkoolClient:
         with an @-mention first, the way Skool's own UI does it — see
         :meth:`reply_target`. `attachments` is a comma-joined list of file ids
         from `upload_file`. Returns the created comment object.
+
+        Pass ``parent_is_top_level=True`` only when you know for sure that
+        ``parent_comment_id`` is a top-level comment: the lookup in
+        :meth:`reply_target` is skipped and the reply hangs under that comment
+        as given. The hint is believed, not checked (a wrong one gets the reply
+        shown as "Comment was deleted"); without it, or with an empty
+        ``parent_comment_id`` or the post's own id, everything works as before.
         """
-        target = self.reply_target(community_slug, post_id, parent_comment_id)
+        if parent_is_top_level is True and parent_comment_id and parent_comment_id != post_id:
+            target = {"parent_id": parent_comment_id, "flattened": False, "mention": ""}
+        else:
+            target = self.reply_target(community_slug, post_id, parent_comment_id)
         metadata: dict = {"title": "", "content": with_mention(target["mention"], content)}
         if attachments:
             metadata["attachments"] = attachments
@@ -1931,6 +1942,11 @@ class SkoolClient:
         that: replying to a reply posts under the top-level comment and opens
         with an @-mention of the person. We do the same. ``mention`` is the
         prefix to put before the text ("" when nothing was re-hung).
+
+        The lookup behind this (``GET /posts/{id}``) is catknows' own rule, not
+        a call of Skool's web client. This method does it for every reply; a
+        caller that knows the target is a top-level comment skips it through
+        ``create_comment(..., parent_is_top_level=True)``.
         """
         if not parent_comment_id or parent_comment_id == post_id:
             return {"parent_id": post_id, "flattened": False, "mention": ""}
