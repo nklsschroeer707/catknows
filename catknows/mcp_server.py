@@ -1401,11 +1401,13 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             # messages endpoint returns the channel object in one call; listing
             # /self/chat-channels instead cannot work: Skool refuses limit > 30
             # there, and accounts have hundreds of channels.
-            from .http import SkoolHTTPError
+            from .http import SkoolHTTPError, SkoolSecurityChallenge
 
             try:
                 gid = (client.chat_messages(channel_id, count=1)
                        .get("channel") or {}).get("group_id") or ""
+            except SkoolSecurityChallenge:
+                raise  # not an "unknown channel": Skool asked a security question
             except SkoolHTTPError:
                 gid = ""
             if not gid:

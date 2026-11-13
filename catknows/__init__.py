@@ -19,6 +19,7 @@ __all__ = [
     "login",
     "session_from_cookie",
     "SkoolHTTPError",
+    "SkoolSecurityChallenge",
 ]
 
 # `normalize` and `vault` are stdlib-only on purpose (pure JSON→record→Markdown).
@@ -32,7 +33,7 @@ def __getattr__(name: str):
     if name in ("Session", "login", "session_from_cookie"):
         from . import auth
         return getattr(auth, name)
-    if name == "SkoolHTTPError":
-        from .http import SkoolHTTPError
-        return SkoolHTTPError
+    if name in ("SkoolHTTPError", "SkoolSecurityChallenge"):
+        from . import http
+        return getattr(http, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

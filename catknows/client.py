@@ -24,7 +24,7 @@ from typing import Iterator
 from urllib.parse import quote
 
 from .auth import Session
-from .http import SkoolHTTP, SkoolHTTPError
+from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
 # CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
@@ -1016,6 +1016,8 @@ class SkoolClient:
         fields = dict(fields)
         try:
             cur = (self.course_tree(unit_id).get("course") or {}).get("metadata") or {}
+        except SkoolSecurityChallenge:
+            raise  # Skool's security question is no "not a root unit": no blind PUT
         except SkoolHTTPError:
             cur = None  # not a root unit -> flat update, caller sends full set
         if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
@@ -1471,6 +1473,8 @@ class SkoolClient:
         group = {}
         try:
             group = self.http.get_api2(f"/groups/{community_slug}") or {}
+        except SkoolSecurityChallenge:
+            raise  # Skool's security question is a stop, not a hiccup to route around
         except SkoolHTTPError:
             pass  # e.g. WAF hiccup — the posts bootstrap still works
         # Outside the try: an archived community is a definitive answer, not a

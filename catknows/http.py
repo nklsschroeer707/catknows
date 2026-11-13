@@ -27,6 +27,8 @@ import random
 import re
 import threading
 import time
+from collections.abc import Callable
+from urllib.parse import urlsplit
 
 from curl_cffi import requests
 from curl_cffi.requests.exceptions import RequestException
@@ -103,6 +105,54 @@ class SkoolHTTPError(RuntimeError):
         self.status = status
 
 
+class SkoolSecurityChallenge(SkoolHTTPError):
+    """Skool answered HTTP 200 with a security question instead of the data.
+
+    The body is ``{"code": "AUTH-SEC-5xx", ...}`` (docs/API.md §3): Skool wants
+    a security nonce for that path. It is no HTTP error, which is why it needs
+    its own exception, or a write would pass for sent and a read for empty.
+    ``.status`` is 200, ``.code`` the AUTH-SEC code.
+
+    catknows does not answer the question and does not retry. The message names
+    the code and the path (without its query string, which can carry one-shot
+    tokens) and nothing else from the answer: no nonce, no token, no personal
+    data.
+    """
+
+    def __init__(self, code: str, method: str, path: str):
+        where = f"{method.upper()} {urlsplit(path).path}"
+        super().__init__(
+            f"Skool answered {where} with a security question (code {code}) "
+            "instead of the data. catknows does not answer it and does not "
+            "retry: treat this request as not done (a write counts as not sent). "
+            "Skool may now ask for a security nonce on this path; try again "
+            "later, and if it keeps coming, stop and look at docs/API.md §3.",
+            200,
+        )
+        self.code = code
+
+
+# The page's own test is /^AUTH-SEC-5\d\d$/ (docs/API.md §3). Python's `$` also
+# matches before a trailing newline and its `\d` matches non-ASCII digits, so
+# the same test here is a `fullmatch` on [0-9].
+_SECURITY_CHALLENGE = re.compile(r"AUTH-SEC-5[0-9]{2}")
+
+
+def _security_challenge_code(status: int, data) -> str:
+    """The AUTH-SEC-5xx code if this answer is Skool's security question, else "".
+
+    Only HTTP 200, only a JSON object, only its top-level ``code``, only if that
+    is a text matching in full. A number, another text, a list on top, a code
+    one level down, or a body that is not JSON is an ordinary answer.
+    """
+    if status != 200 or not isinstance(data, dict):
+        return ""
+    code = data.get("code")
+    if isinstance(code, str) and _SECURITY_CHALLENGE.fullmatch(code):
+        return code
+    return ""
+
+
 # Skool's api2 wording for "you may see this endpoint, but not this object":
 # a membership gate, not an auth failure. Measured 2026-08-19 on
 # /groups/{gid}/courses and /courses/{id} — an account that is NOT in the
@@ -143,6 +193,14 @@ def _auth_rejected(code: int, url: str, body: str = "") -> SkoolHTTPError:
 
 
 class SkoolHTTP:
+    # Where the Next.js buildId comes from, when someone else already knows it.
+    # `provider(False)` returns the current value, `provider(True)` fetches it
+    # anew (the caller just saw a 404). Set from outside, on the finished
+    # instance, and only read when a request needs the id — never at
+    # construction. A class attribute so an instance built without `__init__`
+    # still has the default: no provider, the HTML page is used as always.
+    build_id_provider: Callable[[bool], str] | None = None
+
     def __init__(self, session):
         """`session` is a catknows.auth.Session."""
         self.session = session
@@ -163,7 +221,15 @@ class SkoolHTTP:
         rather than hardcode it, and cache it until a request 404s — `get_next`
         then clears the cache and re-discovers once (a deploy mid-session would
         otherwise 404 every URL until the process restarts).
+
+        With a `build_id_provider` set, the provider is the only source: its
+        current value is returned and no HTML page is ever loaded, not even
+        when it gives nothing back (that is an error, not a reason to fall
+        back). The provider keeps the value; nothing is cached here.
         """
+        provider = self.build_id_provider
+        if provider is not None:
+            return self._provided_build_id(provider, False)
         if self._build_id:
             return self._build_id
 
@@ -186,6 +252,19 @@ class SkoolHTTP:
             )
         return self._build_id
 
+    @staticmethod
+    def _provided_build_id(provider: Callable[[bool], str], refresh: bool) -> str:
+        """Ask the provider; an empty answer is an error. Its own exceptions pass through."""
+        value = provider(refresh)
+        if not isinstance(value, str) or not value.strip():
+            got = "an empty text" if isinstance(value, str) else type(value).__name__
+            raise SkoolHTTPError(
+                f"build_id_provider gave no buildId ({'refresh' if refresh else 'current value'}"
+                f": expected a non-empty text, got {got}). With a provider set the "
+                "HTML page is never loaded to find it, so there is no fallback."
+            )
+        return value.strip()
+
     # -- request shapes --------------------------------------------------------
 
     def get_next(self, path_and_query: str, community_slug: str = "") -> dict:
@@ -195,7 +274,11 @@ class SkoolHTTP:
         "/{slug}/-/members.json?sortType=...". Retries on Skool's 202/empty
         (ISR deferred) responses.
         """
-        build_id = self.build_id(community_slug) if community_slug else self._build_id
+        provider = self.build_id_provider
+        if provider is not None or community_slug:
+            build_id = self.build_id(community_slug)
+        else:
+            build_id = self._build_id
         url = f"{SKOOL_BASE}/_next/data/{build_id}{path_and_query}"
         referer = f"{SKOOL_BASE}/{community_slug}" if community_slug else f"{SKOOL_BASE}/"
 
@@ -219,11 +302,20 @@ class SkoolHTTP:
             # We cache the id for the client's lifetime, so a long-running server
             # would stay broken until restarted. Re-discover once and retry; if
             # the id didn't actually change it's a real 404, so re-raise.
-            if e.status != 404 or not community_slug:
+            if e.status != 404:
                 raise
-            stale, self._build_id = build_id, ""
-            fresh = self.build_id(community_slug)
-            if fresh == stale:
+            if provider is not None:
+                # The provider owns the id: ONE provider(True), ONE new try, and
+                # never the HTML page. A second 404 is final; there is no loop.
+                fresh = self._provided_build_id(provider, True)
+                if fresh == build_id:
+                    raise
+            elif community_slug:
+                stale, self._build_id = build_id, ""
+                fresh = self.build_id(community_slug)
+                if fresh == stale:
+                    raise
+            else:
                 raise
             url = f"{SKOOL_BASE}/_next/data/{fresh}{path_and_query}"
             data = self._get_with_retry(url, headers)
@@ -261,7 +353,7 @@ class SkoolHTTP:
         "/posts/{id}/comments?group-id={gid}&limit=25".
         """
         url = f"{SKOOL_API2}{path_and_query}"
-        return self._get_with_retry(url, self._api2_headers())
+        return self._get_with_retry(url, self._api2_headers(), api2=True)
 
     def get_api2_text(self, path_and_query: str) -> str:
         """GET an api2 endpoint that answers plain text, not JSON.
@@ -279,6 +371,14 @@ class SkoolHTTP:
         if not (200 <= resp.status_code < 300):
             raise SkoolHTTPError(f"HTTP {resp.status_code} on {url}: {resp.text[:300]}",
                                  resp.status_code)
+        if resp.status_code == 200:
+            try:
+                parsed = json.loads(resp.text)
+            except ValueError:
+                parsed = None       # plain text, the normal answer here
+            code = _security_challenge_code(200, parsed)
+            if code:
+                raise SkoolSecurityChallenge(code, "GET", path_and_query)
         return resp.text.strip().strip('"')
 
     def get_mux(self, url: str) -> str:
@@ -369,15 +469,31 @@ class SkoolHTTP:
             if code == 401 or code == 403:
                 raise _auth_rejected(code, url, resp.text)
             raise SkoolHTTPError(f"HTTP {code} on {url}: {resp.text[:300]}", code)
+        data: object = {}
+        bad_json: json.JSONDecodeError | None = None
+        if resp.text.strip():
+            try:
+                data = json.loads(resp.text)
+            except json.JSONDecodeError as e:
+                bad_json = e
+        challenge = _security_challenge_code(code, data) if bad_json is None else ""
+        if challenge:
+            # Skool answered the write with its security question: it did not
+            # take it, so it is not a sent write. No "ok" line (the line says
+            # why, with the code and no body), and the cache stays as it was,
+            # because nothing was written that could have made it stale. No
+            # retry, no attempt to answer the question.
+            audit.record(method=method, path=path_and_query,
+                         status="security_challenge", note=challenge)
+            raise SkoolSecurityChallenge(challenge, method, path_and_query)
         self._cache.clear()  # a write invalidates anything we read before it
-        if not resp.text.strip():
+        if bad_json is None and not resp.text.strip():
             audit.record(method=method, path=path_and_query, status=code, response={})
             return {}
-        try:
-            data = json.loads(resp.text)
-        except json.JSONDecodeError as e:
+        if bad_json is not None:
             audit.record(method=method, path=path_and_query, status=code, note="bad_json")
-            raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {resp.text[:200]}", code) from e
+            raise SkoolHTTPError(
+                f"Bad JSON from {url}: {bad_json} | {resp.text[:200]}", code) from bad_json
         audit.record(method=method, path=path_and_query, status=code, response=data)
         return data
 
@@ -432,7 +548,12 @@ class SkoolHTTP:
     def _cacheable(self, url: str) -> bool:
         return CACHE_TTL_S > 0 and not any(p in url for p in _NEVER_CACHE)
 
-    def _get_with_retry(self, url: str, headers: dict) -> dict:
+    def _get_with_retry(self, url: str, headers: dict, *, api2: bool = False) -> dict:
+        """GET with the 202/empty retry and the cache.
+
+        `api2=True` also stops on Skool's security question (HTTP 200 with
+        ``code: AUTH-SEC-5xx``) before anything is cached, and never retries it.
+        """
         if self._cacheable(url):
             hit = self._cache.get(url)
             if hit and time.time() - hit[0] < CACHE_TTL_S:
@@ -487,6 +608,11 @@ class SkoolHTTP:
                 data = json.loads(body)
             except json.JSONDecodeError as e:
                 raise SkoolHTTPError(f"Bad JSON from {url}: {e} | {body[:200]}", code) from e
+
+            if api2:
+                challenge = _security_challenge_code(code, data)
+                if challenge:
+                    raise SkoolSecurityChallenge(challenge, "GET", url)
 
             if self._cacheable(url):
                 if len(self._cache) >= _CACHE_MAX_ENTRIES:

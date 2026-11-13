@@ -72,6 +72,27 @@ GET https://www.skool.com/{community_slug}
 The returned HTML contains `"buildId":"XXXX"` inside the `__NEXT_DATA__` script.
 Extract it with the regex `"buildId":"([^"]+)"`. Cache it for your session.
 
+**The id can also come from outside.** A program that already has a browser tab
+open on Skool knows it (`window.__NEXT_DATA__.buildId`) and can hand it over, so
+no HTML page has to be loaded at all. In catknows that is the attribute
+`SkoolHTTP.build_id_provider` (default `None`), a callable
+`provider(refresh: bool) -> str`: `provider(False)` returns the current value,
+`provider(True)` fetches it anew because the caller just saw a 404. It is set on
+the finished instance and read only when a request needs the id. With a provider
+set:
+
+- `build_id()` returns `provider(False)` and **never** loads the HTML page, not
+  even as a fallback. This holds for calls without a community slug too.
+- On a 404, `get_next` calls `provider(True)` **once**. The same value as before
+  means a real 404 and the error is raised; a new value gets **one** new try, and
+  a second 404 is final. Never more than one refresh and one retry per call.
+- A provider that returns an empty text (or no text) is an error
+  (`SkoolHTTPError`), not a reason to fall back to the HTML page. Exceptions the
+  provider itself raises reach the caller unchanged.
+
+Without a provider nothing changes: the HTML page, the cached id, the one
+re-discovery after a 404.
+
 ---
 
 ## 1. Endpoint reference
@@ -742,6 +763,25 @@ back to camelCase.
 | 401 | `auth_token` invalid/expired | re-login |
 | 403 | AWS-WAF blocked you | most likely your **TLS fingerprint** (§0.2 — use `curl_cffi`/a browser, headers can't fix it); else refresh `aws-waf-token` and check headers |
 | 429 / repeated 202 | rate-limited | back off (this repo pauses ~1h after 5 consecutive 202s) |
+
+**The security question (HTTP 200, no data).** Skool can answer an api2 call with
+HTTP 200 and a JSON body whose top-level `code` is a text matching
+`^AUTH-SEC-5\d\d$` (known: `AUTH-SEC-501`), instead of the data. It means Skool
+wants a security nonce for that path. It is not an HTTP error: the page's own
+client reads `code` only on HTTP 200. catknows raises
+`catknows.http.SkoolSecurityChallenge` (a `SkoolHTTPError`, `.status` 200,
+`.code` the AUTH-SEC code) on `get_api2`, `get_api2_text`, `post_api2`, `put_api2`
+and `delete_api2`, and then stops:
+
+- Only HTTP 200, only a JSON object, only the top-level `code`, and only a text
+  that matches in full. A number, another text (`OK`, `AUTH-SEC-401`,
+  `xAUTH-SEC-501`), a list on top or a body that is not JSON is an ordinary answer.
+- No second attempt and no attempt to answer the question.
+- The message names the code and the path without its query string, never
+  anything else from the answer (no nonce, token or personal data).
+- A write that gets it counts as **not sent**: the audit log gets no `200` line,
+  only `status: "security_challenge"` with the code in `note`, and the read
+  cache is left as it was. A read that gets it is never cached.
 
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.
