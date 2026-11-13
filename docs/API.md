@@ -782,6 +782,11 @@ and `delete_api2`, and then stops:
 - A write that gets it counts as **not sent**: the audit log gets no `200` line,
   only `status: "security_challenge"` with the code in `note`, and the read
   cache is left as it was. A read that gets it is never cached.
+- A batch job over many entries does not count it as one failed entry and go on
+  (as it does for an ordinary error): `pull_to_vault` raises the error with how
+  far it got, `python -m catknows pull` exits with code 1, `python -m
+  catknows.snapshot` exits with code 3. None of them requests anything after it;
+  notes and rows already written stay.
 
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.

@@ -14,6 +14,8 @@ visitors, signups, conversion and signup sources to `<vault>/trends/growth.jsonl
 No AI involved and strictly headless: safe to run from a scheduler. If the
 persisted login has expired it exits with code 2 instead of opening a
 browser window — run any catknows tool interactively once to re-login.
+If Skool answers with its security question (AUTH-SEC-5xx) it stops at once,
+requests nothing more and exits with code 3; rows already appended stay.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import SkoolClient, login, normalize
+from .http import SkoolSecurityChallenge
 
 
 def _profile_dir() -> Path:
@@ -114,6 +117,14 @@ def _growth_row(client: SkoolClient, slug: str) -> dict:
     }
 
 
+def _stopped(e: SkoolSecurityChallenge, what: str) -> int:
+    """Skool asked its security question: no entry after this one is requested."""
+    print(f"!! {what}: Skool asked a security question (code {e.code}) on {e.method} "
+          f"{e.path} - snapshot stopped, nothing more was requested. "
+          "Rows already appended stay.", file=sys.stderr)
+    return 3
+
+
 def _append(path: Path, line: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -158,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     for slug in args.slugs:
         try:
             line = {"date": now, **_about_numbers(client, slug)}
+        except SkoolSecurityChallenge as e:
+            return _stopped(e, slug)
         except Exception as e:  # one broken slug must not kill the series of the rest
             print(f"!! {slug}: {e}", file=sys.stderr)
             failed += 1
@@ -169,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             _append(trends / "discovery.jsonl", {"date": now, "top": _discovery_top(client)})
             print("discovery: page 1 snapshotted")
+        except SkoolSecurityChallenge as e:
+            return _stopped(e, "discovery")
         except Exception as e:
             print(f"!! discovery: {e}", file=sys.stderr)
             failed += 1
@@ -176,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
     for slug in args.rank:
         try:
             line = {"date": now, **_rank_row(client, slug)}
+        except SkoolSecurityChallenge as e:
+            return _stopped(e, f"rank {slug}")
         except Exception as e:
             print(f"!! rank {slug}: {e}", file=sys.stderr)
             failed += 1
@@ -187,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
     for slug in args.growth:
         try:
             line = {"date": now, **_growth_row(client, slug)}
+        except SkoolSecurityChallenge as e:
+            return _stopped(e, f"growth {slug}")
         except Exception as e:
             print(f"!! growth {slug}: {e}", file=sys.stderr)
             failed += 1

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import SkoolClient, login, session_from_cookie
 from . import normalize, vault
+from .http import SkoolSecurityChallenge
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,6 +83,14 @@ def _pull(args) -> int:
             try:
                 merged = client.comments(prec["skool_id"], group_id)
                 comment_recs = normalize.comments(merged)
+            except SkoolSecurityChallenge as e:
+                # Not "one bad post": after Skool's security question every further
+                # request would be an automaton ignoring it. Stop, exit non-zero.
+                print(f"error: pull stopped after {written_posts} of {len(trees)} posts: "
+                      f"Skool asked a security question (code {e.code}) on {e.method} "
+                      f"{e.path}, so nothing more was requested. The notes already "
+                      f"written stay in {vault_dir}.", file=sys.stderr)
+                return 1
             except Exception as e:  # one bad post shouldn't kill the run
                 print(f"  ! comments failed for {prec['skool_id']}: {e}", file=sys.stderr)
         vault.write_post(vault_dir, community, prec, comment_recs)

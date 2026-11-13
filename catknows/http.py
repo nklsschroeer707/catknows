@@ -111,22 +111,25 @@ class SkoolSecurityChallenge(SkoolHTTPError):
     The body is ``{"code": "AUTH-SEC-5xx", ...}`` (docs/API.md §3): Skool wants
     a security nonce for that path. It is no HTTP error, which is why it needs
     its own exception, or a write would pass for sent and a read for empty.
-    ``.status`` is 200, ``.code`` the AUTH-SEC code.
+    ``.status`` is 200, ``.code`` the AUTH-SEC code, ``.method`` and ``.path``
+    the request (path without its query string).
 
     catknows does not answer the question and does not retry. The message names
     the code and the path (without its query string, which can carry one-shot
     tokens) and nothing else from the answer: no nonce, no token, no personal
-    data.
+    data. A batch job that stops on it says so in ``stopped``, which goes in
+    front of the message.
     """
 
-    def __init__(self, code: str, method: str, path: str):
-        where = f"{method.upper()} {urlsplit(path).path}"
+    def __init__(self, code: str, method: str, path: str, *, stopped: str = ""):
+        self.method, self.path = method.upper(), urlsplit(path).path
         super().__init__(
-            f"Skool answered {where} with a security question (code {code}) "
-            "instead of the data. catknows does not answer it and does not "
-            "retry: treat this request as not done (a write counts as not sent). "
-            "Skool may now ask for a security nonce on this path; try again "
-            "later, and if it keeps coming, stop and look at docs/API.md §3.",
+            (f"{stopped} " if stopped else "")
+            + f"Skool answered {self.method} {self.path} with a security question "
+            f"(code {code}) instead of the data. catknows does not answer it and "
+            "does not retry: treat this request as not done (a write counts as "
+            "not sent). Skool may now ask for a security nonce on this path; try "
+            "again later, and if it keeps coming, stop and look at docs/API.md §3.",
             200,
         )
         self.code = code

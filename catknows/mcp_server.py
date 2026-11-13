@@ -966,6 +966,8 @@ def pull_to_vault(
     community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
 ) -> dict:
     """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
+    from .http import SkoolSecurityChallenge
+
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
     vault.ensure_scaffold(out)
@@ -985,6 +987,17 @@ def pull_to_vault(
         if include_comments and group_id and prec["comments"] > 0:
             try:
                 comment_recs = normalize.comments(client.comments(prec["skool_id"], group_id))
+            except SkoolSecurityChallenge as e:
+                # Not "one bad post": after Skool's security question every further
+                # request would be an automaton ignoring it. Stop the whole pull
+                # with an error, not a partial result that looks like success.
+                raise SkoolSecurityChallenge(
+                    e.code, e.method, e.path,
+                    stopped=(f"pull_to_vault stopped after {posts_written} of {len(trees)} "
+                             "posts: Skool asked a security question while the comments "
+                             "were read, so nothing more was requested. The notes already "
+                             "written stay in the vault; the rest was not pulled."),
+                ) from e
             except Exception:  # one bad post shouldn't kill the pull
                 comments_failed += 1
         vault.write_post(out, community_slug, prec, comment_recs)
