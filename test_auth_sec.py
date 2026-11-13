@@ -133,6 +133,17 @@ def test_every_api2_way_raises_on_a_200_with_the_code():
             assert len(h._http.calls) == 1, f"{name}: no automatic second attempt: {h._http.calls}"
 
 
+def test_the_message_says_stop_and_never_invites_a_retry():
+    """The text is what a calling model reads: it must say stop, not "try again"."""
+    for code in ("AUTH-SEC-501", "AUTH-SEC-502"):
+        msg = str(SkoolSecurityChallenge(code, "GET", "/groups/g1/labels?x=1")).lower()
+        assert "do not retry automatically" in msg, msg
+        assert "stop and tell the user" in msg, msg
+        assert "try again" not in msg and "later" not in msg, msg
+        # 501 asks for a nonce, 502 is a Turnstile refusal: the class text names neither.
+        assert "nonce" not in msg, msg
+
+
 def test_the_whole_5xx_family_counts():
     with tempfile.TemporaryDirectory() as tmp:
         _log(tmp)

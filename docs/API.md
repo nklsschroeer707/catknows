@@ -837,7 +837,9 @@ and then stops:
   `xAUTH-SEC-501`), a list on top or a body that is not JSON is an ordinary answer.
 - No second attempt and no attempt to answer the question.
 - The message names the code and the path without its query string, never
-  anything else from the answer (no nonce, token or personal data).
+  anything else from the answer (no nonce, token or personal data). It ends
+  with "Do not retry automatically: stop and tell the user", because the
+  caller reading it is often a model that would otherwise try again.
 - A write that gets it counts as **not sent**: the audit log gets no `200` line,
   only `status: "security_challenge"` with the code in `note`, and the read
   cache is left as it was. A read that gets it is never cached.

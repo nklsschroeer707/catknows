@@ -130,8 +130,8 @@ class SkoolSecurityChallenge(SkoolHTTPError):
             + f"Skool answered {self.method} {self.path} with a security question "
             f"(code {code}) instead of the data. catknows does not answer it and "
             "does not retry: treat this request as not done (a write counts as "
-            "not sent). Skool may now ask for a security nonce on this path; try "
-            "again later, and if it keeps coming, stop and look at docs/API.md §3.",
+            "not sent). Do not retry automatically: stop and tell the user "
+            "(docs/API.md §3).",
             200,
         )
         self.code = code
