@@ -20,6 +20,7 @@ Run: python test_error_text_privacy.py    (no network, no pytest)
 import json
 import os
 import tempfile
+import time
 import traceback
 
 os.environ["CATKNOWS_WRITE_GAP_S"] = "0"  # not a test of the write gap
@@ -28,7 +29,8 @@ os.environ["CATKNOWS_AUDIT_LOG"] = os.path.join(tempfile.mkdtemp(), "writes.json
 
 from curl_cffi.requests.exceptions import RequestException
 
-from catknows import audit, http
+from catknows import audit, http, normalize
+from catknows.client import SkoolClient
 from catknows.http import SkoolHTTP, SkoolHTTPError
 
 BASE = "https://api2.skool.com"
@@ -110,6 +112,8 @@ WRITES = {
 def test_an_address_in_an_error_body_is_masked_on_every_read_and_write_path():
     body = json.dumps({"error": f"user {ADDRESS} not found", "detail": "try again"})
     for label, call in {**READS, **WRITES}.items():
+        if label == "put_bytes":
+            continue    # a foreign storage answers there, see the upload tests below
         err = _raised(call, _Resp(500, body))
         assert ADDRESS not in _everything(err), f"{label}: the address is in the error"
         assert MASKED in str(err), f"{label}: the masked address is missing: {err}"
@@ -270,6 +274,139 @@ def test_an_ordinary_read_keeps_its_url_its_reason_and_its_cause():
         assert err.__cause__ is boom, f"{label}: the cause of an ordinary error is gone"
         err = _raised(call, _Resp(500, "server exploded"))
         assert str(err) == f"HTTP 500 on {url}: server exploded", (label, str(err))
+
+
+# -- after the review: the size of the body, the foreign storage, the other doors --
+
+def test_a_huge_error_body_is_not_masked_as_a_whole():
+    """Only the start is shown, so only the start is worked on (the error path of a
+    multi-megabyte answer took seconds)."""
+    for body in ('\\"' * 2_000_000, "a.b-c " * 700_000, '{"k": "v"}, ' * 350_000):
+        start = time.perf_counter()
+        http._answer_excerpt("/posts", body, 300)
+        took = time.perf_counter() - start
+        assert took < 0.2, f"{took:.2f} s for the excerpt of {len(body)} characters"
+
+
+def test_the_excerpt_of_a_long_body_is_the_same_as_masking_all_of_it():
+    long_local = "anna." + "x" * 59            # 64 characters, masked down to 4
+    bodies = (
+        "x" * 290 + " " + ADDRESS + " and more " * 200,
+        "x" * 690 + " " + ADDRESS + " and more " * 200,     # an address on the window's edge
+        (f"{long_local}@example.com ") * 200,               # masking shrinks it a lot
+        ("word " * 139) + f"{long_local}@mail.example.com " + "tail " * 500,
+        f"see /x?clone_code={TOKEN} " * 100,
+    )
+    for body in bodies:
+        for limit in (200, 300):
+            whole = audit.redact(normalize.mask_email(body))[:limit]
+            got = http._answer_excerpt("/posts", body, limit)
+            assert got == whole, (limit, body[:40], got[-60:], whole[-60:])
+            assert "anna" not in got, got
+
+
+def test_an_http_error_of_the_upload_shows_the_storage_code_and_message_only():
+    """The storage's error answer repeats the request: the access key id, the text
+    that was signed, the signature. Its <Code> and <Message> say why, the rest stays out."""
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code>'
+            "<Message>The request signature we calculated does not match the signature "
+            f"you provided, {ADDRESS}.</Message><AWSAccessKeyId>{CREDENTIAL}</AWSAccessKeyId>"
+            f"<StringToSign>AWS4-HMAC-SHA256 group-1/files/secret-name.png</StringToSign>"
+            f"<SignatureProvided>{SIGNATURE}</SignatureProvided></Error>")
+    err = _raised(WRITES["put_bytes"], _Resp(403, body))
+    blob = _everything(err)
+    for piece, what in ((CREDENTIAL, "access key id"), (SIGNATURE, "signature"),
+                        ("secret-name.png", "signed text"), ("AWSAccessKeyId", "other fields"),
+                        (ADDRESS, "address")):
+        assert piece not in blob, f"the {what} of the storage's answer is in the error: {err}"
+    assert str(err).startswith("HTTP 403 uploading bytes: SignatureDoesNotMatch: "
+                               "The request signature we calculated"), str(err)
+    assert MASKED in str(err) and err.status == 403, (str(err), err.status)
+
+
+def test_an_http_error_of_the_upload_that_is_not_the_storage_form_shows_no_body():
+    for body in (json.dumps({"error": f"user {ADDRESS}", "key": CREDENTIAL}),
+                 f"<html>denied for {CREDENTIAL}</html>", ""):
+        err = _raised(WRITES["put_bytes"], _Resp(500, body))
+        assert CREDENTIAL not in _everything(err) and "user" not in str(err), str(err)
+        assert str(err).startswith("HTTP 500 uploading bytes") and err.status == 500, str(err)
+        assert "not shown" in str(err), str(err)
+
+
+MUX_URL = f"https://stream.video-host.test/playback-1.m3u8?token={TOKEN}"
+
+
+def test_a_network_error_on_the_video_host_names_no_token_and_has_no_chain():
+    for message in ("Connection timed out", f"Failed to perform: {MUX_URL}",
+                    f"Failed to perform: {MUX_URL.replace('https://', '')}"):
+        err = _raised(lambda h: h.get_mux(MUX_URL), exc=RequestException(message))
+        assert TOKEN not in _everything(err), f"the playback token is in the error: {err}"
+        assert "Network error on https://stream.video-host.test/playback-1.m3u8:" in str(err), \
+            str(err)
+        assert err.status == 0, err.status
+        _no_chain(err, "get_mux")
+    err = _raised(lambda h: h.get_mux(MUX_URL), exc=RequestException("Connection timed out"))
+    assert "Connection timed out" in str(err), "the reason is kept in the text"
+
+
+def test_the_request_to_the_video_host_is_sent_as_before():
+    h = _http(_Resp(200, "#EXTM3U"))
+    assert h.get_mux(MUX_URL) == "#EXTM3U"
+    assert h._http.calls == [("GET", MUX_URL)], h._http.calls
+    err = _raised(lambda h: h.get_mux(MUX_URL), _Resp(403, "E184-1"))
+    assert err.status == 403 and TOKEN not in str(err), str(err)
+
+
+def test_a_network_error_while_looking_for_the_build_id_is_a_skool_error():
+    def call(h):
+        h._build_id = ""
+        return h.build_id("some-group")
+    boom = RequestException("Could not resolve host")
+    err = _raised(call, exc=boom)
+    assert str(err) == ("Network error on https://www.skool.com/some-group: "
+                        "Could not resolve host"), str(err)
+    assert err.status == 0 and err.__cause__ is boom, "an ordinary read keeps its cause"
+    # a library message that names a credential is redacted, and then has no chain
+    err = _raised(call, exc=RequestException(f"redirected to {BASE}/wait?token={TOKEN}"))
+    assert TOKEN not in _everything(err), "the token is in the error or its chain"
+    _no_chain(err, "build_id")
+
+
+def test_an_unknown_wait_answer_is_shown_short_and_masked():
+    """`/wait` says `in-progress` or `completed`. Anything else ends the wait, and
+    the error shows the start of it, from the same place as every other excerpt."""
+    class _H:
+        def __init__(self, state):
+            self.state = state
+
+        def get_api2(self, path):
+            return {"token": TOKEN}
+
+        def get_api2_text(self, path):
+            return self.state
+
+    def ended(state) -> str:
+        c = SkoolClient.__new__(SkoolClient)
+        c.http = _H(state)
+        try:
+            c._analytics("/groups/g1/analytics-v2?chart=mrr")
+        except RuntimeError as e:
+            assert TOKEN not in _everything(e), "the token is in the error"
+            return str(e)
+        raise AssertionError("an unknown wait answer must end the wait")
+
+    assert ended("failed") == ("Skool's wait for /groups/g1/analytics-v2?chart=mrr "
+                               "ended in 'failed'"), ended("failed")
+    text = ended(f"<html>no session for {ADDRESS}</html>" + "x" * 5000)
+    assert ADDRESS not in text and MASKED in text, text
+    assert len(text) < 200, f"the whole answer is in the error ({len(text)} characters)"
+    text = ended("x" * 70 + " " + ADDRESS)
+    assert "anna" not in text, f"a cut address kept its local part: {text}"
+
+
+def test_a_rejected_read_post_names_the_url_the_same_way_as_the_other_reads():
+    err = _raised(READS["post_api2_read"], _Resp(403, "blocked"))
+    assert f"HTTP 403 on {BASE}/search/users " in str(err) and err.status == 403, str(err)
 
 
 if __name__ == "__main__":

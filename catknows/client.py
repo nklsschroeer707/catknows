@@ -25,7 +25,7 @@ from urllib.parse import quote, urlsplit
 
 from . import audit
 from .auth import Session
-from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
+from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge, _answer_excerpt
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
 # CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
@@ -869,7 +869,9 @@ class SkoolClient:
             if state == "completed":
                 break
             if state != "in-progress":
-                raise RuntimeError(f"Skool's wait for {path} ended in {state!r}")
+                # Not one of the two words: show its start only, as every error does.
+                raise RuntimeError(
+                    f"Skool's wait for {path} ended in {_answer_excerpt('', state, 80)!r}")
             time.sleep(_WAIT_POLL_S)
         else:
             raise RuntimeError(f"Skool's wait for {path} did not complete in time")
