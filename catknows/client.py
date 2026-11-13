@@ -441,8 +441,14 @@ class SkoolClient:
         ``via_api=True`` reads ``GET /groups/{gid}/labels``
         (``metadata.display_name``, ``metadata.posts``), Skool's own
         ``getGroupLabels``, at the price of two requests (group id, labels).
-        Only if Skool answers that with 401, 403 or 404 does it fall back to the
-        feed page; any other error is raised. Both ways return the same shape.
+        Only if Skool answers the labels with 401, 403 or 404 does it fall back
+        to the feed page; any other error is raised, 429 included (no request
+        follows a rate limit). Both ways return the same shape.
+
+        That fallback sends one more request AFTER a 401 or 403. A caller that
+        must stop on 401/403 must not use ``via_api=True``; the default reads
+        only the feed page and raises its errors as they come. A 401/403/429 on
+        the group-id lookup is raised either way (`group_id_for`).
         """
         if not via_api:
             return self._post_categories_via_page(community_slug)
@@ -1310,7 +1316,12 @@ class SkoolClient:
 
         So: api2 first (it is the only door for our own drafts and the write
         path), the page as the fallback. ``community_slug`` enables that
-        fallback; without it a non-member just gets the 401.
+        fallback; without it a non-member just gets the 401. Only 401 and 403
+        fall back; any other error is raised, 429 included (no request follows
+        a rate limit).
+
+        That fallback sends one more request AFTER a 401 or 403. A caller that
+        must stop on 401/403 must not pass ``community_slug``.
         """
         try:
             return self.http.get_api2(f"/courses/{course_id}")
@@ -1443,13 +1454,20 @@ class SkoolClient:
         Page ``desc`` is TipTap ``[v2]`` JSON — plain text is wrapped for you.
         A COURSE ``desc`` is plain text (§7.3) and goes out unchanged: wrapping
         it shows the raw JSON under the classroom tile.
+
+        Only a tree read that Skool answers with another error (a folder or
+        page answers 400) means "not a root unit". 401, 403, 429, a network
+        error and the security question are raised, and no PUT is sent.
         """
         fields = dict(fields)
         try:
             cur = (self.course_tree(unit_id).get("course") or {}).get("metadata") or {}
         except SkoolSecurityChallenge:
             raise  # Skool's security question is no "not a root unit": no blind PUT
-        except SkoolHTTPError:
+        except SkoolHTTPError as e:
+            # 401/403/429 or a network error say nothing about the unit: no blind PUT.
+            if e.status in (401, 403, 429) or not e.status:
+                raise
             cur = None  # not a root unit -> flat update, caller sends full set
         if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
             fields["desc"] = tiptap(str(fields["desc"]))
@@ -2056,14 +2074,27 @@ class SkoolClient:
         1``, measured on `vrooms-3264` 17.08.), so the check costs no extra
         request. Archiving leaves a community readable and turns every write
         off, so only the write paths pass the flag; reads must keep working.
+
+        When ``GET /groups/{slug}`` fails, this raises the `SkoolHTTPError`
+        (nothing else is requested) if Skool answered 401, 403 or 429, on
+        every path, or if ``for_write=True``, whatever the error: a community
+        that could not be checked for "archived" is not written to. Only a read
+        that failed some other way (a 500, a 404, a network error) falls back
+        to the feed page. The slug goes through `_id_segment` (``ValueError``
+        before any request).
         """
         group = {}
+        slug = _id_segment(community_slug, "community_slug")
         try:
-            group = self.http.get_api2(f"/groups/{community_slug}") or {}
+            group = self.http.get_api2(f"/groups/{slug}") or {}
         except SkoolSecurityChallenge:
             raise  # Skool's security question is a stop, not a hiccup to route around
-        except SkoolHTTPError:
-            pass  # e.g. WAF hiccup — the posts bootstrap still works
+        except SkoolHTTPError as e:
+            # 401/403/429: the account is being turned away; one more request
+            # (and above all the write that would follow) is what must not happen.
+            if for_write or e.status in (401, 403, 429):
+                raise
+            # any other read failure: the posts bootstrap still works
         # Outside the try: an archived community is a definitive answer, not a
         # transient failure, so it must not fall through to the posts bootstrap.
         if for_write and (group.get("archived")

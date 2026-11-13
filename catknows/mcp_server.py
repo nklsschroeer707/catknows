@@ -1533,7 +1533,11 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                        .get("channel") or {}).get("group_id") or ""
             except SkoolSecurityChallenge:
                 raise  # not an "unknown channel": Skool asked a security question
-            except SkoolHTTPError:
+            except SkoolHTTPError as e:
+                # 401/403/429 or a network error: not an "unknown channel" either,
+                # and nothing more may go out after them.
+                if e.status in (401, 403, 429) or not e.status:
+                    raise
                 gid = ""
             if not gid:
                 raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
