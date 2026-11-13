@@ -466,10 +466,39 @@ def test_drafts_send_nothing_and_say_what_would_happen():
     assert created["would_create"]["event"]["metadata"]["title"] == "Coffee hour", created
     assert changed["would_update"]["event_id"] == "ev1", changed
     assert changed["would_update"]["from_occurrence_id"] == "occ-9", changed
-    assert changed["would_update"]["event"] == {"metadata": {"title": "New title"}}, changed
+    assert changed["would_update"]["event"]["metadata"] == {"title": "New title"}, changed
     assert deleted["would_delete"]["event_id"] == "ev1", deleted
     assert deleted["would_delete"]["from_occurrence_id"] == "occ-9", deleted
     assert "following" in deleted["would_delete"]["applies_to"], deleted
+
+
+def test_a_draft_shows_the_body_that_confirm_sends():
+    """One place builds the body for the draft and for the request. The draft
+    contacts nobody, so the one value it cannot know, group_id, is a fixed
+    placeholder there; every other key and value is what goes out."""
+    import catknows.mcp_server as m
+    marker = m._GROUP_ID_ON_CONFIRM
+    assert isinstance(marker, str) and "community_slug" in marker and "confirm" in marker, marker
+    for name, args, kw, key in (
+        ("create_calendar_event", (), _tool_args(), "would_create"),
+        ("create_calendar_event", (SLUG,),
+         dict(title="Quick call", start_time=START, end_time=END, location_type=5),
+         "would_create"),
+        ("update_calendar_event", (SLUG, "ev1"),
+         dict(title="New title", reminder_disabled=1, from_occurrence_id="occ-9"),
+         "would_update"),
+        ("update_calendar_event", (SLUG, "ev1"), dict(start_time=START), "would_update"),
+    ):
+        c = _client()
+        draft = _with_client(c, lambda m: _fn(getattr(m, name))(*args, **kw))
+        assert c.http.calls == [], f"a draft must not touch Skool at all: {c.http.calls}"
+        _with_client(c, lambda m: _fn(getattr(m, name))(*args, **kw, confirm=True))
+        (_, _, sent), = c.http.writes
+        shown = draft[key]["event"]
+        assert list(shown) == list(sent), (name, list(shown), list(sent))
+        assert shown["group_id"] == marker, (name, shown)
+        assert sent["group_id"] == GID, (name, sent)
+        assert {**shown, "group_id": GID} == sent, (name, shown, sent)
 
 
 def test_a_delete_draft_says_when_it_takes_the_whole_event():
@@ -509,6 +538,8 @@ def test_every_draft_carries_a_fixed_not_verified_text():
         and "timezone" in nv_create, nv_create
     # update: whether Skool keeps a field the update leaves out
     assert "keeps or resets" in nv_update and "leaves out" in nv_update, nv_update
+    # both: group_id is in the body, and the draft shows a placeholder for it
+    assert "group_id" in nv_create and "group_id" in nv_update, (nv_create, nv_update)
     # delete: the draft cannot show the title, so the human must know the event
     assert "cannot show" in nv_delete and "title" in nv_delete \
         and "which event" in nv_delete, nv_delete

@@ -81,7 +81,7 @@ def test_delete_is_the_same_endpoint_for_both():
     c.delete_post("p1")
     c.delete_post("c1")
     assert c.http.deletes == ["/posts/p1", "/posts/c1"], c.http.deletes
-    # deletePost is the one DELETE Skool's own client sends a body with: `{}`.
+    # deletePost is the one DELETE catknows sends a body with: `{}`.
     assert c.http.delete_bodies == [{}, {}], c.http.delete_bodies
 
 

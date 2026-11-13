@@ -931,7 +931,7 @@ class SkoolClient:
                 raise ValueError(f"{key} must be text.")
             if len(meta[key]) > limit:
                 raise ValueError(f"{key} has {len(meta[key])} characters; "
-                                 f"Skool allows at most {limit}.")
+                                 f"Skool's event form allows at most {limit}.")
         if "location" in meta:
             SkoolClient._check_calendar_location(meta["location"])
 
@@ -973,6 +973,16 @@ class SkoolClient:
             path += f"?from_occurrence_id={quote(from_occurrence_id, safe='')}"
         return path
 
+    @staticmethod
+    def calendar_event_body(group_id: str, event: dict) -> dict:
+        """The body of a calendar write: ``{"group_id": ..., **event}``.
+
+        The one place it is built, so a draft can show the body that goes out
+        (the MCP tools pass a placeholder for ``group_id`` there: a draft does
+        not contact Skool, and the id is looked up from the slug on confirm).
+        """
+        return {"group_id": group_id, **event}
+
     def create_calendar_event(self, community_slug: str, event: dict) -> dict:
         """Create a calendar event: ``POST /calendar-events`` (§5.11). Raw answer.
 
@@ -987,7 +997,8 @@ class SkoolClient:
         if "group_id" in event:
             raise ValueError("event carries no group_id: the community slug decides it.")
         group_id = self.group_id_for(community_slug, for_write=True)
-        return self.http.post_api2("/calendar-events", {"group_id": group_id, **event})
+        return self.http.post_api2("/calendar-events",
+                                   self.calendar_event_body(group_id, event))
 
     def update_calendar_event(self, event_id: str, event: dict, *,
                               from_occurrence_id: str = "") -> dict:
@@ -1069,7 +1080,8 @@ class SkoolClient:
             raise ValueError("display_name must be non-blank text.")
         if len(display_name) > SkoolClient.CATEGORY_NAME_MAX:
             raise ValueError(f"display_name has {len(display_name)} characters; "
-                             f"Skool allows at most {SkoolClient.CATEGORY_NAME_MAX}.")
+                             f"Skool's category form allows at most "
+                             f"{SkoolClient.CATEGORY_NAME_MAX}.")
 
     @staticmethod
     def check_category_options(default_sort, post_write_role) -> None:
@@ -1991,10 +2003,14 @@ class SkoolClient:
         gets created, counted and indexed, then shows as "Comment was deleted"
         (Dan's write test 2026-09-15: all 5 replies under top-level comments
         survived, both replies under replies died; the same texts posted by
-        hand under the top-level comment stayed). Skool's own UI never sends
-        that: replying to a reply posts under the top-level comment and opens
-        with an @-mention of the person. We do the same. ``mention`` is the
-        prefix to put before the text ("" when nothing was re-hung).
+        hand under the top-level comment stayed). So catknows never sends a
+        reply's id as ``parent_id``: a reply to a reply goes under the top-level
+        comment and opens with an @-mention of the person. That is catknows' own
+        rule. Skool's page code was read as sending ``parent_id`` = the reply's
+        id for a reply to a reply; whether the server then re-hangs it under the
+        top-level comment is not known, and why the test replies died is not
+        either. ``mention`` is the prefix to put before the text ("" when
+        nothing was re-hung).
 
         The lookup behind this (``GET /posts/{id}``) is catknows' own rule, not
         a call of Skool's web client. This method does it for every reply; a

@@ -1921,14 +1921,25 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
 
     # Fixed texts for the drafts: what only a live run can settle travels with the
     # draft, because a docstring is not seen by the human who confirms.
+    # A draft does not contact Skool, so it cannot know the community's id. The
+    # body it shows is built by the same call as the one that is sent
+    # (`SkoolClient.calendar_event_body`), with this text in place of the id.
+    _GROUP_ID_ON_CONFIRM = "(the community's id, looked up from community_slug on confirm)"
+    _NV_CALENDAR_GROUP_ID = (
+        " `event` is the request body as it goes out, except group_id: that is the "
+        "community's id, which catknows looks up from community_slug only on confirm, "
+        "so the draft shows a placeholder for it."
+    )
     _NV_CALENDAR_CREATE = (
         "Not verified live: which fields Skool requires, and the format it wants for "
         "start_time, end_time and timezone (they go out exactly as shown)."
+        + _NV_CALENDAR_GROUP_ID
     )
     _NV_CALENDAR_UPDATE = (
         "Not verified: whether Skool keeps or resets a field this update leaves out "
         "(its own form always sends the whole event), so every field the event should "
         "keep must be in this draft. The current event is not read back."
+        + _NV_CALENDAR_GROUP_ID
     )
     _NV_CALENDAR_DELETE = (
         "This draft cannot show the event's title. Make sure the user knows which "
@@ -1971,14 +1982,19 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "position", "until", "count"}.
 
         Draft-first: with confirm=false NOTHING is created and Skool is not
-        contacted. Call again with confirm=true once the user approved.
+        contacted. The draft's `event` is the request body; its group_id is a
+        placeholder, because the community's id is looked up only on confirm.
+        Call again with confirm=true once the user approved.
         """
         event = _calendar_event_object(title, description, start_time, end_time, timezone,
                                        reminder_disabled, location_type, location_info,
                                        privacy, recurrence)
         if not confirm:
+            from .client import SkoolClient
             return _draft("DRAFT — nothing was created", "would_create",
-                          {"community": community_slug, "event": event},
+                          {"community": community_slug,
+                           "event": SkoolClient.calendar_event_body(
+                               _GROUP_ID_ON_CONFIRM, event)},
                           not_verified=_NV_CALENDAR_CREATE)
         created = _get_client().create_calendar_event(community_slug, event)
         return {"status": "created", "event": _safe_raw(created)}
@@ -2003,14 +2019,16 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """Change an EXISTING calendar event, as the logged-in user.
 
         Same fields and limits as create_calendar_event. Only what you set is
-        sent. ⚠ Skool's own form always sends the whole event; whether a field you
+        sent (plus the community's group_id). ⚠ Skool's own form always sends the whole event; whether a field you
         leave out is kept or reset is not verified, so pass every field the event
         should keep. from_occurrence_id empty = the whole event; set = that
         occurrence and all following ones of the series.
 
         Draft-first: with confirm=false NOTHING is changed and Skool is not
-        contacted. The draft shows the ids and the new values only; the current
-        event is not read back. Call again with confirm=true once approved.
+        contacted. The draft shows the ids and, as `event`, the request body
+        (the new values; group_id is a placeholder, looked up only on confirm);
+        the current event is not read back. Call again with confirm=true once
+        approved.
         """
         event = _calendar_event_object(title, description, start_time, end_time, timezone,
                                        reminder_disabled, location_type, location_info,
@@ -2025,13 +2043,15 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
                           {"community": community_slug, "event_id": event_id,
                            "from_occurrence_id": from_occurrence_id,
                            "applies_to": _calendar_scope(from_occurrence_id),
-                           "event": event},
+                           "event": SkoolClient.calendar_event_body(
+                               _GROUP_ID_ON_CONFIRM, event)},
                           prose="title" in meta or "description" in meta,
                           not_verified=_NV_CALENDAR_UPDATE)
         client = _get_client()
         group_id = client.group_id_for(community_slug, for_write=True)  # archived guard
         updated = client.update_calendar_event(
-            event_id, {"group_id": group_id, **event}, from_occurrence_id=from_occurrence_id)
+            event_id, SkoolClient.calendar_event_body(group_id, event),
+            from_occurrence_id=from_occurrence_id)
         return {"status": "updated", "event": _safe_raw(updated)}
 
     @mcp.tool()
@@ -2085,8 +2105,9 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "server rule is not verified."
     )
     _NV_CREATE_CATEGORY = (
-        "Not verified: Skool allows at most 10 categories and catknows does not count "
-        "them, so a full list is refused only when Skool answers. No description is sent."
+        "Not verified: Skool's category form stops at 10 categories (the server's "
+        "limit is not known) and catknows does not count them, so whether Skool refuses "
+        "one more shows only in its answer. No description is sent."
     )
     _NV_RENAME_CATEGORY = (
         "Not verified: only display_name is sent, and Skool's own form always sends "
@@ -2103,7 +2124,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     _NV_COMMENTS = (
         "Not verified: who the server lets switch comments (the web client offers it to "
         "admins and moderators) and whether existing comments stay visible while "
-        "comments are off. A new comment on such a post is answered with 409."
+        "comments are off. Skool's page code handles a 409 ('Comments have been "
+        "disabled') for a new comment on such a post (read from the code, not run)."
     )
     _NV_PIN_COMMENT = (
         "Not verified: the web client allows one pinned comment per post; whether a "

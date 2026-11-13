@@ -31,8 +31,17 @@ Two cookies matter:
 
 | Cookie | What it is | Sent as |
 |---|---|---|
-| `auth_token` | Session JWT | `Cookie:` header, **and** `Authorization: Bearer <jwt>` on api2 calls |
+| `auth_token` | Session JWT | `Cookie:` header; catknows **also** sends it as `Authorization: Bearer <jwt>` on api2 calls (see below) |
 | `aws-waf-token` | AWS-WAF challenge token | `Cookie:` header, **and** `x-aws-waf-token: <value>` header on api2 calls |
+
+**The `Authorization: Bearer` header is catknows' own, and open.** catknows sends
+it on every api2 call, and that way works (measured). Skool's own browser client
+was **not** observed sending it: in its page code the API calls carry no
+`Authorization` header and the browser signs in with the cookies alone. One live
+read, `GET /groups/{gid}/labels`, answered 200 without the header. That is one
+read call: whether the other calls and the writes work without it, and whether
+the header is or stays needed, is open. Wherever this document lists the header,
+read it as "what catknows sends", not as "what Skool requires".
 
 ### 0.2 Skool sits behind AWS-WAF
 
@@ -102,7 +111,8 @@ Two backends, two request "shapes":
 - **Next.js shape** → `www.skool.com/_next/data/{buildId}/…` — camelCase JSON,
   wrapped in `pageProps`. Header `x-nextjs-data: 1`.
 - **api2 shape** → `api2.skool.com/…` — snake_case (mostly), no `pageProps`
-  wrapper. Needs `Authorization: Bearer` + `x-aws-waf-token`.
+  wrapper. catknows sends `Authorization: Bearer` + `x-aws-waf-token` (the Bearer
+  header is not one Skool's browser client sends; whether it is needed is open, §0.1).
 
 Below, `{slug}` = community slug, `{buildId}` = discovered buildId,
 `{gid}` = group UUID, `{postId}` = post id.
@@ -861,7 +871,9 @@ loops. Skool will rate-limit aggressive clients.
 
 ## 4. Minimal request example (any language)
 
-Pseudocode for one api2 call, showing the full header set that gets past WAF.
+Pseudocode for one api2 call, showing the full header set catknows sends, which
+gets past WAF. The `Authorization` line is catknows' own: Skool's browser client
+was not observed sending it, and whether api2 needs it is open (§0.1).
 Remember §0.2: these headers only work when sent over a **Chrome TLS
 handshake** (`curl_cffi`, a browser, …) — from a default python/curl TLS
 stack, api2 answers 403 no matter what you send:
@@ -870,7 +882,7 @@ stack, api2 answers 403 no matter what you send:
 GET https://api2.skool.com/posts/{postId}/vote-users?limit=10&tab=upvotes&cursor=
 Headers:
   Cookie:            auth_token={jwt}; aws-waf-token={waf}; <rest of jar>
-  Authorization:     Bearer {jwt}
+  Authorization:     Bearer {jwt}      <- sent by catknows; not seen in Skool's browser client (§0.1)
   x-aws-waf-token:   {waf}
   User-Agent:        Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/131.0.0.0 ...
   sec-ch-ua:         "Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"
@@ -895,8 +907,9 @@ endpoints). Field mappings and every quirk above are implemented in
 
 Everything above is read-only. Skool's frontend also **creates** content through
 `api2.skool.com`, and those endpoints work the same way from a script: same
-cookies, same `Authorization: Bearer` + `x-aws-waf-token` header set as the api2
-GETs (§4), but `POST` with a JSON body.
+cookies, same header set as the api2 GETs (§4; catknows sends `Authorization:
+Bearer` + `x-aws-waf-token`, and the Bearer header's need is open, §0.1), but
+`POST` with a JSON body.
 
 > **Write carefully.** These act as *you*, in your own communities, visible to
 > real members. A post with `notify=members` emails everyone. Test in a private
@@ -1160,9 +1173,12 @@ POST https://api2.skool.com/posts?follow=false
 A comment hung under a reply is created, counted and searchable, then shows
 as "Comment was deleted" (Dan's local write test, 2026-09-15: 5/5 replies
 under top-level comments survived, 2/2 under replies died; the same texts
-posted by hand stayed). Skool's own UI never sends that — replying to a reply
-posts under the top-level comment with an @-mention of the person.
-`create_comment()` does the same via `reply_target()`; `GET /posts/{replyId}`
+posted by hand stayed). So catknows never sends a reply's id as `parent_id`:
+a reply to a reply goes under the top-level comment with an @-mention of the
+person. That is catknows' own rule. In Skool's page code a reply to a reply was
+read as sending `parent_id` = the reply's id; whether the server then re-hangs it
+under the top-level comment is not known, and neither is why the test replies died.
+`create_comment()` applies the rule via `reply_target()`; `GET /posts/{replyId}`
 gives the reply's `parent_id` (its top-level comment), the name comes from the
 comment tree. That lookup, `GET /posts/{id}`, is catknows' own rule, not a call
 of Skool's web client. A library caller that already knows the target is a
@@ -1311,7 +1327,12 @@ event, from_occurrence_id=…)` (sends `event` as it is) and
 as it is. The `create_calendar_event`, `update_calendar_event` and
 `delete_calendar_event` MCP tools (behind `CATKNOWS_ALLOW_WRITE=1`) are
 draft-first: `confirm=false` contacts nobody and returns what would be sent,
-plus a fixed `not_verified` text (create: required fields and the time format;
+plus a fixed `not_verified` text. For create and update the draft's `event` is the
+request body, built by the same call as the one that is sent
+(`SkoolClient.calendar_event_body`); only `group_id` is a placeholder there,
+because the community's id is looked up from the slug on confirm (the update tool
+adds `group_id` to the body like create does). The `not_verified` text says
+(create: required fields and the time format;
 update: whether Skool keeps a field the update leaves out; delete: the draft cannot
 show the event's title, so the user must know which event the id is).
 A security question (§3) is never swallowed and never retried. The audit line

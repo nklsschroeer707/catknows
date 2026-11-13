@@ -581,6 +581,11 @@ def test_drafts_carry_a_fixed_note_on_what_is_not_verified():
     assert "old" in drafts["vote_post"]["not_verified"]
     assert "[v2]" in drafts["update_about_description"]["not_verified"]
     assert "10" in drafts["create_category"]["not_verified"]
+    # 10 is the category form's limit and the 409 is read from the page code:
+    # neither is stated as what Skool's server does.
+    assert "form" in drafts["create_category"]["not_verified"]
+    assert "Skool allows" not in drafts["create_category"]["not_verified"]
+    assert "read from the code" in drafts["set_post_comments"]["not_verified"]
     assert "one" in drafts["pin_comment"]["not_verified"]
 
 
