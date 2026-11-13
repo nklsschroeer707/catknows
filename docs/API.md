@@ -232,7 +232,9 @@ GET https://api2.skool.com/groups/{gid}/labels          (no query)
 carries the same list as `currentGroup.labels[]` (camelCase:
 `metadata.displayName`, `metadata.posts`, `metadata.defaultSort`).
 The endpoint is verified and reachable with `post_categories(via_api=True)`,
-which falls back to the feed page only if it answers 401, 403 or 404. The
+which falls back to the feed page only if it answers 401, 403 or 404, never
+after 429. That fallback is one more request after a 401/403: a caller that
+must stop on those must not use `via_api=True`. The
 default, `post_categories()`, reads the feed page (one request, usually a cache
 hit on the page `posts()` just read; no group id needed); `resolve_category()`,
 `list_posts` and `search_community` use the default. Both ways give
@@ -539,7 +541,10 @@ trap that made `list_posts` return slugs instead of titles.
 (measured 2026-08-17 across 53 groups, 2 of them archived). Either spelling
 alone is enough to treat a group as archived. `GET /groups/{slug}` returns the
 same two fields, which is why the write path can check it without an extra
-request. Archiving is **read-only, not hidden**: posts and members still list,
+request. `client.group_id_for` raises when that request gets 401, 403 or 429,
+and on the write path (`for_write=True`) on any error, so nothing else is
+requested and nothing is written; only a read that failed some other way falls
+back to the feed page (`post.groupId` of the first post). Archiving is **read-only, not hidden**: posts and members still list,
 while creating posts, comments, polls and courses is off.
 
 **`admin-metrics`** (owner-only) returns `total_members[]` and `active_members[]`
@@ -1904,7 +1909,9 @@ camelCase here and snake_case on api2 (`unitType`/`unit_type`,
 `hasAccess`/`has_access`); readers must take both.
 
 `client.course_tree(course_id, community_slug)` tries api2 first and falls
-back to the page. `http._auth_rejected` also forks on the `action not
+back to the page, on 401/403 only (never after 429). That fallback is one more
+request after a 401/403: a caller that must stop on those passes no
+`community_slug`. `http._auth_rejected` also forks on the `action not
 permitted` body, so when neither door opens the error names the real cause —
 re-logging in never clears that one.
 

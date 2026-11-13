@@ -59,6 +59,25 @@ Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
   on request. `docs/API.md` has the details.
 - **The write log names two more ids:** `calendar_event_id` and `category_id`.
   Still ids only, never content.
+- **Breaking (library): `group_id_for` now raises instead of carrying on.**
+  When Skool answers `GET /groups/{slug}` with 401, 403 or 429, the error is
+  raised and nothing else is requested. On the write paths
+  (`for_write=True`) every error is raised: a community that could not be
+  checked for "archived" is not written to. Only a read that failed some
+  other way still falls back to the feed page. Code that relied on the quiet
+  fallback has to catch `SkoolHTTPError` now.
+- **After 401, 403 or 429 no write follows.** Editing a course item no
+  longer reads such an answer (or a network error) as "not a course" and
+  sends the change anyway, and `send_dm` with attachments no longer reports
+  it as an unknown channel; both stop with Skool's error.
+- **The security-question message says stop.** It no longer suggests trying
+  again later: do not retry automatically, stop and tell the user.
+- **`likes()` keeps each voter once,** and says in its docstring that it ends
+  quietly (no error, no flag) at `max_pages`, on a standing cursor or an
+  empty page.
+- The category list with `via_api=True` and `course_tree` with a slug still
+  fall back to the page after 401/403 and never after 429; their docstrings
+  now say a caller that must stop on 401/403 cannot use that fallback.
 
 ### Fixed
 - **A course share key and a verified client id stay out of the audit log and
@@ -66,6 +85,11 @@ Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
   course) are blanked there, and an error about the key request shows nothing
   of Skool's answer. The tool's own answer and a bare key that Skool echoes
   in an import error body are not covered.
+- **An id from the caller cannot point a request elsewhere.** Every id that
+  goes into a path or query is checked and encoded the same way (blank text
+  or only dots is refused before anything is sent), the two reading POSTs
+  accept only their own two paths, and a file download link must be https
+  with a host.
 
 ## 2026-11-12
 
