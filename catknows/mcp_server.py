@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 import mimetypes
 import os
 import sys
@@ -56,6 +57,7 @@ _AUDIT_ARGS = {  # tool argument -> audit field
     "course_id": "course_item_id",
     "channel_id": "dm_channel_id",
     "member_id": "member_id",
+    "event_id": "calendar_event_id",
 }
 
 
@@ -1583,6 +1585,181 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         _get_client().delete_course_item(item_id, client_id=client_id)
         return {"status": "deleted", "item_id": item_id}
 
+    # -- calendar events ---------------------------------------------------------
+    # Read from Skool's page code, not yet run live (docs/API.md §5.11). The web
+    # client shows the buttons to community admins only; whether the server
+    # enforces the same is not verified.
+
+    def _calendar_event_object(
+        title: str, description: str, start_time: str, end_time: str, timezone: str,
+        reminder_disabled: int, location_type: int, location_info: str,
+        privacy: str, recurrence: str,
+    ) -> dict:
+        """Skool's event object from the flat tool arguments.
+
+        Whatever was not given (empty text, 0, -1) is left out, not sent as blank.
+        Times and timezone go through as given: their wire format is not documented.
+        """
+        meta: dict = {}
+        if title:
+            meta["title"] = title
+        if description:
+            meta["description"] = description
+        if timezone:
+            meta["timezone"] = timezone
+        if reminder_disabled >= 0:
+            meta["reminder_disabled"] = reminder_disabled
+        if location_type:
+            loc: dict = {"location_type": location_type}
+            if location_info:
+                loc["location_info"] = location_info
+            # JSON text, as Skool's form sends it (no spaces, like JSON.stringify).
+            meta["location"] = json.dumps(loc, separators=(",", ":"), ensure_ascii=False)
+        elif location_info:
+            raise ValueError("location_info needs a location_type.")
+        if privacy:
+            meta["privacy"] = privacy
+        event: dict = {}
+        if start_time:
+            event["start_time"] = start_time
+        if end_time:
+            event["end_time"] = end_time
+        if meta:
+            event["metadata"] = meta
+        if recurrence:
+            try:
+                event["recurrence"] = json.loads(recurrence)
+            except ValueError:
+                raise ValueError("recurrence must be JSON text of an object.") from None
+            if not isinstance(event["recurrence"], dict):
+                raise ValueError("recurrence must be JSON text of an object.")
+        from .client import SkoolClient
+        SkoolClient.check_calendar_event(event)  # a draft must not promise what would fail
+        return event
+
+    def _calendar_scope(from_occurrence_id: str) -> str:
+        if from_occurrence_id:
+            return "this occurrence and all following ones of the series"
+        return "the whole event (every occurrence)"
+
+    @mcp.tool()
+    def create_calendar_event(
+        community_slug: str,
+        title: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        description: str = "",
+        timezone: str = "",
+        reminder_disabled: int = -1,
+        location_type: int = 0,
+        location_info: str = "",
+        privacy: str = "",
+        recurrence: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Create a calendar event in the community, as the logged-in user.
+
+        title at most 30 characters, description at most 300. Empty / 0 / -1 means
+        "not sent". start_time, end_time and timezone go to Skool exactly as you
+        pass them (their format is not documented, so nothing is converted).
+        reminder_disabled: 0 = reminder email 1 day before, 1 = no reminder.
+        location_type: 1 Zoom, 2 Meet, 3 Address, 4 Link (location_info = the
+        link or address), 5 Skool call, 6 Skool webinar (5 and 6 take NO
+        location_info: Skool assigns the call).
+        privacy: JSON text, {"privacy_type": 0} all members, 1 on/above a level
+        (+ "min_access_level" 1-9), 2 a course (+ "access_course"), 3 on/above a
+        tier (+ "min_tier" 1-3). recurrence: JSON text of {"frequency": "daily" |
+        "weekly" | "monthly" | "yearly", "interval", "days", "month_day",
+        "position", "until", "count"}.
+
+        Draft-first: with confirm=false NOTHING is created and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        event = _calendar_event_object(title, description, start_time, end_time, timezone,
+                                       reminder_disabled, location_type, location_info,
+                                       privacy, recurrence)
+        if not confirm:
+            return _draft("DRAFT — nothing was created", "would_create",
+                          {"community": community_slug, "event": event})
+        created = _get_client().create_calendar_event(community_slug, event)
+        return {"status": "created", "event": _safe_raw(created)}
+
+    @mcp.tool()
+    def update_calendar_event(
+        community_slug: str,
+        event_id: str,
+        title: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        description: str = "",
+        timezone: str = "",
+        reminder_disabled: int = -1,
+        location_type: int = 0,
+        location_info: str = "",
+        privacy: str = "",
+        recurrence: str = "",
+        from_occurrence_id: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Change an EXISTING calendar event, as the logged-in user.
+
+        Same fields and limits as create_calendar_event. Only what you set is
+        sent. ⚠ Skool's own form always sends the whole event; whether a field you
+        leave out is kept or reset is not verified, so pass every field the event
+        should keep. from_occurrence_id empty = the whole event; set = that
+        occurrence and all following ones of the series.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. The draft shows the ids and the new values only; the current
+        event is not read back. Call again with confirm=true once approved.
+        """
+        event = _calendar_event_object(title, description, start_time, end_time, timezone,
+                                       reminder_disabled, location_type, location_info,
+                                       privacy, recurrence)
+        if not event:
+            raise ValueError("Nothing to update: pass at least one field.")
+        from .client import SkoolClient
+        SkoolClient.calendar_event_path(event_id, from_occurrence_id)  # refuse a bad id up front
+        if not confirm:
+            meta = event.get("metadata", {})
+            return _draft("DRAFT — nothing was changed", "would_update",
+                          {"community": community_slug, "event_id": event_id,
+                           "from_occurrence_id": from_occurrence_id,
+                           "applies_to": _calendar_scope(from_occurrence_id),
+                           "event": event},
+                          prose="title" in meta or "description" in meta)
+        client = _get_client()
+        group_id = client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.update_calendar_event(
+            event_id, {"group_id": group_id, **event}, from_occurrence_id=from_occurrence_id)
+        return {"status": "updated", "event": _safe_raw(updated)}
+
+    @mcp.tool()
+    def delete_calendar_event(community_slug: str, event_id: str,
+                              from_occurrence_id: str = "", confirm: bool = False) -> dict:
+        """PERMANENTLY delete a calendar event. This cannot be undone.
+
+        from_occurrence_id empty = the whole event, every occurrence; set = that
+        occurrence and all following ones of the series.
+
+        confirm=false (the default) deletes nothing and does not contact Skool. The
+        draft shows the id and what it covers; the event's title is not read
+        back, so make sure the user knows which event this id is.
+        """
+        from .client import SkoolClient
+        SkoolClient.calendar_event_path(event_id, from_occurrence_id)  # refuse a bad id up front
+        if not confirm:
+            return _draft("DRAFT — nothing was deleted", "would_delete",
+                          {"community": community_slug, "event_id": event_id,
+                           "from_occurrence_id": from_occurrence_id,
+                           "applies_to": _calendar_scope(from_occurrence_id)},
+                          prose=False)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        client.delete_calendar_event(event_id, from_occurrence_id=from_occurrence_id)
+        return {"status": "deleted", "event_id": event_id,
+                "from_occurrence_id": from_occurrence_id}
+
 
 # -- tool annotations ----------------------------------------------------------
 # Clients (and the Anthropic connector directory) read these hints to decide
@@ -1606,6 +1783,7 @@ _DESTRUCTIVE = {
     "edit_post", "edit_comment", "delete_post", "delete_comment",
     "create_course", "create_course_item", "update_course_item",
     "publish_course", "move_course_item", "delete_course_item", "review_join_request",
+    "create_calendar_event", "update_calendar_event", "delete_calendar_event",
 }
 
 

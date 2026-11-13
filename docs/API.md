@@ -460,7 +460,7 @@ plain client just returns the current set).
 | Purpose | Method | Shape |
 |---|---|---|
 | Community About | `GET /_next/data/{buildId}/{slug}/about.json?group={slug}` | Next.js |
-| Calendar/events | `GET /_next/data/{buildId}/{slug}/calendar.json?group={slug}` (`&calDate={unixTs}` for other months) | Next.js |
+| Calendar/events | `GET /_next/data/{buildId}/{slug}/calendar.json?group={slug}` (`&calDate={unixTs}` for other months) | Next.js (writing events: §5.11) |
 | Classroom/courses (tiles only — modules need §7.1) | `GET /_next/data/{buildId}/{slug}/classroom.json?group={slug}` | Next.js |
 | Single course/module | `GET /_next/data/{buildId}/{slug}/classroom/{courseId}.json?group={slug}&course={courseId}` (`&md={moduleId}` for a specific lesson) — or the api2 tree, §7.1 | Next.js |
 | Pending join requests (admin) | `GET /_next/data/{buildId}/{slug}/-/pending.json?group={slug}` (send `X-KL-Ajax-Request: Ajax_Request`; see §6.5) | Next.js |
@@ -1163,6 +1163,102 @@ so it stays undocumented rather than guessed. The read side (§1.5,
 `/posts/{id}/vote-users`) exists; the write verb likely follows the same `api2`
 conventions but confirm it from your own browser's Network tab before relying
 on it.
+
+### 5.11 Calendar events — create, change, delete
+
+> **Status: read from Skool's own page code (build `1794436674711`, 12 Nov 2026),
+> never run against Skool.** Every path, field and limit below is what the web
+> client's event form uses. Nothing here was measured live, which is why the end
+> of this section lists what is still open. Test with a throwaway event in a
+> private community before relying on it.
+
+```
+POST   https://api2.skool.com/calendar-events
+PUT    https://api2.skool.com/calendar-events/{id}?from_occurrence_id={occId}
+DELETE https://api2.skool.com/calendar-events/{id}?from_occurrence_id={occId}
+```
+
+Create and update carry the **same object**, the whole event form. The DELETE has
+no body (`SkoolHTTP.delete_api2()` sends none unless one is passed).
+
+```jsonc
+{
+  "group_id": "…",
+  "start_time": …, "end_time": …,
+  "metadata": {
+    "title": "…",                  // at most 30 characters
+    "description": "…",            // at most 300 characters
+    "timezone": "…",
+    "reminder_disabled": 0,        // 0 = reminder email 1 day before, 1 = off
+    "cover_image": …,
+    "location": "{\"location_type\":4,\"location_info\":\"https://…\"}",   // JSON TEXT
+    "privacy":  "{\"privacy_type\":0}"                                      // JSON TEXT
+  },
+  "recurrence": { "interval": 1, "frequency": "weekly", "days": [2],
+                  "month_day": …, "position": …, "until": …, "count": 10 }
+}
+```
+
+`location` and `privacy` are JSON **text** inside the JSON body, not objects.
+
+| Field | Values |
+|---|---|
+| `location_type` | `1` Zoom, `2` Meet (both: `location_info` = the link), `3` Address (text), `4` Link, `5` Skool call, `6` Skool webinar |
+| `location_info` for `5`, `6` | **not sent.** The form has no input there; the server hands out the call code and the link is `<community>/live/<code>` (`?ajw=1` for a webinar, which needs a paid plan) |
+| `privacy_type` | `0` all members, `1` on/above a level (`min_access_level` 1–9), `2` members of a course (`access_course` = course id), `3` on/above a tier (`min_tier` 1 Standard, 2 Premium, 3 VIP) |
+| `recurrence.frequency` | `daily`, `weekly`, `monthly`, `yearly`; `interval` from 1 to at most 15 (daily) / 12 (weekly) / 3 (monthly) / 3 (yearly) |
+| `recurrence.days` | weekly: list of 1–7 (1 = Monday); monthly: one weekday together with `position` (1–4 or -1 for the last) |
+| `recurrence` end | none, or `until` (the form uses 23:59:59 in the event's timezone), or `count` 1–99 |
+
+**`from_occurrence_id`** is how Skool's "Edit recurring event" dialog says *This
+and following events*: with it, an update or delete covers that occurrence and
+all later ones; without it, the whole event. Changing or deleting **one**
+occurrence alone is a different pair of calls
+(`PUT /calendar-events/{id}/occurrence/{occId}`,
+`DELETE /calendar-events/{id}/occurrence/{occId}`) and is **not built**.
+
+The web client shows the Plus button and "Edit event" to community **admins**
+only (the role `group-admin`). That is read from the page code; a moderator or member is
+probably refused by the server too, but that is not verified.
+
+**Checks before anything is sent** (`SkoolClient.check_calendar_event`, a
+`ValueError` and zero requests on a violation): `title` ≤ 30 characters,
+`description` ≤ 300, `location` must be JSON text of an object with a
+`location_type`, and types `5` and `6` must not carry a `location_info` key at all.
+The checks look at the fields that are present; no required set is enforced.
+Nothing else is validated (recurrence maxima, privacy values, the time fields).
+
+Implemented as `SkoolClient.create_calendar_event(slug, event)` (adds `group_id`
+from the slug and refuses an archived community), `update_calendar_event(id,
+event, from_occurrence_id=…)` (sends `event` as it is) and
+`delete_calendar_event(id, from_occurrence_id=…)`; all three return Skool's answer
+as it is. The `create_calendar_event`, `update_calendar_event` and
+`delete_calendar_event` MCP tools (behind `CATKNOWS_ALLOW_WRITE=1`) are
+draft-first: `confirm=false` contacts nobody and returns what would be sent.
+A security question (§3) is never swallowed and never retried. The audit line
+(`catknows/audit.py`) names the tool, the community and
+`calendar_event_id`, and carries no title, description or location.
+
+**Open, not verified live:**
+
+- Which fields Skool requires on create and update.
+- Whether an update that leaves fields out keeps them or resets them (courses do
+  both, §7.4). The form always sends the whole event; send the full set.
+- The format of `start_time`, `end_time`, `timezone` and `until`. The page code
+  shows the half-hour choices (`"00"` … `"23:30"`) and an end = start + 0.5 to 24 h,
+  not the wire form. catknows passes these values through unchanged and converts
+  nothing.
+- Whether the update body needs `group_id` (the form has it; the MCP update tool
+  sends it, the client does not add it).
+- The value form of `cover_image` (a cropped upload, up to 20 MB, hint 1460 x 752
+  px). Not offered by the tools.
+- Whether `location_info` is mandatory for types 1–4, and what Skool answers to a
+  webinar (type 6) on a free plan.
+- How the length is counted (the page code counts in JavaScript, catknows in
+  Python characters: they can differ for emoji).
+- Where the event id and the occurrence id come from in the read payload
+  (`get_calendar` shows neither in its compact form), and what the DELETE answers
+  (the web client only shows "Event deleted").
 
 ---
 

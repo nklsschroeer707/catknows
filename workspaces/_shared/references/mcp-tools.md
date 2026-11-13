@@ -81,6 +81,23 @@ Ids come from `get_classroom` (courses) and `get_course_tree` (folders, pages).
 | `move_course_item` | item_id, position | reorder among siblings (0-based). Moving BETWEEN folders is impossible via the API — recreate the page instead |
 | `delete_course_item` | item_id, client_id, confirm | PERMANENT. Deleting a COURSE needs `client_id` (32-hex, email-code check, docs/API.md §7.6). Deleting a FOLDER does not delete its pages — they move to the course root |
 
+### Calendar
+
+Same draft-first rule: `confirm=false` changes nothing **and does not contact
+Skool**; the draft shows what would be sent. Read from Skool's page code, **not
+yet run live** — try a throwaway event in a private community first. The web
+client offers these to community admins only.
+
+| Tool | Args | Does |
+|---|---|---|
+| `create_calendar_event` | slug, title, start_time, end_time, description, timezone, reminder_disabled=-1, location_type=0, location_info, privacy, recurrence, confirm | new event. title ≤ 30 characters, description ≤ 300. Empty / 0 / -1 = not sent. `reminder_disabled`: 0 = reminder email 1 day before, 1 = none. `location_type`: 1 Zoom, 2 Meet, 3 Address, 4 Link (`location_info` = link or address), 5 Skool call, 6 Skool webinar (**5 and 6 take no `location_info`**). `privacy` and `recurrence` are JSON text (keys in the tool's description). `start_time`, `end_time`, `timezone` go to Skool exactly as passed: their format is not documented, nothing is converted |
+| `update_calendar_event` | slug, event_id, the same fields, from_occurrence_id, confirm | change an event. Only what you set is sent, and Skool's own form always sends everything: **whether an omitted field is kept is not verified**, so pass every field the event should keep. `from_occurrence_id` empty = the whole event, set = that occurrence and all later ones of the series. The draft shows ids and new values, not the current event |
+| `delete_calendar_event` | slug, event_id, from_occurrence_id, confirm | PERMANENT. `from_occurrence_id` empty = the whole event, every occurrence; set = that occurrence and all later ones. The draft shows the id and the scope, not the title — make sure the human knows which event it is. One occurrence alone cannot be changed or deleted (not built) |
+
+Open: which fields Skool requires, the time format, and where `event_id` /
+`from_occurrence_id` come from (`get_calendar` lists neither in its compact
+form; whether `raw=true` carries them is not checked). Details: docs/API.md §5.11.
+
 ## Rules of thumb
 
 - `post_name` is NOT `post_id`. `get_post` and `get_video_transcript` want the

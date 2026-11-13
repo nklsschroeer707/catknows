@@ -856,6 +856,116 @@ class SkoolClient:
             q = f"/{community_slug}/calendar.json?calDate={cal_date}&group={community_slug}"
         return self.http.get_next(q, community_slug)
 
+    # -- calendar write path (docs/API.md §5.11) -------------------------------
+    # Read from Skool's own page code and NOT yet run live: the limits and the
+    # field set are the ones its event form enforces, nothing here is measured.
+    # An event is ONE object for create and update (the whole form), so these
+    # methods take that object and send it as it is. Which of its fields Skool
+    # insists on, and whether an update with fewer fields keeps or resets the
+    # rest, is not known (§5.11 lists it as open): nothing here guesses either.
+    CALENDAR_TITLE_MAX = 30
+    CALENDAR_DESCRIPTION_MAX = 300
+    # Location types without an input field: Skool hands out the call code.
+    CALENDAR_LOCATION_NO_INFO = (5, 6)  # 5 Skool call, 6 Skool webinar
+
+    @staticmethod
+    def check_calendar_event(event: dict) -> None:
+        """Refuse an event object Skool's own form would not send (ValueError).
+
+        Runs before the first request, so a refused event costs no call at all.
+        It looks only at the fields that are present: no required set is
+        invented. The refusal names the limit and never repeats the text.
+        """
+        if not isinstance(event, dict):
+            raise ValueError("event must be a dict: Skool's event object.")
+        meta = event.get("metadata", {})
+        if not isinstance(meta, dict):
+            raise ValueError("event['metadata'] must be a dict.")
+        for key, limit in (("title", SkoolClient.CALENDAR_TITLE_MAX),
+                           ("description", SkoolClient.CALENDAR_DESCRIPTION_MAX)):
+            if key not in meta:
+                continue
+            if not isinstance(meta[key], str):
+                raise ValueError(f"{key} must be text.")
+            if len(meta[key]) > limit:
+                raise ValueError(f"{key} has {len(meta[key])} characters; "
+                                 f"Skool allows at most {limit}.")
+        if "location" in meta:
+            SkoolClient._check_calendar_location(meta["location"])
+
+    @staticmethod
+    def _check_calendar_location(location) -> None:
+        if not isinstance(location, str):
+            raise ValueError("location must be JSON text, not an object: "
+                             '\'{"location_type": 4, "location_info": "…"}\'.')
+        try:
+            parsed = json.loads(location)
+        except ValueError:
+            raise ValueError("location is not valid JSON text.") from None
+        if not isinstance(parsed, dict) or "location_type" not in parsed:
+            raise ValueError("location must be JSON text of an object with a "
+                             "location_type (and a location_info).")
+        if (parsed["location_type"] in SkoolClient.CALENDAR_LOCATION_NO_INFO
+                and "location_info" in parsed):
+            raise ValueError("location_type 5 (Skool call) and 6 (Skool webinar) "
+                             "take no location_info: Skool assigns the call code.")
+
+    @staticmethod
+    def calendar_event_path(event_id: str, from_occurrence_id: str = "") -> str:
+        """``/calendar-events/{id}``, plus ``?from_occurrence_id=`` for a series.
+
+        Without it a change or delete takes the whole event; with it, the
+        occurrence and everything after it (docs/API.md §5.11). Both parts are
+        percent-encoded, so an id cannot leave its path segment or add a query.
+        """
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required.")
+        if not isinstance(from_occurrence_id, str):
+            raise ValueError("from_occurrence_id must be text.")
+        path = f"/calendar-events/{quote(event_id, safe='')}"
+        if from_occurrence_id:
+            path += f"?from_occurrence_id={quote(from_occurrence_id, safe='')}"
+        return path
+
+    def create_calendar_event(self, community_slug: str, event: dict) -> dict:
+        """Create a calendar event: ``POST /calendar-events`` (§5.11). Raw answer.
+
+        ``event`` is Skool's object without ``group_id`` (the slug decides it, and
+        an archived community is refused up front): ``start_time``, ``end_time``,
+        ``metadata`` {``title`` ≤ 30 characters, ``description`` ≤ 300,
+        ``timezone``, ``reminder_disabled``, ``cover_image``, ``location``,
+        ``privacy``} and ``recurrence``. ``location`` and ``privacy`` are JSON
+        TEXT, not objects. Times and timezone go out exactly as passed.
+        """
+        self.check_calendar_event(event)
+        if "group_id" in event:
+            raise ValueError("event carries no group_id: the community slug decides it.")
+        group_id = self.group_id_for(community_slug, for_write=True)
+        return self.http.post_api2("/calendar-events", {"group_id": group_id, **event})
+
+    def update_calendar_event(self, event_id: str, event: dict, *,
+                              from_occurrence_id: str = "") -> dict:
+        """Change an event: ``PUT /calendar-events/{id}`` (§5.11). Raw answer.
+
+        ``event`` goes out unchanged, so it is the whole object Skool's form
+        would send (``group_id`` included if wanted); the same limits as in
+        `create_calendar_event` apply to the fields that are in it. Whether Skool
+        keeps a field you leave out is not known: send the full set.
+        ``from_occurrence_id`` changes that occurrence and all later ones of a
+        series; empty changes the whole event. One occurrence alone
+        (``updateCalendarEventOccurrenceV2``) is not built.
+        """
+        self.check_calendar_event(event)
+        return self.http.put_api2(self.calendar_event_path(event_id, from_occurrence_id), event)
+
+    def delete_calendar_event(self, event_id: str, *, from_occurrence_id: str = "") -> dict:
+        """Delete an event: ``DELETE /calendar-events/{id}``, no body (§5.11).
+
+        Irreversible. ``from_occurrence_id`` deletes that occurrence and all
+        later ones of a series; empty deletes the whole event.
+        """
+        return self.http.delete_api2(self.calendar_event_path(event_id, from_occurrence_id))
+
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""
         return self.http.get_next(
