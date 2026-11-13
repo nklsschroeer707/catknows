@@ -142,6 +142,12 @@ class SkoolSecurityChallenge(SkoolHTTPError):
 # the same test here is a `fullmatch` on [0-9].
 _SECURITY_CHALLENGE = re.compile(r"AUTH-SEC-5[0-9]{2}")
 
+# The only paths `post_api2_read` sends (docs/API.md §5.13, plan contract
+# `searchUsers` and `getResourceUrl`). The file id is one segment that is not
+# made only of dots (client.file_download_path encodes it), `expire` digits only.
+_READ_POST_PATH = re.compile(
+    r"/search/users|/files/(?!\.+/)[^/?#]+/download-url(?:\?expire=[0-9]+)?")
+
 # A link in an error body is never repeated: an answer of `post_api2_read` can be
 # an access link (the file download URL), and an error text travels to logs.
 _ANY_LINK = re.compile(r"https?://\S+")
@@ -452,7 +458,16 @@ class SkoolHTTP:
         A successful answer is never echoed into an error message, and a link in
         an error body is replaced by ``[link removed]``: an answer here can be an
         access link.
+
+        Only the two read-POSTs of docs/API.md §5.13 are sent: ``/search/users``
+        and ``/files/{id}/download-url`` (optionally ``?expire={n}``). Any other
+        path raises ``ValueError`` before anything is sent, so a write cannot
+        slip past the write gap and the audit log through this door.
         """
+        if not _READ_POST_PATH.fullmatch(path_and_query):
+            raise ValueError(
+                "post_api2_read only sends the documented read-POSTs (/search/users, "
+                "/files/{id}/download-url); anything else belongs in post_api2.")
         url = f"{SKOOL_API2}{path_and_query}"
         kwargs: dict = {"headers": self._api2_headers(), "timeout": FETCH_TIMEOUT_S}
         if body is not None:

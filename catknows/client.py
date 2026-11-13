@@ -21,7 +21,7 @@ import pathlib
 import re
 import time
 from typing import Iterator
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from .auth import Session
 from .http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge
@@ -635,6 +635,8 @@ class SkoolClient:
 
         Returns ``{"post_tree": {"children": [...]}, "pinned_post_tree": ...}``.
         """
+        post = _id_segment(post_skool_id, "post_skool_id")
+        group = _id_segment(group_skool_id, "group_skool_id")
         all_children: list[dict] = []
         pinned_tree = None
         cursor = 0
@@ -643,8 +645,8 @@ class SkoolClient:
         for page_idx in range(_MAX_COMMENT_PAGES):
             if page_idx > 0:
                 time.sleep(_INTER_PAGE_DELAY_S)
-            q = (f"/posts/{post_skool_id}/comments"
-                 f"?group-id={group_skool_id}&limit={_COMMENT_PAGE_LIMIT}"
+            q = (f"/posts/{post}/comments"
+                 f"?group-id={group}&limit={_COMMENT_PAGE_LIMIT}"
                  f"&created-gt={cursor}")
             if page_idx == 0:
                 # Pinned comments (and their replies) are NOT in post_tree and
@@ -686,8 +688,8 @@ class SkoolClient:
         total_upvote_users, total_downvote_users}``.
         """
         return self.http.get_api2(
-            f"/posts/{post_skool_id}/vote-users"
-            f"?limit={limit}&tab={tab}&cursor={quote(cursor, safe='')}"
+            f"/posts/{_id_segment(post_skool_id, 'post_skool_id')}/vote-users"
+            f"?limit={limit}&tab={quote(tab, safe='')}&cursor={quote(cursor, safe='')}"
         )
 
     def likes(self, post_skool_id: str, group_skool_id: str = "", *,
@@ -727,7 +729,7 @@ class SkoolClient:
 
     def group_info(self, group_skool_id: str) -> dict:
         """Group metadata by UUID (raw api2 response)."""
-        return self.http.get_api2(f"/groups/{group_skool_id}")
+        return self.http.get_api2(f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}")
 
     def discovery(self, page: int = 1) -> dict:
         """Skool's global discovery board (docs/API.md §6.2), one page of ~30.
@@ -785,7 +787,8 @@ class SkoolClient:
         language_code, boost_enabled, rank_updated_at}``. Works beyond the
         top-1000 board; foreign communities get a 401.
         """
-        return self.http.get_api2(f"/groups/{group_skool_id}/discovery")
+        return self.http.get_api2(
+            f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}/discovery")
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
         """Admin dashboard metrics (owner/admin only, raw api2 response).
@@ -796,7 +799,8 @@ class SkoolClient:
         takes one; don't advertise other values.
         """
         return self.http.get_api2(
-            f"/groups/{group_skool_id}/admin-metrics?range={range_}&amt=monthly"
+            f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}/admin-metrics"
+            f"?range={_id_segment(range_, 'range_')}&amt=monthly"
         )
 
     # -- join requests (admin/moderator) -------------------------------------
@@ -825,7 +829,7 @@ class SkoolClient:
         """
         if decision not in self.JOIN_DECISIONS:
             raise ValueError("decision must be 'approve' or 'decline'")
-        return self.http.post_api2(f"/members/{member_id}/role",
+        return self.http.post_api2(f"/members/{_id_segment(member_id, 'member_id')}/role",
                                    {"new": self.JOIN_DECISIONS[decision]})
 
     # The admin dashboard's charts (docs/API.md §1.9), owner/admin only.
@@ -860,7 +864,7 @@ class SkoolClient:
     def growth_overview(self, group_skool_id: str) -> dict:
         """The dashboard's last-30-days tiles: ``num_visitors``, ``num_signups``,
         ``new_mrr`` (growth overview) plus ``num_members`` (overview)."""
-        base = f"/groups/{group_skool_id}"
+        base = f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}"
         return {**self._analytics(f"{base}/analytics-growth-overview-v2"),
                 **self._analytics(f"{base}/analytics-overview-v2")}
 
@@ -868,7 +872,8 @@ class SkoolClient:
         """One dashboard chart's ``items`` (see ``ANALYTICS_CHARTS``)."""
         if chart not in self.ANALYTICS_CHARTS:
             raise ValueError(f"chart must be one of {', '.join(self.ANALYTICS_CHARTS)}")
-        data = self._analytics(f"/groups/{group_skool_id}/analytics-v2?chart={chart}")
+        gid = _id_segment(group_skool_id, "group_skool_id")
+        data = self._analytics(f"/groups/{gid}/analytics-v2?chart={chart}")
         return (data.get("chart_data") or {}).get("items") or []
 
     def calendar(self, community_slug: str, cal_date: int = 0) -> dict:
@@ -1274,8 +1279,9 @@ class SkoolClient:
 
         Reads only (`post_api2_read`), no body. Returns the link as text. The page
         code uses the answer as the link itself, so ONE text starting with
-        ``https://`` and holding no white space is the only thing accepted (the
-        "https only" part is catknows' own safeguard, not checked against Skool).
+        ``https://``, naming a host and holding no white space is the only thing
+        accepted (the "https with a host" part is catknows' own safeguard, not
+        checked against Skool; no list of allowed hosts, none is documented).
         Anything else (an object, a list, empty, ``http://``, a line break, an HTML page such
         as a WAF challenge or login page, a progress word like ``in-progress``) is an
         error that does NOT show the answer, because it may hold the access link.
@@ -1285,11 +1291,14 @@ class SkoolClient:
         """
         answer = self.http.post_api2_read(self.file_download_path(file_id, expire), None)
         link = answer.strip() if isinstance(answer, str) else ""
-        if (not link.startswith("https://") or len(link) == len("https://")
-                or any(ch.isspace() for ch in link)):
+        try:
+            host = urlsplit(link).hostname if link.startswith("https://") else None
+        except ValueError:  # e.g. a malformed port or IPv6 part
+            host = None
+        if not host or any(ch.isspace() for ch in link):
             raise SkoolHTTPError(
                 "Skool's answer to the download-link request is not a link (one https:// text "
-                "without white space was expected; the answer is not shown: it may hold an "
+                "with a host and without white space was expected; the answer is not shown: it may hold an "
                 "access link).")
         return link
 
@@ -1324,7 +1333,7 @@ class SkoolClient:
         must stop on 401/403 must not pass ``community_slug``.
         """
         try:
-            return self.http.get_api2(f"/courses/{course_id}")
+            return self.http.get_api2(f"/courses/{_id_segment(course_id, 'course_id')}")
         except SkoolHTTPError as e:
             if not community_slug or e.status not in (401, 403):
                 raise
@@ -1483,12 +1492,13 @@ class SkoolClient:
                 if flag in base:
                     base[flag] = bool(base[flag])
             fields = base
-        return self.http.put_api2(f"/courses/{unit_id}", fields)
+        return self.http.put_api2(f"/courses/{_id_segment(unit_id, 'unit_id')}", fields)
 
     def set_course_state(self, course_id: str, published: bool) -> dict:
         """Publish (visible to members) or unpublish (draft) a course."""
         state = "published" if published else "draft"
-        return self.http.put_api2(f"/courses/{course_id}/state?state={state}", {})
+        return self.http.put_api2(
+            f"/courses/{_id_segment(course_id, 'course_id')}/state?state={state}", {})
 
     def move_course_item(self, unit_id: str, position: int) -> dict:
         """Reorder a unit among its siblings; ``position`` is the 0-based target.
@@ -1500,7 +1510,8 @@ class SkoolClient:
         recreating the page in the target folder and deleting the old one is
         the proven way.
         """
-        return self.http.post_api2(f"/courses/{unit_id}/move2?dst={position}", {})
+        return self.http.post_api2(
+            f"/courses/{_id_segment(unit_id, 'unit_id')}/move2?dst={position}", {})
 
     def delete_course_item(self, unit_id: str, *, client_id: str = "") -> None:
         """Delete a unit. ⚠ Deleting a FOLDER does not delete its pages — they
@@ -1513,8 +1524,9 @@ class SkoolClient:
         ``/auth/email-verify``). The browser's own id stays verified across
         sessions — capture it once from the web app and reuse it (§7.6).
         """
-        q = f"?client_id={client_id}" if client_id else ""
-        self.http.delete_api2(f"/courses/{unit_id}{q}")
+        unit = _id_segment(unit_id, "unit_id")
+        q = f"?client_id={_id_segment(client_id, 'client_id')}" if client_id else ""
+        self.http.delete_api2(f"/courses/{unit}{q}")
 
     # -- course settings: drip, folder, share key, import (docs/API.md §7.8) ----
     # Read from Skool's own page code and NOT run live by catknows: paths, query
@@ -1726,8 +1738,9 @@ class SkoolClient:
         page merged into ``messages`` (oldest first).
         """
         n = min(50, max(1, count))
+        channel = _id_segment(channel_id, "channel_id")
         data = self.http.get_api2(
-            f"/channels/{channel_id}/messages?before={n}"
+            f"/channels/{channel}/messages?before={n}"
         )
         msgs = list(data.get("messages") or [])
         seen = {m.get("id") for m in msgs}
@@ -1740,7 +1753,7 @@ class SkoolClient:
             newest = max(msgs, key=lambda m: m.get("created_at") or "").get("id")
             time.sleep(_INTER_PAGE_DELAY_S)
             fwd = self.http.get_api2(
-                f"/channels/{channel_id}/messages?before=0&after=50&msg={newest}"
+                f"/channels/{channel}/messages?before=0&after=50&msg={newest}"
             )
             fresh = [m for m in fwd.get("messages") or [] if m.get("id") not in seen]
             if not fresh:  # cursor stopped moving
@@ -1756,7 +1769,7 @@ class SkoolClient:
             if not oldest:
                 break
             data = self.http.get_api2(
-                f"/channels/{channel_id}/messages?before=50&after=0&msg={oldest}"
+                f"/channels/{channel}/messages?before=50&after=0&msg={oldest}"
             )
             fresh = [m for m in data.get("messages") or [] if m.get("id") not in seen]
             if not fresh:  # cursor stopped moving — end of the history
@@ -1932,6 +1945,11 @@ class SkoolClient:
         shown as "Comment was deleted"); without it, or with an empty
         ``parent_comment_id`` or the post's own id, everything works as before.
         """
+        # Both ids go into the body, not a path; checked anyway (same rules as a
+        # path segment) so a bad one is refused before the first request.
+        _id_segment(post_id, "post_id")
+        if parent_comment_id:
+            _id_segment(parent_comment_id, "parent_comment_id")
         if parent_is_top_level is True and parent_comment_id and parent_comment_id != post_id:
             target = {"parent_id": parent_comment_id, "flattened": False, "mention": ""}
         else:
@@ -1990,7 +2008,7 @@ class SkoolClient:
         ``metadata.content``, ``label_id``, ``root_id``), which is what an edit
         needs to keep the fields it isn't changing.
         """
-        return self.http.get_api2(f"/posts/{post_id}")
+        return self.http.get_api2(f"/posts/{_id_segment(post_id, 'post_id')}")
 
     def update_post(self, post_id: str, *, title: str | None = None,
                     content: str | None = None, labels: str | None = None,
@@ -2034,7 +2052,7 @@ class SkoolClient:
         label = keep(labels, "labels", "label_id") or current.get("label_id") or ""
         if label:
             body["labels"] = label
-        return self.http.post_api2(f"/posts/{post_id}/update", body)
+        return self.http.post_api2(f"/posts/{_id_segment(post_id, 'post_id')}/update", body)
 
     def delete_post(self, post_id: str) -> dict:
         """Delete a post or a comment (§5.9). Empty 200 on success.
@@ -2045,7 +2063,7 @@ class SkoolClient:
         and is untested. Sends an empty JSON body ``{}``, as Skool's own client
         does for ``deletePost``; it is the only DELETE catknows sends with a body.
         """
-        return self.http.delete_api2(f"/posts/{post_id}", {})
+        return self.http.delete_api2(f"/posts/{_id_segment(post_id, 'post_id')}", {})
 
     def send_dm(self, channel_id: str, content: str, *, attachments: list[str] = ()) -> dict:
         """Send a direct message into an existing chat channel (§5.7).
@@ -2056,7 +2074,7 @@ class SkoolClient:
         Returns the created message.
         """
         return self.http.post_api2(
-            f"/channels/{channel_id}/messages?ct=wdm",
+            f"/channels/{_id_segment(channel_id, 'channel_id')}/messages?ct=wdm",
             {"content": content, "attachments": list(attachments)},
         )
 
