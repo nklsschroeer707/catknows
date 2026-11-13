@@ -303,7 +303,8 @@ def _foreign_said(url: str, named: str, failed: RequestException) -> str:
     """
     said = str(failed)
     for piece in (url, url.split("://", 1)[-1]):
-        said = said.replace(piece, named)
+        if piece:
+            said = said.replace(piece, named)
     return _ANY_LINK.sub("[link removed]", audit.redact(said))
 
 
@@ -625,11 +626,12 @@ class SkoolHTTP:
             raise error from cause
         code, text = resp.status_code, resp.text or ""
         if not (200 <= code < 300):
+            shown = _url_for_error(url)[0]
             if code == 401 or code == 403:
-                raise _auth_rejected(code, _url_for_error(url)[0], text)
+                raise _auth_rejected(code, shown, text)
             excerpt = _answer_excerpt(path_and_query, text, 300)
             raise SkoolHTTPError(
-                f"HTTP {code} on {url}: {_ANY_LINK.sub('[link removed]', excerpt)}", code)
+                f"HTTP {code} on {shown}: {_ANY_LINK.sub('[link removed]', excerpt)}", code)
         if not text.strip():
             return {}
         try:

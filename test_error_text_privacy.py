@@ -409,6 +409,11 @@ def test_a_rejected_read_post_names_the_url_the_same_way_as_the_other_reads():
     assert f"HTTP 403 on {BASE}/search/users " in str(err) and err.status == 403, str(err)
 
 
+def test_an_empty_url_does_not_spread_the_replacement_through_the_message():
+    said = http._foreign_said("", "the upload", RequestException("timed out"))
+    assert said == "timed out", f"an empty piece must not be replaced: {said!r}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
