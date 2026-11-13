@@ -47,6 +47,7 @@ REJECTED = (401, 403, 429)        # an int as the kind: that HTTP status
 ORDINARY = (500, 404, 0)          # 0 = network error
 REPEATED_202 = "repeated 202"     # Skool's other rate-limit answer
 STOPPING = (*REJECTED, REPEATED_202)
+EMPTY_429 = "429 with an empty body"   # the rate limit without a word
 
 
 def _challenge() -> SkoolSecurityChallenge:
@@ -86,6 +87,8 @@ def _through_http(status: int, text: str) -> tuple[SkoolHTTPError, int]:
 def _raise_for(kind):
     if kind == REPEATED_202:
         raise _through_http(202, "")[0]
+    if kind == EMPTY_429:
+        raise _through_http(429, "")[0]
     if isinstance(kind, int):
         raise _status(kind)
     raise _challenge() if kind == CHALLENGE_AT else _ordinary()
@@ -93,6 +96,8 @@ def _raise_for(kind):
 
 def _names(kind) -> str:
     """How a stop message names the answer."""
+    if kind == EMPTY_429:
+        return "HTTP 429"
     return "HTTP 202" if kind == REPEATED_202 else f"HTTP {kind}"
 
 
@@ -155,6 +160,14 @@ def test_an_empty_body_or_a_500_through_http_is_not_turned_away():
     assert not turned_away(e) and e.status == 500
 
 
+def test_a_429_with_an_empty_body_is_asked_once_and_counts_as_turned_away():
+    e, gets = _through_http(429, "")
+    assert gets == 1, f"a 429 is never asked again, body or not: {gets} requests"
+    assert e.status == 429, f"the status stays on the error: {e.status}"
+    assert turned_away(e), "a 429 is the rate limit, with or without a body"
+    assert "HTTP 429" in str(e), str(e)
+
+
 # -- pull_to_vault (MCP tool) -------------------------------------------------
 
 _tool = mcp_server.pull_to_vault
@@ -212,6 +225,23 @@ def test_pull_to_vault_stops_on_401_403_429_and_a_repeated_202():
                 f"{status}: no request for post p3 after the rejection on p2: {c.comment_calls}"
             written = _written_posts(Path(tmp), "some-community")
             assert len(written) == 2, f"{status}: p0 and p1 stay, p2 and later not written: {written}"
+
+
+def test_pull_to_vault_stops_on_a_429_with_an_empty_body():
+    with tempfile.TemporaryDirectory() as tmp:
+        c = _PullClient(5, {"p2": EMPTY_429})
+        mcp_server._client = c
+        try:
+            pull_to_vault("some-community", vault_dir=tmp)
+        except SkoolHTTPError as e:
+            msg = str(e)
+            assert e.status == 429 and turned_away(e), (e.status, msg)
+            assert "stopped" in msg and "2 of 5" in msg and _names(EMPTY_429) in msg, msg
+        else:
+            raise AssertionError("a 429 without a body must end the pull, not count as one failed entry")
+        assert c.comment_calls == ["p0", "p1", "p2"], \
+            f"no request for post p3 after the 429 on p2: {c.comment_calls}"
+        assert len(_written_posts(Path(tmp), "some-community")) == 2
 
 
 def test_pull_to_vault_goes_on_after_500_404_and_a_network_error():

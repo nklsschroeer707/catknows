@@ -842,6 +842,11 @@ class SkoolHTTP:
 
             if code == 401 or code == 403:
                 raise _auth_rejected(code, shown, body)
+            if code == 429:
+                # The rate limit, also without a body: never asked again
+                # (checked before the empty-body retry below).
+                raise SkoolHTTPError(
+                    f"HTTP {code} on {shown}: {_answer_excerpt(path, body, 300)}", code)
             if code == 202 or not body.strip():
                 # ISR deferred: page still building. Wait and retry.
                 last_err = f"HTTP {code} deferred/empty"
