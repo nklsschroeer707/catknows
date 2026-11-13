@@ -291,6 +291,88 @@ def test_group_id_for_fallback_reads_the_feed_of_the_checked_slug():
     assert c.http.calls == [("NEXT", f"/{SLUG}.json?group={SLUG}")], c.http.calls
 
 
+# -- www queries: tiers, course ids, category id, course short name and md -----
+
+HEX2 = "fedcba9876543210" * 2
+TAIL = "monthly=false&annual=false&oneTime=false&trials=false&free=false"
+
+# name -> (call(client, value, second value), every get_next path for real values, in full)
+WWW_QUERY = {
+    "members tiers": (lambda c, a, b: c.members(S, tiers=[a, b]),
+                      [f"/{S}/-/members.json?sortType=-memberlastoffline&tiers=standard,vip&group={S}"]),
+    "members course_ids": (lambda c, a, b: c.members(S, course_ids=[a, b]),
+                           [f"/{S}/-/members.json?sortType=-memberlastoffline"
+                            f"&courseIds={HEX},{HEX2}&group={S}"]),
+    "members page 2 tiers": (
+        lambda c, a, b: c.http.get_next(
+            cl._members_query(S, 2, sort_type="-memberlastoffline", tiers=[a, b]), S),
+        [f"/{S}/-/members.json?sortType=-memberlastoffline&p=2&online=&levels=&price="
+         f"&courseIds=&{TAIL}&tiers=standard,vip&group={S}"]),
+    "members page 2 course_ids": (
+        lambda c, a, b: c.http.get_next(
+            cl._members_query(S, 2, sort_type="-memberlastoffline", course_ids=[a, b]), S),
+        [f"/{S}/-/members.json?sortType=-memberlastoffline&p=2&online=&levels=&price="
+         f"&courseIds={HEX},{HEX2}&{TAIL}&group={S}"]),
+    "posts category": (lambda c, a, b: c.posts(S, category_id=a), [f"/{S}.json?group={S}&c={HEX}"]),
+    "revenue category": (lambda c, a, b: c.revenue_leaderboard(category_id=a),
+                         [f"/skoolers/-/games.json?group=skoolers&category={HEX}"]),
+}
+WWW_QUERY_REAL = {"members tiers": ("standard", "vip"), "members page 2 tiers": ("standard", "vip")}
+QUERY_BAD = {"vip&p=9": "vip%26p%3D9", "#": "%23", "a?b=1": "a%3Fb%3D1", "a/b": "a%2Fb", "a b": "a%20b"}
+
+
+def test_www_real_tiers_course_ids_and_category_go_out_byte_for_byte():
+    for name, (call, expected) in WWW_QUERY.items():
+        c = _client()
+        call(c, *WWW_QUERY_REAL.get(name, (HEX, HEX2)))
+        assert _next_paths(c) == expected, f"{name}: {_next_paths(c)}"
+
+
+def test_www_tier_course_id_and_category_cannot_add_or_cut_a_parameter():
+    for name, (call, expected) in WWW_QUERY.items():
+        for raw, enc in QUERY_BAD.items():
+            c = _client()
+            call(c, raw, raw)
+            paths = _next_paths(c)
+            where = f"{name} [{raw!r}]"
+            assert [_shape(q) for q in paths] == [_shape(q) for q in expected], \
+                f"{where}: a parameter was added or cut off: {paths}"
+            assert all(enc in q for q in paths), f"{where}: not encoded: {paths}"
+
+
+def _course_client(name, md):
+    """A classroom whose course has this short name and redirects to this md."""
+    c = _client()
+
+    def get_next(q, slug=""):
+        c.http.calls.append(("NEXT", q))
+        if "/classroom.json" in q:
+            return {"pageProps": {"allCourses": [{"id": HEX, "name": name}]}}
+        if "md=" in q:
+            return {"pageProps": {"course": {"id": HEX}}}
+        return {"pageProps": {"__N_REDIRECT": f"/{S}/classroom/x?md={md}&x=1"}}
+    c.http.get_next = get_next
+    return c
+
+
+def test_www_real_course_name_and_md_go_out_byte_for_byte():
+    c = _course_client("abc12345", HEX2)
+    assert c._course_tree_via_page(S, HEX) == {"id": HEX}
+    assert _next_paths(c) == [f"/{S}/classroom.json?group={S}",
+                              f"/{S}/classroom/abc12345.json?group={S}",
+                              f"/{S}/classroom/abc12345.json?group={S}&md={HEX2}"], _next_paths(c)
+
+
+def test_www_course_name_and_md_from_the_answer_stay_inside_their_piece():
+    real = _course_client("abc12345", HEX2)
+    real._course_tree_via_page(S, HEX)
+    for name, md in (("a/b", "x#y"), ("a?b=1", "x?y=1"), ("a#b", "x/y"), ("../pin", "x y")):
+        c = _course_client(name, md)
+        c._course_tree_via_page(S, HEX)
+        assert [_shape(q) for q in _next_paths(c)] == [_shape(q) for q in _next_paths(real)], \
+            f"course name {name!r}, md {md!r}: {_next_paths(c)}"
+
+
 # -- post_api2_read takes only the two documented read-POST paths --------------
 
 class _Net:

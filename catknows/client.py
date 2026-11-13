@@ -142,6 +142,10 @@ def _members_query(slug: str, page: int, *, sort_type: str, lifecycle: str = "",
     the old hand-written tail omitted).
     """
     flags = flags or {}
+    # Each tier and course id is encoded on its own (the comma between them
+    # stays): a value can neither add a parameter nor cut the query off.
+    tiers = [quote(str(t), safe="") for t in tiers]
+    course_ids = [quote(str(c), safe="") for c in course_ids]
     q = []
     if lifecycle:
         q.append(f"t={lifecycle}")
@@ -342,7 +346,7 @@ class SkoolClient:
         elif POST_SORTS[sort]:
             filters += f"&s={POST_SORTS[sort]}"
         if category_id:
-            filters += f"&c={category_id}"
+            filters += f"&c={quote(str(category_id), safe='')}"
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
@@ -789,7 +793,7 @@ class SkoolClient:
         """
         q = "/skoolers/-/games.json?group=skoolers"
         if category_id:
-            q += f"&category={category_id}"
+            q += f"&category={quote(str(category_id), safe='')}"
         return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
 
     def leaderboards(self, community_slug: str) -> dict:
@@ -1388,7 +1392,9 @@ class SkoolClient:
             return None
 
         slug = _id_segment(community_slug, "community_slug")
-        base = f"/{slug}/classroom/{name}.json?group={slug}"
+        # name and md come from Skool's answer, not from the caller; encoded all
+        # the same, so that neither can add a path piece or a parameter.
+        base = f"/{slug}/classroom/{quote(str(name), safe='')}.json?group={slug}"
         data = self.http.get_next(base, slug)
         pp = data.get("pageProps") or {}
         if not pp.get("course"):
@@ -1396,7 +1402,7 @@ class SkoolClient:
             md = target.partition("md=")[2].split("&", 1)[0]
             if not md:
                 return None
-            data = self.http.get_next(f"{base}&md={md}", slug)
+            data = self.http.get_next(f"{base}&md={quote(md, safe='')}", slug)
             pp = data.get("pageProps") or {}
         return pp.get("course") or None
 
