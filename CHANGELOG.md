@@ -37,6 +37,9 @@ Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
   messages.
 - **Library:** `SkoolHTTP.build_id_provider` lets an outside source supply the
   Next.js buildId, and `SkoolSecurityChallenge` is exported (see below).
+- **Library:** `SkoolClient.create_comment` takes `parent_is_top_level=True`: a
+  caller that knows the comment it answers is a top-level one skips the lookup
+  request. The MCP tool is unchanged and still looks it up.
 
 ### Changed
 - **Breaking: `get_post_likes` returns an object with one page, not a list.**

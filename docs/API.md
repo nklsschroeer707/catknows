@@ -1157,7 +1157,12 @@ posted by hand stayed). Skool's own UI never sends that — replying to a reply
 posts under the top-level comment with an @-mention of the person.
 `create_comment()` does the same via `reply_target()`; `GET /posts/{replyId}`
 gives the reply's `parent_id` (its top-level comment), the name comes from the
-comment tree.
+comment tree. That lookup, `GET /posts/{id}`, is catknows' own rule, not a call
+of Skool's web client. A library caller that already knows the target is a
+top-level comment can save it with `create_comment(..., parent_is_top_level=True)`:
+no lookup, `parent_id` is the given comment, no mention, and the POST is the one
+the lookup path sends for the same target. The hint is believed, not checked,
+and the MCP tool does not take it, so the lookup stays on there.
 
 `content` supports Skool's markdown-ish syntax; an @-mention is
 `[@Display Name](obj://user/{userId})`. Response is the created comment
