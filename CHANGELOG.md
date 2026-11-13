@@ -9,6 +9,61 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-11-13
+
+Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
+
+### Added
+- **21 new tools.** They are built from Skool's own page code and tested against
+  stand-ins only; **none has been tried against Skool yet.** Every new write
+  is draft-first like the rest, and its draft carries a `not_verified` text
+  to show you. Try a throwaway item in a private community first.
+  - Calendar (writes): `create_calendar_event`, `update_calendar_event`,
+    `delete_calendar_event`.
+  - Post actions (writes): `vote_post`, `pin_post`, `create_category`,
+    `rename_category`, `update_about_description`, `set_post_comments`,
+    `pin_comment`, `follow_post`. `update_about_description` overwrites a
+    public text and its draft shows only the new one: read the current About
+    text first.
+  - Course settings (writes): `set_course_drip`, `move_course_to_folder`,
+    `create_course_share_key` (the key is a credential, treat it like a
+    password) and `import_course`.
+  - Chat read marks (writes): `mark_chat_read`, and `mark_all_chats_read`,
+    which marks every chat of the account.
+  - Reads: `search_members` (find a person by name, at most 7 hits, no email),
+    `get_file_download_url` (an access link for one uploaded file),
+    `get_community_rules` and `get_community_levels`.
+- **`list_chat_channels` takes `unread_only`:** only channels with unread
+  messages.
+- **Library:** `SkoolHTTP.build_id_provider` lets an outside source supply the
+  Next.js buildId, and `SkoolSecurityChallenge` is exported (see below).
+
+### Changed
+- **Breaking: `get_post_likes` returns an object with one page, not a list.**
+  It holds `likes` (10 by default), `has_more`, `cursor`, `total_upvotes` and
+  `total_downvotes`. For everyone, call again with `cursor` set to the last
+  answer's `cursor` until `has_more` is false. The two workspaces that read
+  likes (`who-liked-it`, `find-your-fans`) do this now.
+- **A security question from Skool stops the batch jobs.** Skool can answer
+  with HTTP 200 and a code such as `AUTH-SEC-501` instead of the data. catknows
+  does not answer it and does not retry: a write counts as not sent, and
+  `pull_to_vault` raises with how far it got instead of returning a partial
+  result (`python -m catknows pull` exits with 1, `python -m catknows.snapshot`
+  with 3). Notes and rows already written stay. Skool uses it today only on
+  login paths that catknows does not call (as read from Skool's page code).
+- **Six calls were aligned with what Skool's own site sends:** likes, DM
+  channels, DM messages, one course, deleting a post, and the category list
+  on request. `docs/API.md` has the details.
+- **The write log names two more ids:** `calendar_event_id` and `category_id`.
+  Still ids only, never content.
+
+### Fixed
+- **A course share key and a verified client id stay out of the audit log and
+  the error texts.** `clone_code` (import) and `client_id` (deleting a whole
+  course) are blanked there, and an error about the key request shows nothing
+  of Skool's answer. The tool's own answer and a bare key that Skool echoes
+  in an import error body are not covered.
+
 ## 2026-11-12
 
 ### Changed

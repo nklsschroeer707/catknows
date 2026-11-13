@@ -12,7 +12,7 @@ an official API and may break when Skool changes their frontend.
 ᓚᘏᗢ
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "SkoolClient",
     "Session",
