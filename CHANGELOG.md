@@ -90,6 +90,29 @@ Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
   or only dots is refused before anything is sent), the two reading POSTs
   accept only their own two paths, and a file download link must be https
   with a host.
+- **Error texts carry no address, no token and no bare share key.** The
+  piece of Skool's answer shown in an error is cut first and has every
+  e-mail address masked; a URL that carries a one-shot token is named
+  without its query; a share key that Skool repeats in an import error is
+  blanked; upload errors show only the storage's code and message. Network
+  errors of the video host and the buildId page are now `SkoolHTTPError`.
+  The address pattern runs in linear time and knows quoted local parts.
+- **A calendar draft shows the body that is sent.** `create_calendar_event`
+  and `update_calendar_event` build draft and request from the same place;
+  only `group_id` is a named placeholder, because a draft never contacts
+  Skool.
+- **Batch jobs stop when Skool turns them away.** `pull_to_vault`, the CLI
+  `pull` and `snapshot` end at the first 401, 403 or 429 (also a 429 with an
+  empty body) and at a 202 that is still there after the retries. What was
+  written stays, the message says how far the job got.
+- **Slug, handle, post name and the member filters cannot steer a page
+  request.** They are encoded like the ids; real values go out byte for
+  byte as before, blank text or only dots is refused before anything is sent.
+- **Wording says only what was observed.** The two-level comment rule is
+  catknows' own rule from one write test, the form limits are named as
+  Skool's form limits, and the docs say the `Authorization` header is
+  catknows' own and not something Skool's browser client sends.
+- Names of other people and communities are gone from code, tests and docs.
 
 ## 2026-11-12
 
