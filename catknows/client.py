@@ -1258,18 +1258,24 @@ class SkoolClient:
         """A download link for one uploaded file: ``POST /files/{id}/download-url`` (§5.13).
 
         Reads only (`post_api2_read`), no body. Returns the link as text. The page
-        code uses the answer as the link itself, so a text is expected; anything
-        else (an object, a list, empty) is an error that does NOT show the answer,
-        because it may hold the access link. The link must not be logged and is
-        not: nothing here writes it anywhere. This is for files (documents,
-        images). Video download is an admin right in Skool and is not offered.
+        code uses the answer as the link itself, so ONE text starting with
+        ``https://`` and holding no white space is the only thing accepted. Anything
+        else (an object, a list, empty, ``http://``, a line break, an HTML page such
+        as a WAF challenge or login page, a progress word like ``in-progress``) is an
+        error that does NOT show the answer, because it may hold the access link.
+        The link must not be logged and is not: nothing here writes it anywhere.
+        This is for files (documents, images). Video download is an admin right in
+        Skool and is not offered.
         """
         answer = self.http.post_api2_read(self.file_download_path(file_id, expire), None)
-        if not isinstance(answer, str) or not answer.strip():
+        link = answer.strip() if isinstance(answer, str) else ""
+        if (not link.startswith("https://") or len(link) == len("https://")
+                or any(ch.isspace() for ch in link)):
             raise SkoolHTTPError(
-                "Skool's answer to the download-link request is not a link (the answer is "
-                "not shown: it may hold an access link).")
-        return answer.strip()
+                "Skool's answer to the download-link request is not a link (one https:// text "
+                "without white space was expected; the answer is not shown: it may hold an "
+                "access link).")
+        return link
 
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""

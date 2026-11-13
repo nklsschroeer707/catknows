@@ -1501,7 +1501,9 @@ anything else as text, so the answer is a JSON string or plain text; catknows
 reads both, and returns the link as text. **The link is an access link.** The MCP
 tool returns it (that is its job); catknows writes it nowhere: no audit line (a
 read leaves none), and no error message repeats an answer: a successful answer is
-never echoed, an answer that is not a text is reported without being shown, and a
+never echoed, an answer that is not ONE `https://` text without white space (an
+object, an HTML page such as a challenge page, `in-progress`, an `http://` link, a
+link with a line break) is reported as "not a link" without being shown, and a
 link inside an error body is replaced by `[link removed]`. `get_post` already
 carries ready links for a post's attachments (§1.2b): this call is for a file id
 without one. For files only: the page never asks for a link of a Mux video or an

@@ -738,7 +738,7 @@ PRIVATE_KEYS = frozenset({
 _SCRUBBED = SECRET_KEYS | PRIVATE_KEYS
 
 
-def scrub(obj):
+def scrub(obj, keys=_SCRUBBED):
     """Recursively strip SECRET_KEYS and PRIVATE_KEYS from a payload (in place where possible).
 
     Returns the same object with credential-class and admin-side member keys
@@ -746,16 +746,20 @@ def scrub(obj):
     written to disk without leaking account secrets or member data. Idempotent;
     safe on any JSON-shaped structure. Raw Skool payloads only: a normalized
     record may legitimately carry a key of the same name (``num_requests``).
+
+    ``keys`` is the set of names to drop; the default is the set above and every
+    existing caller relies on it. One walker serves another set too
+    (``strip_contact``), so the protection is never copied.
     """
     if isinstance(obj, dict):
         for key in list(obj.keys()):
-            if key in _SCRUBBED:
+            if key in keys:
                 del obj[key]
             else:
-                scrub(obj[key])
+                scrub(obj[key], keys)
     elif isinstance(obj, list):
         for item in obj:
-            scrub(item)
+            scrub(item, keys)
     return obj
 
 
@@ -766,22 +770,13 @@ CONTACT_KEYS = frozenset({"email"})
 
 
 def strip_contact(obj):
-    """Recursively drop CONTACT_KEYS from a raw payload (in place), like ``scrub``.
+    """Recursively drop CONTACT_KEYS from a raw payload (in place): ``scrub`` with that set.
 
     For raw member output that must carry no address (``search_members(raw=True)``):
     ``scrub`` takes the credential-class and admin-side keys, this takes the
-    contact keys. Returns the same object.
+    contact keys, through the same walker. Returns the same object.
     """
-    if isinstance(obj, dict):
-        for key in list(obj.keys()):
-            if key in CONTACT_KEYS:
-                del obj[key]
-            else:
-                strip_contact(obj[key])
-    elif isinstance(obj, list):
-        for item in obj:
-            strip_contact(item)
-    return obj
+    return scrub(obj, CONTACT_KEYS)
 
 
 if __name__ == "__main__":

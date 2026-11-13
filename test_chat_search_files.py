@@ -296,6 +296,34 @@ def test_a_security_question_on_the_search_goes_through_and_is_never_retried():
 
 # -- client: file download link -------------------------------------------------
 
+# Answers a plain-text or JSON-string POST can carry that are NOT a download link: a
+# WAF challenge or login page (HTML, HTTP 200), a progress word, a non-https link, a
+# link with white space or a line break in it, several lines. Each holds a marker that
+# must never show up in an error message.
+NOT_A_LINK = (
+    "<html><body>challenge SECRET-PAGE-TEXT</body></html>",
+    "<!DOCTYPE html>\n<title>Log in</title> SECRET-PAGE-TEXT",
+    "in-progress",
+    "completed",
+    "http://files.example.com/f/9?sig=SECRET-SIG-123",
+    "ftp://files.example.com/f/9?sig=SECRET-SIG-123",
+    "//files.example.com/f/9?sig=SECRET-SIG-123",
+    "files.example.com/f/9?sig=SECRET-SIG-123",
+    "HTTPS://files.example.com/f/9?sig=SECRET-SIG-123",
+    "https://",
+    "https://files.example.com/f/9 ?sig=SECRET-SIG-123",
+    "https://files.example.com/f/9\t?sig=SECRET-SIG-123",
+    "https://files.example.com/f/9\n?sig=SECRET-SIG-123",
+    "https://files.example.com/f/9?sig=SECRET-SIG-123\nhttps://other.example.com/x",
+    "see https://files.example.com/f/9?sig=SECRET-SIG-123",
+)
+NOT_SHOWN = ("SECRET-PAGE-TEXT", "SECRET-SIG", "files.example.com", "challenge", "in-progress",
+             "completed", "<html", "Log in")
+
+
+def _not_shown(text):
+    return not any(mark in text for mark in NOT_SHOWN)
+
 def test_download_url_posts_without_body_and_without_query_by_default():
     c = _client(_FakeHTTP(read_answer=LINK))
     out = c.file_download_url("f1")
@@ -347,6 +375,26 @@ def test_an_answer_that_is_no_link_is_an_error_that_does_not_show_the_answer():
             assert "SECRET-SIG" not in str(e) and "files.example.com" not in str(e), e
         else:
             raise AssertionError(f"an answer that is no link must not pass: {odd!r}")
+
+
+def test_only_one_https_text_without_white_space_counts_as_a_link():
+    """HTML (a challenge or login page), `in-progress`, `http://`, white space: all refused."""
+    for odd in NOT_A_LINK:
+        c = _client(_FakeHTTP(read_answer=odd))
+        try:
+            out = c.file_download_url("f1")
+        except SkoolHTTPError as e:
+            assert _not_shown(str(e)), f"the answer was shown for {odd!r}: {e}"
+        else:
+            raise AssertionError(f"{odd!r} must not pass as a link, got {out!r}")
+        assert len(c.http.read_posts) == 1, "refused after the one call, never asked again"
+
+
+def test_a_good_https_link_passes_unchanged_and_only_the_edges_are_trimmed():
+    for good in (LINK, "https://a.example/x", "https://cdn.example.com/p/f.pdf?a=1&b=2#frag"):
+        for wrapped in (good, f"  {good}\n", f"\t{good}  "):
+            c = _client(_FakeHTTP(read_answer=wrapped))
+            assert c.file_download_url("f1") == good, wrapped
 
 
 def test_a_security_question_on_the_download_link_goes_through_and_is_never_retried():
@@ -903,6 +951,22 @@ def test_the_download_tool_refuses_bad_input_and_shows_no_link_in_an_error():
         raise AssertionError("an answer that is no link must not pass")
 
 
+def test_the_download_tool_refuses_what_is_no_link_without_showing_it():
+    """The check lives in the client; the tool inherits it."""
+    for odd in NOT_A_LINK:
+        c = _client(_FakeHTTP(read_answer=odd))
+        try:
+            out = _with_client(c, lambda m: _fn(m.get_file_download_url)("f1"))
+        except SkoolHTTPError as e:
+            assert _not_shown(str(e)), f"the answer was shown for {odd!r}: {e}"
+        else:
+            raise AssertionError(f"{odd!r} must not pass as a link, got {out!r}")
+    for good in (LINK, f" {LINK}\n"):
+        c = _client(_FakeHTTP(read_answer=good))
+        out = _with_client(c, lambda m: _fn(m.get_file_download_url)("f1"))
+        assert out["download_url"] == LINK, out
+
+
 def test_the_download_tool_says_it_is_for_files_not_for_videos():
     import catknows.mcp_server as m
     doc = _fn(m.get_file_download_url).__doc__ or ""
@@ -1005,6 +1069,67 @@ def test_search_user_is_a_member_record_without_contact_data():
                              "lastName": "Person", "metadata": _hit()["metadata"]})
     assert rec == want, rec
     assert "email" not in rec and "anna@example.com" not in json.dumps(rec, default=str), rec
+
+
+def _deep_payload():
+    """Secrets, contact data and plain fields, nested in objects and lists, depth 3 and more."""
+    return {
+        "users": [
+            {"id": "u1", "email": "a@example.com", "apiKeys": ["k"], "survey": [{"a": 1}],
+             "member": {"role": "member", "email": "b@example.com", "billingEmail": "c@example.com",
+                        "metadata": {"deeper": [{"email": "d@example.com", "numRequests": 3,
+                                                 "keep": "yes"}]}}},
+            [{"nested": [{"email": "e@example.com", "self": {"x": 1}, "keep": "yes"}]}],
+        ],
+        "total": 2, "env": {"KEY": "v"},
+    }
+
+
+def _all_keys(obj):
+    keys = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            keys.add(k)
+            keys |= _all_keys(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            keys |= _all_keys(v)
+    return keys
+
+
+def test_scrub_without_a_key_set_removes_exactly_the_secret_and_private_keys():
+    """The default must not drift: `scrub(obj)` is what every raw path relied on before."""
+    out = normalize.scrub(_deep_payload())
+    left = _all_keys(out)
+    assert not left & (normalize.SECRET_KEYS | normalize.PRIVATE_KEYS), left
+    assert "email" in left, "contact keys are not part of the default set"
+    for gone in ("apiKeys", "survey", "billingEmail", "numRequests", "self", "env"):
+        assert gone not in left, gone
+    assert {"id", "member", "role", "metadata", "deeper", "keep", "total", "nested"} <= left, left
+    assert out["users"][0]["member"]["metadata"]["deeper"][0] == {
+        "email": "d@example.com", "keep": "yes"}, out
+
+
+def test_scrub_takes_the_key_set_through_every_level_of_the_recursion():
+    out = normalize.scrub(_deep_payload(), normalize.CONTACT_KEYS)
+    left = _all_keys(out)
+    assert "email" not in left, left
+    # a non-default set takes only that set: the secret keys stay (and the default is not mixed in)
+    assert {"apiKeys", "survey", "billingEmail", "numRequests", "self", "env"} <= left, left
+    assert out["users"][0]["member"]["metadata"]["deeper"][0] == {
+        "numRequests": 3, "keep": "yes"}, out
+    assert out["users"][1][0]["nested"][0] == {"self": {"x": 1}, "keep": "yes"}, out
+    only = normalize.scrub(_deep_payload(), frozenset({"keep"}))
+    assert "keep" not in _all_keys(only) and "email" in _all_keys(only), only
+
+
+def test_strip_contact_removes_exactly_the_contact_keys_and_is_scrub_with_that_set():
+    assert normalize.CONTACT_KEYS == frozenset({"email"}), normalize.CONTACT_KEYS
+    stripped = normalize.strip_contact(_deep_payload())
+    assert stripped == normalize.scrub(_deep_payload(), normalize.CONTACT_KEYS), stripped
+    left = _all_keys(stripped)
+    assert "email" not in left and "apiKeys" in left and "survey" in left, left
+    assert normalize.strip_contact(["x", 3, None]) == ["x", 3, None], "plain values pass through"
 
 
 def test_strip_contact_removes_email_at_every_depth_and_leaves_the_rest():
