@@ -2151,10 +2151,15 @@ guaranteed, and where, so that a log never holds it:
   goes through `audit.redact` (when that replaces something, the chain is cut too).
   A presigned upload link (§5.3) is access as a whole, with parameter names that are
   not Skool's: a network error of `put_bytes` names the host only, repeats the
-  library's message without the URL or any other link, and never has a chain.
+  library's message without the URL or any other link, and never has a chain. An HTTP
+  error of the upload shows the storage's `<Code>` and `<Message>` only (its answer
+  repeats the request: access key id, signed text, signature), or no body at all.
+  A network error on the signed playback link (`get_mux`, §1.2b) names the URL without
+  its query and has no chain either.
 - **Answer excerpt.** Every error text of the HTTP layer takes the start of Skool's
   answer from one place (`http._answer_excerpt`): e-mail addresses in it are masked
   (`normalize.mask_email`, `a***@example.com`) and it goes through `audit.redact`.
+  The same place cuts the unexpected `/wait` answer in the dashboard's error (§1.9).
 - **Draft.** The `import_course` draft shows the key's length, never the key.
 - **Not covered.** The MCP tool `create_course_share_key` returns the key in its answer
   to the caller: that is its job. A key you pass to `import_course` sits in the
