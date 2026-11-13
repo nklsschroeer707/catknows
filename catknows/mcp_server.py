@@ -1889,9 +1889,10 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "them, so a full list is refused only when Skool answers. No description is sent."
     )
     _NV_RENAME_CATEGORY = (
-        "Not verified: only display_name is sent. Whether Skool keeps the category's "
-        "sort and write role is not checked live (Skool's own client also sends only "
-        "the fields it changes). The current name is not read back."
+        "Not verified: only display_name is sent, and Skool's own form always sends "
+        "name, sort and write role together, so a name-only update is not something "
+        "the web client does. Whether Skool then keeps the category's sort and write "
+        "role is not checked live. The current name is not read back."
     )
     _NV_ABOUT = (
         "Not verified: which format Skool wants for the About text (plain text or "

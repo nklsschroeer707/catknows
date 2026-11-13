@@ -584,6 +584,22 @@ def test_drafts_carry_a_fixed_note_on_what_is_not_verified():
     assert "one" in drafts["pin_comment"]["not_verified"]
 
 
+def test_the_rename_note_says_what_skools_own_form_really_sends():
+    """Page code: the one category form calls updateLabel with name, sort AND write
+    role every time. A name-only update is not what the web client does, so the
+    draft must not claim Skool's client sends only the fields it changes."""
+    c = _client()
+    out = _with_client(c, lambda m: _fn(m.rename_category)(SLUG, "lb1", "New name"))
+    note = out["not_verified"]
+    for wrong in ("also sends only", "only the fields", "only the changed", "only what it changes"):
+        assert wrong not in note, f"the draft still says: {wrong!r}: {note}"
+    assert "always sends name, sort and write role together" in note, note
+    assert "name-only update is not something the web client does" in note, note
+    assert "not checked live" in note and "not read back" in note, note
+    assert out["would_rename"]["display_name"] == "New name", out  # the draft shows the new name
+    assert c.http.calls == [], c.http.calls
+
+
 def test_the_note_is_there_in_both_directions():
     c = _client()
     calls = [

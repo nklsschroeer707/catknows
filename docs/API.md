@@ -1317,9 +1317,12 @@ admins may post) or `3` (admins only). `default_sort` is `newest-cm` (shown as
 "Default"), `newest` ("New"), `best-1w` ("Top (week)") or `best-1m` ("Top
 (month)"); `best-1y` is shown in the feed but is not selectable in the form.
 `createLabel` has no `description` in the request body (Skool's JS function takes
-one, the body it builds does not). `updateLabel` builds its body from whichever of
-`display_name`, `post_write_role` and `default_sort` it is given; catknows sends
-only `display_name` (rename). Not built: `deleteLabel`, `updateGroupLabelOrder`
+one, the body it builds does not). The `updateLabel` function builds its body from
+whichever of `display_name`, `post_write_role` and `default_sort` it is given, but
+its only caller, the category form, always passes all three, so Skool's own client
+never sends a name-only update. catknows sends only `display_name` (rename), as the
+autopilot does; that Skool then leaves the sort and the write role alone has never
+been checked. Not built: `deleteLabel`, `updateGroupLabelOrder`
 (`move-label`), changing the sort or the write role of an existing category. The
 category ids are the `category_id` of a `list_posts` row, or `GET
 /groups/{gid}/labels` (§1.2).
@@ -1371,8 +1374,9 @@ percent-encoded into the path text.
   client sends no body. One HTTP 400 in 8 days in the autopilot, cause unclear.
 - What Skool does with a vote whose `old` does not match the vote it has stored.
 - Whether `updateLabel` with only `display_name` keeps the category's sort and
-  write role (the page code builds the body from the given fields, which points
-  to yes).
+  write role. Skool's own form always sends all three; the only evidence for the
+  short form is the autopilot, which sends `{display_name}`, and nobody checked
+  what happened to the sort and the role.
 - The 10-category limit is Skool's to enforce; catknows does not count.
 - The wire format of the About `description`, how the 1000 characters are counted
   for a stored string, and what a blank text does (catknows refuses it).
