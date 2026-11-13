@@ -225,8 +225,8 @@ a bugfix task. Read it now, not after the feature.
   (a `SkoolHTTPError`): don't catch it with a broad `except`, don't retry it,
   and let a batch job stop on it (docs/API.md §3). The batch jobs
   (`pull_to_vault`, the CLI `pull`, `catknows.snapshot`) stop the same way on
-  HTTP 401, 403 and 429 (`http.turned_away`); only other errors count as one
-  failed entry.
+  HTTP 401, 403 and 429 and on a 202 repeated until the retries are used up
+  (`http.turned_away`); only other errors count as one failed entry.
 - **Never commit `.skool-profile/`** — it holds the user's live session.
 - **Pick the branch before you commit, not after.** `main` is the open-source
   side users pull via `update_catknows`; `hosted-mcp` adds HTTP transport, OAuth

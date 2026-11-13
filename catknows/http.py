@@ -180,11 +180,16 @@ def turned_away(e: BaseException) -> bool:
     it as it does on `SkoolSecurityChallenge`; asking on for the next entry is
     the pattern of an automaton. Read from ``.status``, never from the text.
 
+    Also true for a 202 that Skool repeated until the retries were used up, its
+    other rate-limit answer (docs/API.md §3). That error keeps status 0 and
+    carries ``repeated_202``; only the batch jobs ask this function about it.
+
     Meant for answers of Skool itself. `get_mux` raises the same error class
     with 403 for an expired playback token, which says nothing about the
     account: do not use this on errors of a Mux request.
     """
-    return isinstance(e, SkoolHTTPError) and e.status in REJECTED_STATUSES
+    return isinstance(e, SkoolHTTPError) and (
+        e.status in REJECTED_STATUSES or getattr(e, "repeated_202", False))
 
 
 # Skool's api2 wording for "you may see this endpoint, but not this object":
@@ -740,7 +745,9 @@ class SkoolHTTP:
                 self._cache[url] = (time.time(), copy.deepcopy(data))
             return data
 
-        raise SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {url}")
+        err = SkoolHTTPError(f"{last_err} after {MAX_RETRIES_202} retries: {url}")
+        err.repeated_202 = code == 202   # rate limit, not an empty body: see turned_away
+        raise err
 
 
 def _extract_build_id(html: str) -> str:

@@ -13,6 +13,14 @@ pattern of an automaton. Same ways out as for the question: `pull_to_vault`
 raises the error with how far it got, the CLI pull exits 1, the snapshot
 exits 3. A 500, a 404 or a network error is still one failed entry.
 
+A 202 that Skool repeats until the retries are used up is its other rate-limit
+answer (docs/API.md §3, "429 / repeated 202"). It stops the batch the same way;
+without that every further entry would be asked three more times. A body that
+stays empty is not that answer and is still one failed entry.
+
+In the CLI pull the same stop holds before the loop, while the members or the
+list of posts are read: the stop sentence and exit 1, not a traceback.
+
 Offline: the client is a fake that counts the calls it gets.
 
 Run: python test_batch_stop.py    (no network, no pytest)
@@ -28,12 +36,17 @@ from pathlib import Path
 
 import catknows.__main__ as cli
 from catknows import mcp_server, snapshot
-from catknows.http import SkoolHTTPError, SkoolSecurityChallenge
+import catknows.http as http_mod
+from catknows.http import SkoolHTTP, SkoolHTTPError, SkoolSecurityChallenge, turned_away
+
+http_mod.RETRY_202_DELAY_S = 0
 
 CHALLENGE_AT = "challenge"
 ORDINARY_AT = "ordinary"          # HTTP 500
 REJECTED = (401, 403, 429)        # an int as the kind: that HTTP status
 ORDINARY = (500, 404, 0)          # 0 = network error
+REPEATED_202 = "repeated 202"     # Skool's other rate-limit answer
+STOPPING = (*REJECTED, REPEATED_202)
 
 
 def _challenge() -> SkoolSecurityChallenge:
@@ -48,10 +61,39 @@ def _status(status: int) -> SkoolHTTPError:
     return SkoolHTTPError(f"HTTP {status} on https://api2.skool.com/x: no", status)
 
 
+class _Net:
+    """A fake transport that gives the same answer every time and counts."""
+
+    def __init__(self, status: int, text: str):
+        self.status, self.text, self.gets = status, text, 0
+
+    def get(self, url, **kw):
+        self.gets += 1
+        return type("R", (), {"status_code": self.status, "text": self.text})()
+
+
+def _through_http(status: int, text: str) -> tuple[SkoolHTTPError, int]:
+    """The error the real GET path raises for this answer, and how often it asked."""
+    h = SkoolHTTP.__new__(SkoolHTTP)
+    h._cache, h._http = {}, _Net(status, text)
+    try:
+        h._get_with_retry("https://www.example.com/x.json", {})
+    except SkoolHTTPError as e:
+        return e, h._http.gets
+    raise AssertionError("an answer that never becomes data must end in an error")
+
+
 def _raise_for(kind):
+    if kind == REPEATED_202:
+        raise _through_http(202, "")[0]
     if isinstance(kind, int):
         raise _status(kind)
     raise _challenge() if kind == CHALLENGE_AT else _ordinary()
+
+
+def _names(kind) -> str:
+    """How a stop message names the answer."""
+    return "HTTP 202" if kind == REPEATED_202 else f"HTTP {kind}"
 
 
 class _Members(list):
@@ -89,6 +131,22 @@ def _written_posts(vault_dir: Path, community: str) -> list[str]:
     return sorted(p.name for p in folder.glob("*.md")) if folder.exists() else []
 
 
+# -- the repeated 202 ---------------------------------------------------------
+
+def test_a_202_repeated_until_the_retries_are_used_up_counts_as_turned_away():
+    e, gets = _through_http(202, "")
+    assert gets == http_mod.MAX_RETRIES_202, gets
+    assert turned_away(e), "a repeated 202 is Skool's rate limit: a batch must stop on it"
+    assert e.status == 0, "the status of that error stays what it was"
+
+
+def test_an_empty_body_or_a_500_through_http_is_not_turned_away():
+    e, _ = _through_http(200, "   ")
+    assert not turned_away(e), "a body that stays empty is no rate limit"
+    e, _ = _through_http(500, "boom")
+    assert not turned_away(e) and e.status == 500
+
+
 # -- pull_to_vault (MCP tool) -------------------------------------------------
 
 _tool = mcp_server.pull_to_vault
@@ -124,8 +182,8 @@ def test_pull_to_vault_still_counts_an_ordinary_error_and_goes_on():
         assert len(_written_posts(Path(tmp), "some-community")) == 5
 
 
-def test_pull_to_vault_stops_on_401_403_429():
-    for status in REJECTED:
+def test_pull_to_vault_stops_on_401_403_429_and_a_repeated_202():
+    for status in STOPPING:
         with tempfile.TemporaryDirectory() as tmp:
             c = _PullClient(5, {"p2": status})
             mcp_server._client = c
@@ -134,9 +192,12 @@ def test_pull_to_vault_stops_on_401_403_429():
             except SkoolHTTPError as e:
                 msg = str(e)
                 assert not isinstance(e, SkoolSecurityChallenge), status
-                assert e.status == status, f"the status stays on the error: {e.status}"
+                if status == REPEATED_202:
+                    assert turned_away(e), "the stop error still says: turned away"
+                else:
+                    assert e.status == status, f"the status stays on the error: {e.status}"
                 assert "pull_to_vault" in msg and "stopped" in msg, msg
-                assert "2 of 5" in msg and f"HTTP {status}" in msg, msg
+                assert "2 of 5" in msg and _names(status) in msg, msg
             else:
                 raise AssertionError(f"{status} must end the pull with an error, not a partial result")
             assert c.comment_calls == ["p0", "p1", "p2"], \
@@ -188,13 +249,13 @@ def test_cli_pull_still_counts_an_ordinary_error_and_goes_on():
         assert c.comment_calls == ["p0", "p1", "p2", "p3", "p4"], c.comment_calls
 
 
-def test_cli_pull_stops_on_401_403_429_with_a_failing_exit_code():
-    for status in REJECTED:
+def test_cli_pull_stops_on_401_403_429_and_a_repeated_202_with_a_failing_exit_code():
+    for status in STOPPING:
         with tempfile.TemporaryDirectory() as tmp:
             c = _PullClient(5, {"p2": status})
             rc, out, err = _run_cli(c, tmp)
             assert rc == 1, f"{status}: a stopped pull must exit 1, got {rc}"
-            assert f"HTTP {status}" in err and "stopped after 2 of 5" in err, err
+            assert _names(status) in err and "stopped after 2 of 5" in err, err
             assert "Done" not in out, "a stopped pull must not end with the success line"
             assert c.comment_calls == ["p0", "p1", "p2"], (status, c.comment_calls)
             assert len(_written_posts(Path(tmp), "some-community")) == 2, "written notes stay"
@@ -315,18 +376,18 @@ def test_snapshot_still_counts_an_ordinary_error_and_goes_on():
         assert "stopped" not in err
 
 
-def test_snapshot_stops_on_401_403_429_in_all_four_loops():
+def test_snapshot_stops_on_401_403_429_and_a_repeated_202_in_all_four_loops():
     argv = ("a", "b", "c", "--discovery", "--rank", "r1", "r2", "r3", "--growth", "g1", "g2", "g3")
     walk = [("about", "a"), ("about", "b"), ("about", "c"), ("discovery", "page1"),
             ("rank", "r1"), ("rank", "r2"), ("rank", "r3"),
             ("growth", "g1"), ("growth", "g2"), ("growth", "g3")]
     for at in (("about", "b"), ("discovery", "page1"), ("rank", "r2"), ("growth", "g2")):
-        for status in REJECTED:
+        for status in STOPPING:
             with tempfile.TemporaryDirectory() as tmp:
                 c = _SnapClient({at: status})
                 rc, err = _run_snapshot(c, tmp, *argv)
                 assert rc == 3, f"{at} {status}: a stopped snapshot must exit 3, got {rc}"
-                assert f"HTTP {status}" in err and "stopped" in err, (at, status, err)
+                assert _names(status) in err and "stopped" in err, (at, status, err)
                 assert c.calls == walk[:walk.index(at) + 1], \
                     f"{at} {status}: nothing may be requested after the rejection: {c.calls}"
                 assert _trend(tmp, "a").exists(), "rows already written stay"
@@ -346,8 +407,16 @@ def test_snapshot_goes_on_after_500_404_and_a_network_error():
 
 
 if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
+    failed = []
+    tests = [(n, f) for n, f in list(globals().items()) if n.startswith("test_") and callable(f)]
+    for name, fn in tests:
+        try:
             fn()
-    print("ok — a security question and a 401/403/429 stop pull_to_vault, the CLI pull and all "
-          "four snapshot loops; ordinary errors are still counted per entry")
+        except Exception as e:  # keep going: one run lists every gap
+            failed.append(name)
+            print(f"FAIL {name}: {type(e).__name__}: {str(e)[:300]}")
+    if failed:
+        raise SystemExit(f"{len(failed)} of {len(tests)} checks failed")
+    print(f"ok — {len(tests)} checks: a security question, a 401/403/429 and a repeated 202 stop "
+          "pull_to_vault, the CLI pull and all four snapshot loops; ordinary errors are still "
+          "counted per entry")

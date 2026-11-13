@@ -1074,10 +1074,10 @@ def pull_to_vault(
     """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path.
 
     A post whose comments fail to load is counted in `comments_failed` and the
-    pull goes on. Not so if Skool answers with HTTP 401, 403 or 429 or with its
-    security question: the pull stops there with an error that says how far it
-    got, and requests nothing more. The notes already written stay. Do not
-    start it again right away: tell the user.
+    pull goes on. Not so if Skool answers with HTTP 401, 403 or 429, with a 202
+    again and again, or with its security question: the pull stops there with
+    an error that says how far it got, and requests nothing more. The notes
+    already written stay. Do not start it again right away: tell the user.
     """
     from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
@@ -1113,15 +1113,18 @@ def pull_to_vault(
                 ) from e
             except Exception as e:  # one bad post shouldn't kill the pull
                 if turned_away(e):
-                    # 401/403/429: the account is being turned away. Same stop as
-                    # for the security question, the status stays on the error.
-                    raise SkoolHTTPError(
+                    # 401/403/429 or a repeated 202: the account is being turned
+                    # away. Same stop as for the security question, the status
+                    # (0 for the repeated 202) and its mark stay on the error.
+                    stop = SkoolHTTPError(
                         f"pull_to_vault stopped after {posts_written} of {len(trees)} "
-                        f"posts: Skool answered HTTP {e.status} while the comments were "
-                        "read, so nothing more was requested. The notes already written "
-                        f"stay in the vault; the rest was not pulled. {e}",
+                        f"posts: Skool answered HTTP {e.status or 202} while the comments "
+                        "were read, so nothing more was requested. The notes already "
+                        f"written stay in the vault; the rest was not pulled. {e}",
                         e.status,
-                    ) from e
+                    )
+                    stop.repeated_202 = getattr(e, "repeated_202", False)
+                    raise stop from e
                 comments_failed += 1
         vault.write_post(out, community_slug, prec, comment_recs)
         posts_written += 1

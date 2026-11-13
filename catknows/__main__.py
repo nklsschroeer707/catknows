@@ -93,9 +93,9 @@ def _pull(args) -> int:
                 return 1
             except Exception as e:  # one bad post shouldn't kill the run
                 if turned_away(e):
-                    # 401/403/429: the account is being turned away. Same stop.
+                    # 401/403/429 or a repeated 202: turned away. Same stop.
                     print(f"error: pull stopped after {written_posts} of {len(trees)} posts: "
-                          f"Skool answered HTTP {e.status}, so nothing more was requested. "
+                          f"Skool answered HTTP {e.status or 202}, so nothing more was requested. "
                           f"The notes already written stay in {vault_dir}. {e}",
                           file=sys.stderr)
                     return 1

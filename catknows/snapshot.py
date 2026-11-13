@@ -14,8 +14,8 @@ visitors, signups, conversion and signup sources to `<vault>/trends/growth.jsonl
 No AI involved and strictly headless: safe to run from a scheduler. If the
 persisted login has expired it exits with code 2 instead of opening a
 browser window — run any catknows tool interactively once to re-login.
-If Skool answers with its security question (AUTH-SEC-5xx) or with HTTP 401,
-403 or 429 it stops at once, requests nothing more and exits with code 3; rows
+If Skool answers with its security question (AUTH-SEC-5xx), with HTTP 401,
+403 or 429 or with a 202 again and again it stops at once, requests nothing more and exits with code 3; rows
 already appended stay.
 """
 
@@ -119,11 +119,11 @@ def _growth_row(client: SkoolClient, slug: str) -> dict:
 
 
 def _stopped(e: SkoolHTTPError, what: str) -> int:
-    """Security question or 401/403/429: no entry after this one is requested."""
+    """Security question, 401/403/429 or a repeated 202: no entry after this one is requested."""
     if isinstance(e, SkoolSecurityChallenge):
         why = f"Skool asked a security question (code {e.code}) on {e.method} {e.path}"
     else:
-        why = f"Skool answered HTTP {e.status} ({e})"
+        why = f"Skool answered HTTP {e.status or 202} ({e})"
     print(f"!! {what}: {why} - snapshot stopped, nothing more was requested. "
           "Rows already appended stay.", file=sys.stderr)
     return 3

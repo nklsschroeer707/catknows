@@ -861,8 +861,11 @@ requested. `pull_to_vault` raises a `SkoolHTTPError` with the same `.status`
 and how far it got in front of the message, `python -m catknows pull` exits
 with code 1, `python -m catknows.snapshot` exits with code 3 (in all four
 loops). catknows reads this from the error's `.status`, never from its text.
-Any other error (404, 500, a network error, an empty payload) is still one
-failed entry and the job goes on.
+A 202 that Skool repeats until the three tries are used up (the other
+rate-limit answer in the table above) stops the job the same way; that error
+keeps `.status` 0 and carries `repeated_202`, and the message names it as HTTP
+202. Any other error (404, 500, a network error, a body that stays empty, an
+empty payload) is still one failed entry and the job goes on.
 
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.
