@@ -10,6 +10,11 @@ segment or a query. This file checks, method by method:
   * ``/``, ``?``, ``&``, ``#``: encoded, so the id stays ONE segment or value,
   * real ids (32 hex) and slugs with hyphens: sent unchanged.
 
+The same holds for the ``www`` paths (the Next.js data routes behind
+``get_next``): community slug, member handle and post name come from the caller
+and are checked the same way. Real slugs, handles and post names go out byte for
+byte as before (the table ``WWW`` holds every expected path in full).
+
 Plus the two guards of the read-POSTs: `post_api2_read` takes only the two
 paths docs/API.md §5.13 names, and the download link must be https with a host.
 
@@ -20,6 +25,7 @@ Run: python test_id_segments.py
 
 import os
 import tempfile
+from urllib.parse import urlsplit
 
 os.environ["CATKNOWS_WRITE_GAP_S"] = "0"
 os.environ.setdefault("CATKNOWS_AUDIT_LOG", os.path.join(tempfile.mkdtemp(), "w.jsonl"))
@@ -37,6 +43,10 @@ SLUG = "some-group-1234"
 class RecordingHTTP:
     def __init__(self):
         self.calls = []
+        self.next_slugs = []   # get_next's second argument: buildId page and Referer
+
+    def build_id(self, slug):
+        return "build"
 
     def get_api2(self, path):
         self.calls.append(("GET", path))
@@ -50,6 +60,11 @@ class RecordingHTTP:
 
     def get_next(self, q, slug=""):
         self.calls.append(("NEXT", q))
+        self.next_slugs.append(slug)
+        if q.startswith("/@") or "/classroom" in q:
+            # a profile and a classroom with one course, so the walks go on
+            return {"pageProps": {"currentUser": {"id": HEX}, "course": {"id": HEX},
+                                  "allCourses": [{"id": HEX, "name": "abc12345"}]}}
         return {}
 
     def _w(self, verb, path):
@@ -157,6 +172,123 @@ def test_likes_tab_is_encoded():
     c.likes_page(HEX, tab="upvotes&cursor=x")
     (_, path), = c.http.calls
     assert "tab=upvotes%26cursor%3Dx&" in path, path
+
+
+# -- www paths (get_next): slug, handle and post name ---------------------------
+
+HANDLE = "test.person-1234"
+POST = "hello-world-2"
+S, H, P = SLUG, HANDLE, POST
+
+# name -> (call(client, slug, handle, post), the slots the call uses,
+#          every get_next path it sends for the real values, in full)
+WWW = {
+    "members": (lambda c, s, h, p: c.members(s), "s",
+                [f"/{S}/-/members.json?sortType=-memberlastoffline&group={S}"]),
+    "posts": (lambda c, s, h, p: c.posts(s), "s", [f"/{S}.json?group={S}"]),
+    "posts sorted": (lambda c, s, h, p: c.posts(s, sort="new"), "s",
+                     [f"/{S}.json?group={S}&s=newest"]),
+    "resolve_member": (lambda c, s, h, p: c.resolve_member(s, h), "sh",
+                       [f"/@{H}.json?g={S}&group=@{H}"]),
+    "posts_by": (lambda c, s, h, p: c.posts_by(s, h), "sh",
+                 [f"/@{H}.json?g={S}&group=@{H}", f"/@{H}.json?g={S}&group=@{H}"]),
+    "post_categories": (lambda c, s, h, p: c.post_categories(s), "s", [f"/{S}.json?group={S}"]),
+    "search": (lambda c, s, h, p: c.search(s, "cat food"), "s",
+               [f"/{S}/-/search.json?q=cat%20food&t=posts&group={S}"]),
+    "post_detail": (lambda c, s, h, p: c.post_detail(s, p), "sp", [f"/{S}/{P}.json?group={S}"]),
+    "video_transcript": (lambda c, s, h, p: c.video_transcript(s, p), "sp",
+                         [f"/{S}/{P}.json?group={S}"]),
+    "profile": (lambda c, s, h, p: c.profile(h, s), "sh", [f"/@{H}.json?g={S}&group=@{H}"]),
+    "follows": (lambda c, s, h, p: c.follows(h), "h", [f"/@{H}.json?t=followers&group=@{H}"]),
+    "follows following": (lambda c, s, h, p: c.follows(h, "following"), "h",
+                          [f"/@{H}.json?t=following&group=@{H}"]),
+    "community_about": (lambda c, s, h, p: c.community_about(s), "s",
+                        [f"/{S}/about.json?group={S}"]),
+    "leaderboards": (lambda c, s, h, p: c.leaderboards(s), "s",
+                     [f"/{S}/-/leaderboards.json?group={S}"]),
+    "join_requests": (lambda c, s, h, p: c.join_requests(s), "s",
+                      [f"/{S}/-/pending.json?group={S}"]),
+    "join_requests page 2": (lambda c, s, h, p: c.join_requests(s, page=2), "s",
+                             [f"/{S}/-/pending.json?group={S}&p=2"]),
+    "calendar": (lambda c, s, h, p: c.calendar(s), "s", [f"/{S}/calendar.json?group={S}"]),
+    "calendar month": (lambda c, s, h, p: c.calendar(s, 1700000000), "s",
+                       [f"/{S}/calendar.json?calDate=1700000000&group={S}"]),
+    "classroom": (lambda c, s, h, p: c.classroom(s), "s", [f"/{S}/classroom.json?group={S}"]),
+    "course tree via page": (lambda c, s, h, p: c._course_tree_via_page(s, HEX), "s",
+                             [f"/{S}/classroom.json?group={S}",
+                              f"/{S}/classroom/abc12345.json?group={S}"]),
+}
+
+WWW_ENCODED = dict(ENCODED, **{"a b": "a%20b", "a\nb": "a%0Ab", "a\x00b": "a%00b", "a%2Fb": "a%252Fb"})
+
+
+def _next_paths(c):
+    return [p for kind, p in c.http.calls if kind == "NEXT"]
+
+
+def _shape(q):
+    """What a value must not change: number of path pieces, query names, no fragment."""
+    u = urlsplit("https://www.example.com" + q)
+    return (u.path.count("/"), [kv.partition("=")[0] for kv in u.query.split("&")], u.fragment)
+
+
+def _values(slot, value):
+    return {"s": SLUG, "h": HANDLE, "p": POST, slot: value}
+
+
+def test_www_real_slug_handle_and_post_name_go_out_byte_for_byte():
+    for name, (call, _slots, expected) in WWW.items():
+        c = _client()
+        call(c, SLUG, HANDLE, POST)
+        assert _next_paths(c) == expected, f"{name}: {_next_paths(c)}"
+        assert c.http.calls == [("NEXT", p) for p in expected], f"{name}: {c.http.calls}"
+        assert set(c.http.next_slugs) <= {SLUG, ""}, f"{name}: {c.http.next_slugs}"
+
+
+def test_www_slash_question_mark_and_friends_stay_inside_their_piece():
+    for name, (call, slots, expected) in WWW.items():
+        for slot in slots:
+            for raw, enc in WWW_ENCODED.items():
+                if name == "resolve_member" and slot == "h" and " " in raw:
+                    continue  # with a space it is a display name: the search, not the handle route
+                c = _client()
+                v = _values(slot, raw)
+                call(c, v["s"], v["h"], v["p"])
+                paths = _next_paths(c)
+                where = f"{name} [{slot}={raw!r}]"
+                assert paths, f"{where}: nothing was sent"
+                assert [_shape(q) for q in paths] == [_shape(q) for q in expected[:len(paths)]], \
+                    f"{where}: the request left its path or query: {paths}"
+                assert all(enc in q for q in paths), f"{where}: not encoded in {paths}"
+                if raw != "a%2Fb":      # that one is a part of its own encoded form
+                    assert all(raw not in q for q in paths), f"{where}: went out raw: {paths}"
+                for slug in c.http.next_slugs:   # the buildId page and the Referer
+                    assert not set(slug) & set("/?#& \n\x00"), f"{where}: slug argument {slug!r}"
+
+
+def test_www_dots_and_blank_are_refused_before_any_request():
+    for name, (call, slots, _expected) in WWW.items():
+        for slot in slots:
+            for bad in REFUSED:
+                c = _client()
+                v = _values(slot, bad)
+                try:
+                    call(c, v["s"], v["h"], v["p"])
+                except ValueError as e:
+                    assert bad.strip() == "" or f"'{bad}'" not in str(e)
+                else:
+                    raise AssertionError(f"{name} [{slot}={bad!r}] must be refused")
+                assert c.http.calls == [], f"{name} [{slot}={bad!r}] sent {c.http.calls}"
+
+
+def test_group_id_for_fallback_reads_the_feed_of_the_checked_slug():
+    """`group_id_for` falls back to the feed page: the same slug, checked once."""
+    c = _client()
+    c.http.get_api2 = lambda path: {}
+    c.http.get_next = lambda q, slug="": (
+        c.http.calls.append(("NEXT", q)) or {"pageProps": {"postTrees": [{"post": {"id": "p", "groupId": HEX}}]}})
+    assert c.group_id_for(SLUG) == HEX
+    assert c.http.calls == [("NEXT", f"/{SLUG}.json?group={SLUG}")], c.http.calls
 
 
 # -- post_api2_read takes only the two documented read-POST paths --------------
