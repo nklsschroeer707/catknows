@@ -168,6 +168,16 @@ def _security_challenge_code(status: int, data) -> str:
     return ""
 
 
+def turned_away(e: BaseException) -> bool:
+    """True if this error is Skool's 401, 403 or 429: the account is being turned away.
+
+    Session or WAF rejected (401/403) or rate limit (429). A batch job stops on
+    it as it does on `SkoolSecurityChallenge`; asking on for the next entry is
+    the pattern of an automaton. Read from ``.status``, never from the text.
+    """
+    return isinstance(e, SkoolHTTPError) and e.status in (401, 403, 429)
+
+
 # Skool's api2 wording for "you may see this endpoint, but not this object":
 # a membership gate, not an auth failure. Measured 2026-08-19 on
 # /groups/{gid}/courses and /courses/{id} — an account that is NOT in the

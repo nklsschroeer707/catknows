@@ -1071,8 +1071,15 @@ def update_catknows(confirm: bool = False) -> dict:
 def pull_to_vault(
     community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
 ) -> dict:
-    """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
-    from .http import SkoolSecurityChallenge
+    """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path.
+
+    A post whose comments fail to load is counted in `comments_failed` and the
+    pull goes on. Not so if Skool answers with HTTP 401, 403 or 429 or with its
+    security question: the pull stops there with an error that says how far it
+    got, and requests nothing more. The notes already written stay. Do not
+    start it again right away: tell the user.
+    """
+    from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
@@ -1104,7 +1111,17 @@ def pull_to_vault(
                              "were read, so nothing more was requested. The notes already "
                              "written stay in the vault; the rest was not pulled."),
                 ) from e
-            except Exception:  # one bad post shouldn't kill the pull
+            except Exception as e:  # one bad post shouldn't kill the pull
+                if turned_away(e):
+                    # 401/403/429: the account is being turned away. Same stop as
+                    # for the security question, the status stays on the error.
+                    raise SkoolHTTPError(
+                        f"pull_to_vault stopped after {posts_written} of {len(trees)} "
+                        f"posts: Skool answered HTTP {e.status} while the comments were "
+                        "read, so nothing more was requested. The notes already written "
+                        f"stay in the vault; the rest was not pulled. {e}",
+                        e.status,
+                    ) from e
                 comments_failed += 1
         vault.write_post(out, community_slug, prec, comment_recs)
         posts_written += 1

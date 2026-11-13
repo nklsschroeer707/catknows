@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import SkoolClient, login, session_from_cookie
 from . import normalize, vault
-from .http import SkoolSecurityChallenge
+from .http import SkoolSecurityChallenge, turned_away
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,6 +92,13 @@ def _pull(args) -> int:
                       f"written stay in {vault_dir}.", file=sys.stderr)
                 return 1
             except Exception as e:  # one bad post shouldn't kill the run
+                if turned_away(e):
+                    # 401/403/429: the account is being turned away. Same stop.
+                    print(f"error: pull stopped after {written_posts} of {len(trees)} posts: "
+                          f"Skool answered HTTP {e.status}, so nothing more was requested. "
+                          f"The notes already written stay in {vault_dir}. {e}",
+                          file=sys.stderr)
+                    return 1
                 print(f"  ! comments failed for {prec['skool_id']}: {e}", file=sys.stderr)
         vault.write_post(vault_dir, community, prec, comment_recs)
         written_posts += 1

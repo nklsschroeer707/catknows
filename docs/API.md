@@ -854,6 +854,16 @@ and then stops:
   catknows.snapshot` exits with code 3. None of them requests anything after it;
   notes and rows already written stay.
 
+**401, 403 and 429 stop a batch job the same way.** The three batch jobs above
+treat an answer of 401, 403 or 429 like the security question: the account is
+being turned away, so the entry is not counted as failed and nothing more is
+requested. `pull_to_vault` raises a `SkoolHTTPError` with the same `.status`
+and how far it got in front of the message, `python -m catknows pull` exits
+with code 1, `python -m catknows.snapshot` exits with code 3 (in all four
+loops). catknows reads this from the error's `.status`, never from its text.
+Any other error (404, 500, a network error, an empty payload) is still one
+failed entry and the job goes on.
+
 **Politeness:** sleep ~0.8s between paginated requests, and don't run tight
 loops. Skool will rate-limit aggressive clients.
 
