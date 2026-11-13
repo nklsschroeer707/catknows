@@ -1059,7 +1059,10 @@ class SkoolClient:
 
     @staticmethod
     def check_about_description(description) -> None:
-        """The About text: non-blank text. A blank one would wipe the public page."""
+        """The About text: non-blank text. catknows' own rule: a blank text is refused.
+
+        What Skool does with a blank About text is not verified against Skool.
+        """
         if not isinstance(description, str) or not description.strip():
             raise ValueError("description must be non-blank text.")
 

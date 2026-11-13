@@ -16,8 +16,8 @@ Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
 ### Added
 - **21 new tools.** They are built from Skool's own page code and tested against
   stand-ins only; **none has been tried against Skool yet.** Every new write
-  is draft-first like the rest, and its draft carries a `not_verified` text
-  to show you. Try a throwaway item in a private community first.
+  is draft-first like the rest, and every draft except `follow_post`'s carries
+  a `not_verified` text to show you. Try a throwaway item in a private community first.
   - Calendar (writes): `create_calendar_event`, `update_calendar_event`,
     `delete_calendar_event`.
   - Post actions (writes): `vote_post`, `pin_post`, `create_category`,

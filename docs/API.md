@@ -825,7 +825,7 @@ It means Skool wants a security check for that path (a nonce for 501; 502 is a
 Turnstile refusal, read from the page code). It is not an HTTP error: the page's
 own client reads `code` only on HTTP 200. Today the nonce is required on eight
 `/auth/*` paths (login, sign-up, password reset) that catknows does not call, and
-the Turnstile check is switched off in the page data. Skool can extend the nonce to
+the Turnstile check is switched off in the page data (as read on 2026-11-12). Skool can extend the nonce to
 more paths without a new client, and this is how that would show. catknows raises
 `catknows.http.SkoolSecurityChallenge` (a `SkoolHTTPError`, `.status` 200,
 `.code` the AUTH-SEC code) on `get_api2`, `get_api2_text`, `post_api2`,
@@ -1347,7 +1347,7 @@ the query).
 
 | Call (Skool's name) | Request | Body | Web client |
 |---|---|---|---|
-| `updatePostVote` | `PUT /posts/{id}/vote` | `{"old": "", "new": "up"}` (like) or `{"old": "up", "new": ""}` (take it back) | no restriction read from the page code; who the server lets vote is not verified |
+| `updatePostVote` | `PUT /posts/{id}/vote` | `{"old": "", "new": "up"}` (like) or `{"old": "up", "new": ""}` (take it back) | not in the sources (the page has a permission reason `upvote`, what it checks is not recorded); who the server lets vote is not verified |
 | `pinPost` | `POST /posts/{id}/pin` | none in Skool's client; catknows sends `{}` | "Pin to feed", group admin only |
 | `unpinPost` | `POST /posts/{id}/unpin` | same as `pinPost` | "Unpin from feed" |
 | `createLabel` | `POST /labels` | `{"group_id": "…", "metadata": {"display_name": "…", "default_sort": "…", "post_write_role": 4}}` | Settings, Community, Categories |
