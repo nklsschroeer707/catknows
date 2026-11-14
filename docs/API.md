@@ -1401,6 +1401,7 @@ the query).
 | `unpinPost` | `POST /posts/{id}/unpin` | same as `pinPost` | "Unpin from feed" |
 | `createLabel` | `POST /labels` | `{"group_id": "…", "metadata": {"display_name": "…", "default_sort": "…", "post_write_role": 4}}` | Settings, Community, Categories |
 | `updateLabel` | `PUT /labels/{labelId}` | Skool's client sends the whole form object (name, sort, write role); **catknows sends only** `{"display_name": "…"}` (see below) | same |
+| `deleteLabel` | `DELETE /labels/{labelId}`, optional `?migrate={otherLabelId}` | none | Settings, Community, Categories: "Delete category?", and "Bulk migrate" when the category has posts |
 | `updateLandingPageDescription` | `POST /groups/{gid}/update-landing-page-description` | `{"description": "…"}` | About page, admin only |
 | `disablePostComments` | `POST /posts/{id}/disable-comments` | none | "Turn off comments", at least admin / moderator (the post's author: not checked) |
 | `enablePostComments` | `POST /posts/{id}/enable-comments` | none | "Turn on comments" |
@@ -1436,7 +1437,12 @@ whichever of `display_name`, `post_write_role` and `default_sort` it is given, b
 its only caller, the category form, always passes all three, so Skool's own client
 never sends a name-only update. catknows sends only `display_name` (rename), as the
 autopilot does; that Skool then leaves the sort and the write role alone has never
-been checked. Not built: `deleteLabel`, `updateGroupLabelOrder`
+been checked. `deleteLabel` takes the category's id and, as the query `migrate`,
+the id of the category its posts move to; Skool's form sends no `migrate` for a
+category without posts and does not offer the delete for one with posts until a
+target is chosen ("You must recategorize all posts before deleting a category").
+The web client reads the category (`GET /groups/{gid}/labels/{id}`) right before
+it deletes; catknows sends the delete alone. Not built: `updateGroupLabelOrder`
 (`move-label`), changing the sort or the write role of an existing category. The
 category ids are the `category_id` of a `list_posts` row, or `GET
 /groups/{gid}/labels` (§1.2).
@@ -1459,10 +1465,11 @@ a refused pin.
 Implemented as `SkoolClient.vote_post(post_id, old, new)`, `pin_post(post_id,
 pinned=True)`, `create_category(slug, display_name, *, default_sort,
 post_write_role)`, `rename_category(category_id, display_name)`,
+`delete_category(category_id, *, migrate_to="")`,
 `update_about_description(slug, description)`, `set_post_comments(post_id, *,
 enabled)`, `pin_comment(post_id, comment_id, pinned=True)` and
 `follow_post(post_id, follow=True)`; each returns Skool's answer as it is. The
-`vote_post`, `pin_post`, `create_category`, `rename_category`,
+`vote_post`, `pin_post`, `create_category`, `rename_category`, `delete_category`,
 `update_about_description`, `set_post_comments`, `pin_comment` and `follow_post`
 MCP tools (behind `CATKNOWS_ALLOW_WRITE=1`) are draft-first: `confirm=false`
 contacts nobody and returns what would be sent, and for every action with a
@@ -2155,7 +2162,10 @@ whole number (`days: field ? +field : 0`). With drip on and no days the Save but
 stays off, so `enabled: true` always goes out with 1 to 999; with drip off the form
 sends whatever days are left in its field, or 0. catknows checks the same: a real
 boolean, a whole number (not a boolean), 1 to 999 when `enabled`, 0 to 999 when
-not (default 0). Whether the server enforces the same limits is not known. The page
+not (default 0). **The server wants 1 to 999 in both directions** (live 2026-11-13:
+`{"enabled": false, "days": 0}` → `400 days must be between 1 and 999`), so with
+drip off catknows sends a 0 as 1. Switched off, the page's metadata loses
+`drip_config` and `drip_days` altogether, whatever days were sent. The page
 reads the setting back from `metadata.dripConfig`, a JSON text of the same two
 fields; the call does not read it first, so a draft cannot show the current one.
 
@@ -2275,9 +2285,10 @@ is shown, not worked around. The tools are for a key its owner gave to the user.
 
 **Open, not verified live:**
 
-- `updateCourseDrip`: what it answers, whether the server enforces 1 to 999, whether
-  a course or folder id works as well as a page id, and what drip does to members
-  who already have access.
+- `updateCourseDrip`: whether a course or folder id works as well as a page id, and
+  what drip does to members who already have access. (Run live 2026-11-13 on a draft
+  page: answers `{}`, on → `metadata.drip_config` `{"enabled":true,"days":1}` plus
+  `drip_days`, off → both gone.)
 - `updateCourseParent`: what it answers, where the page lands among its new siblings,
   whether the server refuses a folder as `{id}` or a page as `parent`, and whether it
   checks that both belong to the same course.

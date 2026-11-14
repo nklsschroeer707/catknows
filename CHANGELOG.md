@@ -11,23 +11,30 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 
 ## 2026-11-13
 
-Version 0.2.0. The server now has 31 tools, 62 with `CATKNOWS_ALLOW_WRITE=1`.
+Version 0.2.0. The server now has 31 tools, 63 with `CATKNOWS_ALLOW_WRITE=1`.
 
 ### Added
-- **21 new tools.** They are built from Skool's own page code and tested against
-  stand-ins only; **none has been tried against Skool yet.** Every new write
-  is draft-first like the rest, and every draft except `follow_post`'s carries
-  a `not_verified` text to show you. Try a throwaway item in a private community first.
+- **22 new tools.** They are built from Skool's own page code. **21 of them were
+  run against Skool on 2026-11-13** and did what they say; what can be undone
+  was undone, and the result read afterwards. The one exception is `pin_post`: Skool
+  answered it properly (a community holds at most 3 pinned posts, and ours had
+  3), but a pin that takes effect has not been seen yet. Still open on the
+  tested ones: `mark_chat_read` and `mark_all_chats_read` were run with nothing
+  unread, `delete_category` was run on an empty category only (moving posts
+  first is not run), and `get_community_levels` and the admin tools answer 401 where you
+  are a plain member. Every new write is draft-first like the rest, and every
+  draft except `follow_post`'s carries a `not_verified` text to show you.
   - Calendar (writes): `create_calendar_event`, `update_calendar_event`,
     `delete_calendar_event`.
   - Post actions (writes): `vote_post`, `pin_post`, `create_category`,
-    `rename_category`, `update_about_description`, `set_post_comments`,
+    `rename_category`, `delete_category`, `update_about_description`,
+    `set_post_comments`,
     `pin_comment`, `follow_post`. `update_about_description` overwrites a
     public text and its draft shows only the new one: read the current About
     text first.
   - Course settings (writes): `set_course_drip`, `move_course_to_folder`,
     `create_course_share_key` (the key is a credential, treat it like a
-    password) and `import_course`.
+    password) and `import_course` (the copy arrives as a draft).
   - Chat read marks (writes): `mark_chat_read`, and `mark_all_chats_read`,
     which marks every chat of the account.
   - Reads: `search_members` (find a person by name, at most 7 hits, no email),

@@ -234,7 +234,7 @@ env var in the MCP config:
 ```
 
 Without the flag the server has **31 tools** and your AI can't even see the
-write tools; with it, **62 tools**. With the flag, three guards remain: your
+write tools; with it, **63 tools**. With the flag, three guards remain: your
 MCP client asks permission before every tool call, the tools are draft-first
 (the AI must show you the draft, then call again with `confirm=true`), and
 emailing all members (`notify_members`) is a separate explicit switch. Test in

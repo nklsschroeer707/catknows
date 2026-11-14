@@ -52,7 +52,7 @@ server over stdio — this is catknows' primary direction: **the bridge between
 Skool and any MCP-capable tool** (Claude, Codex, Cursor, …). It's a thin wrapper
 over `SkoolClient`; don't duplicate client logic in it.
 
-- The server registers **31 tools** by default and **62 tools** with
+- The server registers **31 tools** by default and **63 tools** with
   `CATKNOWS_ALLOW_WRITE=1`. `test_mcp_tools_doc.py` counts both against the
   running server and fails if this file, the README or the `catknows-update`
   skill says another number.
@@ -75,7 +75,7 @@ over `SkoolClient`; don't duplicate client logic in it.
   `set_course_drip`, `move_course_to_folder`, `create_course_share_key`,
   `import_course`), the calendar writers (`create_calendar_event`,
   `update_calendar_event`, `delete_calendar_event`), the small post actions
-  (`vote_post`, `pin_post`, `create_category`, `rename_category`,
+  (`vote_post`, `pin_post`, `create_category`, `rename_category`, `delete_category`,
   `update_about_description`, `set_post_comments`, `pin_comment`,
   `follow_post`) and the chat read marks (`mark_chat_read`,
   `mark_all_chats_read`): **only registered when `CATKNOWS_ALLOW_WRITE=1`**.

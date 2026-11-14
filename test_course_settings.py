@@ -21,7 +21,8 @@ the classroom and course chunks: the dialogs). Never run live.
 What the page code shows, and the tests hold to:
   * Drip: body `{enabled, days}`, days a whole number, the field clamped to 1..999;
     with drip on and no days the Save button stays off; with drip off the form
-    sends the days left in its field or 0. The call is in a PAGE's menu.
+    sends the days left in its field or 0. The server refuses 0 (seen live), so
+    catknows sends 1 instead. The call is in a PAGE's menu.
   * Parent: query `parent` = a folder's id, or the course's own id for "None"
     (`parent: folder ? folder.id : page.rootId`). No body.
   * Share key: no body; the page reads `data.code`. The import form refuses a key
@@ -165,12 +166,13 @@ def test_drip_posts_enabled_and_days_in_the_body():
         c.http.calls
 
 
-def test_drip_off_sends_enabled_false_and_zero_days_unless_told_otherwise():
+def test_drip_off_sends_enabled_false_and_one_day_unless_told_otherwise():
     c = _client()
     c.set_course_drip("p1", False)
     c.set_course_drip("p1", False, 14)  # the page sends the days left in its field
     assert c.http.calls == [
-        ("POST", "/courses/p1/update-drip", {"enabled": False, "days": 0}),
+        # live 2026-11-13: days 0 is answered 400 "days must be between 1 and 999"
+        ("POST", "/courses/p1/update-drip", {"enabled": False, "days": 1}),
         ("POST", "/courses/p1/update-drip", {"enabled": False, "days": 14}),
     ], c.http.calls
 
@@ -181,7 +183,7 @@ def test_drip_days_follow_the_limits_of_the_page_form():
     ok.set_course_drip("p1", True, 999)
     ok.set_course_drip("p1", False, 0)
     ok.set_course_drip("p1", False, 999)
-    assert [c[2]["days"] for c in ok.http.calls] == [1, 999, 0, 999], ok.http.calls
+    assert [c[2]["days"] for c in ok.http.calls] == [1, 999, 1, 999], ok.http.calls
 
     bad = _client()
     for enabled, days in ((True, 0), (True, -1), (True, 1000), (False, 1000), (False, -1),
@@ -484,7 +486,7 @@ def test_the_drip_draft_names_both_directions():
     off = _with_client(c, lambda m: _fn(m.set_course_drip)("p1", False))
     assert "7 days" in on["would_set_drip"]["does"], on
     assert "off" in off["would_set_drip"]["does"], off
-    assert off["would_set_drip"]["days"] == 0, off
+    assert off["would_set_drip"]["days"] == 1, off
     assert c.http.calls == [], c.http.calls
 
 
@@ -548,7 +550,7 @@ def test_confirmed_tools_send_exactly_the_documented_calls():
         (lambda m: _fn(m.set_course_drip)("p1", True, 7, confirm=True), "drip_set",
          [("POST", "/courses/p1/update-drip", {"enabled": True, "days": 7})]),
         (lambda m: _fn(m.set_course_drip)("p1", False, confirm=True), "drip_set",
-         [("POST", "/courses/p1/update-drip", {"enabled": False, "days": 0})]),
+         [("POST", "/courses/p1/update-drip", {"enabled": False, "days": 1})]),
         (lambda m: _fn(m.move_course_to_folder)("p1", "f1", confirm=True), "moved",
          [("POST", "/courses/p1/update-parent?parent=f1", None)]),
         (lambda m: _fn(m.create_course_share_key)("c1", confirm=True), "share_key_created",

@@ -1730,12 +1730,11 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     # `create_course_share_key` hands it to its caller and nothing else.
 
     _NV_DRIP = (
-        "Not verified, not run: Skool's own form clamps the days to 1-999 and catknows "
-        "checks the same (the server's limit is not known); who the server lets switch "
-        "drip (the web client shows it in a page's menu); whether a course or folder id "
-        "works as well as a page id; what Skool answers; and what drip does to members "
-        "who already have access. The current setting is not read first, so the draft "
-        "cannot show it."
+        "Not verified: who the server lets switch drip (the web client shows it in a "
+        "page's menu); whether a course or folder id works as well as a page id; and "
+        "what drip does to members who already have access. The server wants days "
+        "1-999 in both directions, so switching off sends 1 when no days are given. "
+        "The current setting is not read first, so the draft cannot show it."
     )
     _NV_MOVE_TO_FOLDER = (
         "Not verified, not run: where the page lands among the new folder's pages (the "
@@ -1773,8 +1772,8 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         With drip on, a member sees the page `days` days after they join. Skool's
         web client offers this in a PAGE's menu ("Drip status"), so course_id is a
         page's id (from get_course_tree). enabled=true needs days from 1 to 999;
-        enabled=false needs none (0, the default). There is no default direction:
-        say which one you mean.
+        enabled=false needs none (Skool wants a number anyway, so 1 is sent).
+        There is no default direction: say which one you mean.
 
         Draft-first: with confirm=false NOTHING is sent and Skool is not
         contacted. The draft shows the id, not the page's title, and not the
@@ -1782,7 +1781,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         """
         from .client import SkoolClient
 
-        SkoolClient.check_course_drip(enabled, days)
+        days = SkoolClient.check_course_drip(enabled, days)
         SkoolClient.course_action_path(course_id, "update-drip")  # refuse a bad id up front
         if not confirm:
             return _draft(
@@ -2138,6 +2137,13 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "the web client does. Whether Skool then keeps the category's sort and write "
         "role is not checked live. The current name is not read back."
     )
+    _NV_DELETE_CATEGORY = (
+        "Not verified: what Skool answers when the category still has posts and no "
+        "migrate_to is given (its web client does not offer that), and what happens "
+        "to the last category of a community. Skool's client reads the category "
+        "first and then deletes; catknows sends the delete alone. The name is not "
+        "read back. Deleting cannot be undone."
+    )
     _NV_ABOUT = (
         "Not verified: which format Skool wants for the About text (plain text or "
         '"[v2]" TipTap): it goes out exactly as shown. This REPLACES the whole About '
@@ -2248,7 +2254,7 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         category_id is the `category_id` of a post from list_posts. display_name:
         at most 30 characters (the category form's limit, not measured on the
         server), public. Only the name changes; the category's sort and write
-        role are not sent. Deleting a category is not available.
+        role are not sent.
 
         Draft-first: with confirm=false NOTHING is changed and Skool is not
         contacted. The draft shows the id and the new name; the current name is
@@ -2265,6 +2271,37 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         client.group_id_for(community_slug, for_write=True)  # archived guard
         updated = client.rename_category(category_id, display_name)
         return {"status": "renamed", "category": _safe_raw(updated)}
+
+    @mcp.tool()
+    def delete_category(community_slug: str, category_id: str, migrate_to: str = "",
+                        confirm: bool = False) -> dict:
+        """PERMANENTLY delete a feed category (Skool calls it a label). This cannot be undone.
+
+        category_id is the `category_id` of a post from list_posts, or the id
+        create_category answered. migrate_to is the id of ANOTHER category:
+        every post of the deleted one moves there first. Leave it empty only
+        for a category without posts; Skool's web client makes you move the
+        posts before it deletes. The category form keeps at least 1 category.
+
+        confirm=false (the default) deletes nothing and does not contact Skool.
+        The draft shows the ids only; the category's name and its number of
+        posts are not read back, so make sure the user knows which category
+        this id is.
+        """
+        _skool().category_delete_path(category_id, migrate_to)  # refuse bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was deleted", "would_delete",
+                {"community": community_slug, "category_id": category_id,
+                 "migrate_to": migrate_to or "(none: the category must have no posts)",
+                 "does": ("move every post of this category into the other one, then "
+                          "delete the category" if migrate_to else "delete the category")},
+                prose=False, not_verified=_NV_DELETE_CATEGORY)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.delete_category(category_id, migrate_to=migrate_to)
+        return {"status": "deleted", "category_id": category_id, "migrate_to": migrate_to,
+                "answer": _safe_raw(answer)}
 
     @mcp.tool()
     def update_about_description(community_slug: str, description: str,
@@ -2471,7 +2508,7 @@ _DESTRUCTIVE = {
     "create_course", "create_course_item", "update_course_item",
     "publish_course", "move_course_item", "delete_course_item", "review_join_request",
     "create_calendar_event", "update_calendar_event", "delete_calendar_event",
-    "vote_post", "pin_post", "create_category", "rename_category",
+    "vote_post", "pin_post", "create_category", "rename_category", "delete_category",
     "update_about_description", "set_post_comments", "pin_comment", "follow_post",
     "mark_chat_read", "mark_all_chats_read",
     "set_course_drip", "move_course_to_folder", "create_course_share_key", "import_course",

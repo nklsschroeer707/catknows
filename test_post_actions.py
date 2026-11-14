@@ -3,14 +3,15 @@
 Nothing here touches Skool. The client talks to a stand-in that records every
 call, and the HTTP layer (for the body and audit tests) to a stand-in transport.
 
-The twelve calls (basis https://api2.skool.com). Source: Skool's own page code
+The thirteen calls (basis https://api2.skool.com). Source: Skool's own page code
 (build 1794436674711), read from the plan notes `vertraege.md` (rows
-updatePostVote, pinPost, unpinPost, createLabel, updateLabel,
+updatePostVote, pinPost, unpinPost, createLabel, updateLabel, deleteLabel,
 updateLandingPageDescription, disablePostComments, enablePostComments,
 pinComment, unpinComment, followPost, unfollowPost), the catalogue
 (`skool-re-api-katalog-rest`, `-groups`), the function maps
 (`skool-re-funktionskarte-inhalte` §3, §5-§8, `-community-settings` §1.8) and
-the page code itself (`updateLabel`, `pinComment`, `updateLandingPageDescription`).
+the page code itself (`updateLabel`, `deleteLabel`, `pinComment`,
+`updateLandingPageDescription`).
 Never run live.
 
     updatePostVote                 PUT   /posts/{id}/vote                       {old, new}
@@ -19,6 +20,7 @@ Never run live.
     createLabel                    POST  /labels                                {group_id, metadata:
                                                           {display_name, default_sort, post_write_role}}
     updateLabel                    PUT   /labels/{id}                           {display_name}
+    deleteLabel                    DELETE /labels/{id}[?migrate={other id}]     no body
     updateLandingPageDescription   POST  /groups/{gid}/update-landing-page-description   {description}
     disablePostComments            POST  /posts/{id}/disable-comments           no body
     enablePostComments             POST  /posts/{id}/enable-comments            no body
@@ -32,7 +34,7 @@ Inhalte §3, community-settings §1.8): name at most 30 characters,
 `default_sort` newest-cm | newest | best-1w | best-1m (best-1y is shown but not
 selectable in the form), `post_write_role` 3 (admins) | 4 (members).
 
-NOT built: deleteLabel, updateGroup, updateLabel's other two fields,
+NOT built: updateGroup, updateLabel's other two fields,
 pinPostToModule / unpinPostFromModule, movePinnedPost.
 
 Deliberately NOT asserted, because the notes do not say: what Skool answers
@@ -104,6 +106,9 @@ class _ChallengedHTTP(_FakeHTTP):
 
     def put_api2(self, path, body):
         self._ask("PUT", path)
+
+    def delete_api2(self, path, body=None):
+        self._ask("DELETE", path)
 
 
 def _client(http=None):
@@ -377,6 +382,25 @@ def test_rename_category_encodes_the_id_and_checks_the_name():
         assert c.http.calls == [], (bad, c.http.calls)
 
 
+def test_delete_category_sends_a_bare_delete_and_the_migrate_query_only_when_given():
+    c = _client()
+    assert c.delete_category("lb1") == {}
+    c.delete_category("lb1", migrate_to="lb2")
+    assert c.http.calls == [("DELETE", "/labels/lb1", None),
+                            ("DELETE", "/labels/lb1?migrate=lb2", None)], c.http.calls
+
+
+def test_delete_category_encodes_both_ids_and_refuses_bad_ones():
+    c = _client()
+    c.delete_category("a b/c", migrate_to="x&y=1")
+    assert c.http.calls[0][1] == "/labels/a%20b%2Fc?migrate=x%26y%3D1", c.http.calls
+    for cid, target in (("", ""), ("..", ""), (" ", ""), ("lb1", " "), ("lb1", 5),
+                        ("lb1", None), ("lb1", "lb1")):
+        c = _client()
+        _refused(lambda: c.delete_category(cid, migrate_to=target))
+        assert c.http.calls == [], (cid, target, c.http.calls)
+
+
 # -- client: the About text --------------------------------------------------------
 
 def test_about_description_posts_the_text_exactly_as_given():
@@ -501,7 +525,7 @@ def test_body_less_calls_send_no_json_and_the_others_send_what_is_documented():
 
 # -- tools: nothing leaves without confirm ------------------------------------------
 
-TOOLS = ("vote_post", "pin_post", "create_category", "rename_category",
+TOOLS = ("vote_post", "pin_post", "create_category", "rename_category", "delete_category",
          "update_about_description", "set_post_comments", "pin_comment", "follow_post")
 
 PROSE_TOOLS = ("create_category", "rename_category", "update_about_description")
@@ -514,6 +538,7 @@ def _drafts(c):
         "pin_post": lambda m: _fn(m.pin_post)(SLUG, "p1"),
         "create_category": lambda m: _fn(m.create_category)(SLUG, "Questions", "newest-cm", 4),
         "rename_category": lambda m: _fn(m.rename_category)(SLUG, "lb1", "New name"),
+        "delete_category": lambda m: _fn(m.delete_category)(SLUG, "lb1", "lb2"),
         "update_about_description": lambda m: _fn(m.update_about_description)(SLUG, ABOUT),
         "set_post_comments": lambda m: _fn(m.set_post_comments)(SLUG, "p1", False),
         "pin_comment": lambda m: _fn(m.pin_comment)(SLUG, "p1", "c1"),
@@ -547,6 +572,9 @@ def test_drafts_send_nothing_and_say_what_would_happen():
         "Questions", "newest-cm", 4), made
     renamed = drafts["rename_category"]["would_rename"]
     assert (renamed["category_id"], renamed["display_name"]) == ("lb1", "New name"), renamed
+    gone = drafts["delete_category"]["would_delete"]
+    assert (gone["category_id"], gone["migrate_to"]) == ("lb1", "lb2"), gone
+    assert "cannot be undone" in drafts["delete_category"]["not_verified"]
     assert drafts["update_about_description"]["would_update"]["description"] == ABOUT
     assert "would_disable_comments" in drafts["set_post_comments"], drafts["set_post_comments"]
     pc = drafts["pin_comment"]["would_pin_comment"]
@@ -672,6 +700,10 @@ def test_confirmed_tools_send_exactly_the_documented_calls():
              "display_name": "Questions", "default_sort": "newest-cm", "post_write_role": 4}})]),
         (lambda m: _fn(m.rename_category)(SLUG, "lb1", "New name", confirm=True), "renamed",
          [("PUT", "/labels/lb1", {"display_name": "New name"})]),
+        (lambda m: _fn(m.delete_category)(SLUG, "lb1", confirm=True), "deleted",
+         [("DELETE", "/labels/lb1", None)]),
+        (lambda m: _fn(m.delete_category)(SLUG, "lb1", "lb2", confirm=True), "deleted",
+         [("DELETE", "/labels/lb1?migrate=lb2", None)]),
         (lambda m: _fn(m.update_about_description)(SLUG, ABOUT, confirm=True), "updated",
          [("POST", f"/groups/{GID}/update-landing-page-description", {"description": ABOUT})]),
         (lambda m: _fn(m.set_post_comments)(SLUG, "p1", False, confirm=True), "comments_disabled",
@@ -720,6 +752,7 @@ def test_writes_into_an_archived_community_stop_at_the_tool():
         lambda m: _fn(m.pin_post)(SLUG, "p1", confirm=True),
         lambda m: _fn(m.create_category)(SLUG, "x", "newest", 4, confirm=True),
         lambda m: _fn(m.rename_category)(SLUG, "lb1", "x", confirm=True),
+        lambda m: _fn(m.delete_category)(SLUG, "lb1", confirm=True),
         lambda m: _fn(m.update_about_description)(SLUG, ABOUT, confirm=True),
         lambda m: _fn(m.set_post_comments)(SLUG, "p1", False, confirm=True),
         lambda m: _fn(m.pin_comment)(SLUG, "p1", "c1", confirm=True),
@@ -737,6 +770,7 @@ def test_a_security_question_is_not_turned_into_a_result_by_the_tools():
         lambda m: _fn(m.pin_post)(SLUG, "p1", confirm=True),
         lambda m: _fn(m.create_category)(SLUG, "x", "newest", 4, confirm=True),
         lambda m: _fn(m.rename_category)(SLUG, "lb1", "x", confirm=True),
+        lambda m: _fn(m.delete_category)(SLUG, "lb1", confirm=True),
         lambda m: _fn(m.update_about_description)(SLUG, ABOUT, confirm=True),
         lambda m: _fn(m.set_post_comments)(SLUG, "p1", False, confirm=True),
         lambda m: _fn(m.pin_comment)(SLUG, "p1", "c1", confirm=True),

@@ -1191,11 +1191,41 @@ class SkoolClient:
 
         Only the name is sent. Whether Skool then keeps the category's sort and
         write role is not verified. ``category_id`` is the ``category_id`` of a
-        ``list_posts`` row. Deleting a category is not built.
+        ``list_posts`` row.
         """
         self.check_category_name(display_name)
         return self.http.put_api2(self.category_path(category_id),
                                   {"display_name": display_name})
+
+    @staticmethod
+    def category_delete_path(category_id: str, migrate_to: str = "") -> str:
+        """``/labels/{id}``, plus ``?migrate={other id}`` to move its posts first.
+
+        ``migrate_to`` empty means "not given" (Skool's client leaves the query
+        out then); anything else must be non-blank text and not the category
+        itself. It is percent-encoded so it cannot add a parameter. No refusal
+        repeats a value.
+        """
+        path = SkoolClient.category_path(category_id)
+        if not isinstance(migrate_to, str) or (migrate_to and not migrate_to.strip()):
+            raise ValueError("migrate_to must be non-empty text when given.")
+        if migrate_to and migrate_to == category_id:
+            raise ValueError("migrate_to is the category itself: its posts cannot "
+                             "move into the category that is being deleted.")
+        if migrate_to:
+            path += f"?migrate={quote(migrate_to, safe='')}"
+        return path
+
+    def delete_category(self, category_id: str, *, migrate_to: str = "") -> dict:
+        """Delete a feed category: ``DELETE /labels/{id}``, no body (§5.12).
+
+        Irreversible. ``migrate_to`` is the id of another category: Skool's
+        client sends it as ``?migrate=`` to move the posts there first ("bulk
+        migrate"), and sends no query for a category without posts. Its form
+        does not offer deleting a category that still has posts without it;
+        what the server answers to that is not verified.
+        """
+        return self.http.delete_api2(self.category_delete_path(category_id, migrate_to))
 
     def update_about_description(self, community_slug: str, description: str) -> dict:
         """Replace the About page's description (§5.12).
@@ -1632,15 +1662,17 @@ class SkoolClient:
 
         ``enabled`` must be a real boolean. ``days`` a whole number (not a boolean):
         1 to 999 when drip is on (the form clamps to that, and its Save button stays
-        off without days), 0 to 999 when it is off (the form sends the days left in
-        its field, or 0). Whether the server enforces the same limits is not known.
+        off without days), 0 to 999 when it is off. The server wants 1 to 999 in
+        BOTH directions (seen live 2026-11-13: ``enabled: false`` with ``days: 0``
+        is answered 400 "days must be between 1 and 999"), so with drip off a 0
+        goes out as 1; the days of a switched-off drip are not kept by Skool.
         """
         SkoolClient.check_flag(enabled, "enabled")
         low, high = (1 if enabled else 0), SkoolClient.COURSE_DRIP_DAYS_MAX
         if isinstance(days, bool) or not isinstance(days, int) or not low <= days <= high:
             raise ValueError(f"days must be a whole number from {low} to {high}"
                              + (" (drip is on)." if enabled else " (0 when drip is off)."))
-        return days
+        return days or 1
 
     @staticmethod
     def check_import_course(course_id, clone_code) -> str:
@@ -1667,8 +1699,9 @@ class SkoolClient:
 
         Body ``{"enabled", "days"}``. Skool's web client offers it in a page's
         menu, so ``course_id`` is a page id; whether a course or folder id works
-        is not known. ``days``: see `check_course_drip` (1 to 999 when ``enabled``,
-        0 by default when not). Returns Skool's answer as it is.
+        is not known. ``days``: see `check_course_drip` (1 to 999 when ``enabled``;
+        when not, the default 0 is sent as 1, which the server demands). Returns
+        Skool's answer as it is.
         """
         days = self.check_course_drip(enabled, days)
         path = self.course_action_path(course_id, "update-drip")
