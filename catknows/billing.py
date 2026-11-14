@@ -60,7 +60,10 @@ _DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def billing_dir() -> Path:
-    return Path(os.environ.get("CATKNOWS_BILLING_DIR", "/var/lib/catknows/billing"))
+    """Root-owned (root:catknows 2750) under root-owned /var/lib: the receiver writes
+    here as root, the MCP server only reads. Nothing in the path is the service
+    user's, so it can neither swap the directory nor plant a link in it."""
+    return Path(os.environ.get("CATKNOWS_BILLING_DIR", "/var/lib/catknows-billing"))
 
 
 def armed() -> bool:
@@ -256,19 +259,14 @@ def validate(doc: Any) -> dict:
             "payers": payers, "exceptions": exceptions}
 
 
-def _write(p: Path, data: dict, owner: str | None) -> None:
-    """Atomic write. `receive` runs as root into a directory the service user owns,
-    so the temp file is created with O_EXCL under a random name (mkstemp): a
-    symlink planted there cannot redirect a root write."""
+def _write(p: Path, data: dict) -> None:
+    """Atomic write: random temp name created with O_EXCL (mkstemp), then rename.
+    The group comes from the directory's setgid bit, so no chown is needed."""
     import tempfile
 
     fd, tmp = tempfile.mkstemp(prefix=f".{p.name}.", dir=p.parent)
     try:
         os.fchmod(fd, 0o640)
-        if owner:
-            import pwd
-            pw = pwd.getpwnam(owner)
-            os.fchown(fd, pw.pw_uid, pw.pw_gid)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
         os.replace(tmp, p)
@@ -446,7 +444,17 @@ def rejected_hosts(since: str = "24h") -> list[str]:
     return sorted({urlsplit(m.group(1)).hostname or "" for m in _TRUSTED_HOST.finditer(r.stdout + r.stderr)} - {""})
 
 
-def receive(stdin=None, now: datetime | None = None, owner: str | None = "catknows") -> dict:
+def _check_dir(d: Path) -> None:
+    """As root, write only into a real, root-owned directory (install.sh creates it)."""
+    st = os.lstat(d)
+    import stat as _stat
+    if not _stat.S_ISDIR(st.st_mode):
+        raise RuntimeError(f"{d} must be a real directory (deploy/billing/install.sh creates it)")
+    if os.geteuid() == 0 and (st.st_uid != 0 or st.st_mode & 0o002):
+        raise RuntimeError(f"{d} must be root-owned and not world-writable")
+
+
+def receive(stdin=None, now: datetime | None = None) -> dict:
     """Store a pushed list, sync, report numbers (no names, no ids)."""
     stdin = stdin or sys.stdin
     raw = stdin.read(MAX_INPUT + 1)
@@ -455,10 +463,9 @@ def receive(stdin=None, now: datetime | None = None, owner: str | None = "catkno
     doc = validate(json.loads(raw))
     now = now or _now()
     d = billing_dir()
-    if d.is_symlink() or not d.is_dir():
-        raise RuntimeError(f"{d} must be a real directory (deploy/billing/install.sh creates it)")
+    _check_dir(d)
     doc["received"] = _iso(now)
-    _write(d / "payers.json", doc, owner)
+    _write(d / "payers.json", doc)
     state = load_state(d)
     accounts = keycloak_accounts()
     send = None
@@ -469,7 +476,7 @@ def receive(stdin=None, now: datetime | None = None, owner: str | None = "catkno
             print(f"catknows: no mailer — {type(e).__name__}", file=sys.stderr)
     numbers, blocked = sync(state, accounts, connected_skool_ids(a["id"] for a in accounts), now, send)
     if armed() or (d / "blocked.json").exists():
-        _write(d / "blocked.json", {"updated": _iso(now), "blocked": blocked}, owner)
+        _write(d / "blocked.json", {"updated": _iso(now), "blocked": blocked})
     try:
         numbers["rejected_hosts"] = rejected_hosts()
     except Exception:
@@ -628,7 +635,7 @@ def _self_check() -> None:
         # The temp file of a root write cannot be redirected by a planted symlink.
         target = Path(tmp, "victim"); target.write_text("keep")
         Path(tmp, "payers.json.tmp").symlink_to(target)
-        _write(Path(tmp, "payers.json"), {"a": 1}, None)
+        _write(Path(tmp, "payers.json"), {"a": 1})
         assert target.read_text() == "keep" and json.loads(Path(tmp, "payers.json").read_text()) == {"a": 1}
 
     m = _TRUSTED_HOST.search("WARN KC-SERVICES0102: URL 'https://agent.meta.ai/' doesn't match any trustedHost")

@@ -430,20 +430,26 @@ operational part:
 * **Where the list comes from:** the operator's automation reads catnose's
   ordinary members page with `tiers=premium,vip` every 6 h and pushes it over
   SSH with a key that can only run the receiver. The receiver runs as root
-  (it reads Keycloak through docker), so it never runs anything the service
-  user can change: `deploy/billing/install.sh` copies it, `billing.py` and
-  `sessions.py` to root-owned places and the system `python3` runs them with
-  `-I`. Re-run `install.sh` after every deploy that touches either file.
+  (it reads Keycloak through docker), so nothing it runs, reads as code or
+  writes into belongs to the service user: `deploy/billing/install.sh` installs
+  it from a root-owned checkout (never from `/opt/catknows`), the system
+  `python3` runs it with `-I`, and its directory `/var/lib/catknows-billing` is
+  `root:catknows 2750` — the MCP server only reads it. Re-run the install after
+  every deploy that touches `billing.py` or `sessions.py`.
 
   ```bash
   # once, as root
-  sh /opt/catknows/deploy/billing/install.sh
+  git clone -b hosted-mcp https://github.com/nklsschroeer707/catknows.git /usr/local/src/catknows
+  sh /usr/local/src/catknows/deploy/billing/install.sh
   # founders: ids from the 2026-11-01 export, nothing else
   # (the CSV has CRLF line ends: strip the \r, or no line matches)
   awk -F, '{sub(/\r$/,"")} NR>1 && $4=="True"{print $1}' /root/gruender-2026-11-01.csv \
-    | install -m 640 -o catknows -g catknows /dev/stdin /var/lib/catknows/billing/founders.txt
+    > /var/lib/catknows-billing/founders.txt && chmod 640 /var/lib/catknows-billing/founders.txt
   # the key line (public key from the operator's machine)
   echo 'command="/usr/local/sbin/catknows-billing-receive",restrict ssh-ed25519 AAAA… kasse@homelab' >> /root/.ssh/authorized_keys
+
+  # each update
+  cd /usr/local/src/catknows && git pull -q && sh deploy/billing/install.sh
   ```
 
   From `/etc/catknows/env` the receiver reads only `CATKNOWS_KASSE_AB`,
@@ -451,7 +457,7 @@ operational part:
   service user, so nothing else from it may reach a root process.
 
 * **What `receive` does:** checks and stores the list (`payers.json`), decides
-  for every account, and prints one line of numbers — accounts, founders,
+  for every account (state in `/var/lib/catknows-billing`), and prints one line of numbers — accounts, founders,
   exceptions, connected, payers, would refuse, refused, mails — plus the hosts
   Keycloak's Trusted Hosts policy turned away in the last 24 h (host names
   only), so a new AI client that cannot register gets noticed.
