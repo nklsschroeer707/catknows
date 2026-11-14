@@ -411,7 +411,7 @@ no strings.
 for people who don't want to install anything. **That one is a different deal:**
 a server costs money every month, so hosted is paid: $7 a month or $77 a year,
 as Premium in the [catnose community](https://www.skool.com/catnose/about) on
-Skool. Accounts made before 1 November 2026 keep it free.
+Skool. Accounts made before 18 November 2026, 9am Berlin time, keep it free.
 
 **What you're reading here never changes.** The code in this repo is MIT and
 free forever: the tool is free, running it on someone else's machine is what
