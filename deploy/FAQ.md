@@ -85,8 +85,8 @@ list for Premium and VIP.
 
 ### I signed up early
 
-If you made your catknows account before 1 November 2026, hosted stays free
-for you. No upgrade needed.
+If you made your catknows account before 18 November 2026, 9am Berlin time,
+hosted stays free for you. No upgrade needed.
 
 ### What if I cancel?
 

@@ -167,9 +167,9 @@ it from catnose's ordinary member list, as the owner of that community, about
 every 6 hours, and copy it to the server. No payment data is involved: Skool
 processes the payment, and I neither receive nor store card or billing details.
 
-Founders (accounts created before 1 November 2026) and gift recipients pass
-the check without being on the list. For that the server keeps the founders'
-account ids and the gift entries with their end date.
+Founders (accounts created before 18 November 2026, 9am Berlin time) and gift
+recipients pass the check without being on the list. For that the server keeps
+the founders' account ids and the gift entries with their end date.
 
 If the check fails, the tools answer with a link to the community and you get
 one email. Nothing is deleted. The server notes the account id and the time of

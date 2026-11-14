@@ -421,7 +421,7 @@ catknows hosted is billed through the catnose community on Skool (decided
 box holds no payment data. `catknows/billing.py` has the whole story; the
 operational part:
 
-* **Who passes:** founders (accounts created before 2026-11-01, one Keycloak id
+* **Who passes:** founders (accounts created before 2026-11-18 09:00 Berlin, one Keycloak id
   per line in `/var/lib/catknows/billing/founders.txt`), gift exceptions with an
   end date (sent along with the list), and anyone whose connected Skool account
   is on the payer list. Not connected = no tools anyway; the check applies the

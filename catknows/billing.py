@@ -17,7 +17,7 @@ How the list gets here, and why it is not fetched from this box:
   tells us *which* Skool account they connected: the ``auth_token`` cookie is a
   JWT whose ``user_id`` is the member id on that list (verified 2026-11-14).
 
-Who keeps access regardless: founders (accounts created before 2026-11-01,
+Who keeps access regardless: founders (accounts created before 2026-11-18 09:00 Berlin,
 ``founders.txt``), gift exceptions with an end date (sent along with the list),
 and accounts without a connected Skool session (they cannot use any tool yet;
 the check applies the moment they connect).
