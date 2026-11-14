@@ -38,7 +38,7 @@ try:  # MCP SDK 2.x
 except ImportError:  # MCP SDK 1.x called the same thing FastMCP
     from mcp.server.fastmcp import FastMCP as MCPServer
 
-from . import audit, normalize, sessions, vault
+from . import audit, billing, normalize, sessions, vault
 
 
 def _auth_kwargs() -> dict[str, Any]:
@@ -118,6 +118,7 @@ mcp.tool = _audited_tool
 _client = None  # lazy: log in only when the first tool actually needs Skool
 _clients: dict[str, Any] = {}  # per-user clients, keyed by OAuth subject
 _client_built: dict[str, float] = {}  # subject -> monotonic build time
+_skool_ids: dict[str, str] = {}  # subject -> connected Skool user id (paid check, billing.py)
 
 # WAF-token refresh (hosted): a stored session's aws-waf-token ages while the
 # year-long login stays valid, and a stale token degrades members.json into
@@ -240,6 +241,12 @@ def _get_client():
                 cookie = fresh
             _clients[subject] = _client_from_cookie(cookie)
             _client_built[subject] = _time.monotonic()
+            _skool_ids[subject] = billing.skool_user_id(cookie)
+        # Paid check on every call, not only when the client is built: a churn
+        # must reach a long-lived process. A refused account keeps everything —
+        # login, dashboard, stored session; only the tools say why they stop.
+        if reason := billing.refusal(subject, _skool_ids.get(subject, "")):
+            raise RuntimeError(reason)
         return _clients[subject]
 
     if _client is None:
@@ -400,6 +407,7 @@ if sessions.enabled():
             raise RuntimeError("No verified user on this request.")
         _clients.pop(subject, None)
         _client_built.pop(subject, None)
+        _skool_ids.pop(subject, None)
         existed = sessions.delete(subject)
         return {"status": "deleted" if existed else "nothing stored"}
 

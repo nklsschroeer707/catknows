@@ -54,11 +54,12 @@ def may_use_service(claims: dict[str, Any]) -> str:
     it is a dead end, and it stranded users who had done every step asked of
     them. Sign-up is now self-service end to end.
 
-    This stays the seam where the paid check belongs once catknows bills through
-    Skool: put the membership lookup here and nothing else moves. The claim is
-    still minted (see setup-realm.sh) and ``_truthy`` still reads Keycloak's
-    three encodings, so re-arming it is one ``if`` — but it must come back with
-    something that grants it automatically, not by hand.
+    The paid check (Skool membership in catnose, 2026-11-14) deliberately does
+    not live here: a refusal at this point is a bare 401, which sends the AI
+    client into a re-login loop and tells the person nothing. It sits in
+    ``mcp_server._get_client()`` instead — see ``catknows/billing.py`` — where a
+    refused account gets the community link as the tool's answer and keeps its
+    login, its dashboard and its stored session.
 
     Returns a short reason on refusal rather than a bool, because the caller
     logs it — "which check failed" is the difference between a two-minute

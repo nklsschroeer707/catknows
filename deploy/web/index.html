@@ -418,9 +418,9 @@ footer .unofficial { color: var(--brand); }
 .ask-note { color: var(--dim); font-size: 0.85rem; margin: 16px 0 22px; max-width: 58ch; }
 /* Below the fold .cta is a button in a wide column, not the single action of a
    full screen, so it takes its label's width instead of the whole shell. */
-.ask .cta, .connect .cta { display: inline-block; padding: 13px 30px; }
+.ask .cta, .connect .cta, .ways .cta { display: inline-block; padding: 13px 30px; }
 @media (max-width: 700px) {
-  .ask .cta, .connect .cta { display: block; padding: 13px 22px; }
+  .ask .cta, .connect .cta, .ways .cta { display: block; padding: 13px 22px; }
 }
 
 /* The four big questions. Same copy-on-click button as .prompts, but each one
@@ -550,6 +550,9 @@ footer .unofficial { color: var(--brand); }
   color: var(--dim); font-size: 0.82rem; line-height: 1.65;
   max-width: 62ch; margin: 22px 0 0;
 }
+.ways-note a { color: var(--ink); text-underline-offset: 3px; }
+.ways-note a:hover { color: var(--brand); }
+.ways .cta { margin-top: 18px; }
 /* Like .fineprint, minus its scrim: this sits on solid ground. */
 .trust {
   display: flex; flex-wrap: wrap; justify-content: center;
@@ -753,15 +756,22 @@ input, textarea { cursor: text; }
   <!-- The typed demo is gone: the background clip now shows a real catknows
        conversation, so a second mock chat only competed with it. -->
 
-  <p class="lede">What you want to know about your community is never on one
-     screen. It is in the member list, in the posts, in the comments, in your
-     DMs, and catknows lets the AI you already use read all of that in one
-     pass. It runs on your own Skool login, so it sees what you see and not a
-     line more, and anything it writes waits for your yes before it goes out.</p>
-
-  <!-- The three setup steps moved down to section 4 (Connect), where the
-       visitor is actually deciding whether to do them. The hero used to carry
-       them, which spent the first screen on mechanics instead of the promise. -->
+  <!-- The three steps and the copyable MCP link are back on the first screen
+       (Niklas 2026-11-14, as in 675fbee): the visitor who already knows what
+       catknows is should not have to scroll for the one thing they came for.
+       The longer pitch moved down into "What it can work out for you". -->
+  <ol class="steps">
+    <li><span>Create an account</span></li>
+    <li><span>Connect Skool</span></li>
+    <li>
+      <span>Add it to your AI</span>
+      <button type="button" class="copy" id="copy-mcp"
+              data-url="https://mcp.catknows.app/mcp">
+        <code>mcp.catknows.app/mcp</code>
+        <span class="copy-state" id="copy-state" aria-live="polite">copy</span>
+      </button>
+    </li>
+  </ol>
 
   <a class="cta" href="/auth/login?register=1">Start Now!</a>
 </main>
@@ -796,6 +806,12 @@ input, textarea { cursor: text; }
   <div class="ask-shell">
     <p class="kicker">ASK IN PLAIN WORDS</p>
     <h2 id="ask-title">What it can work out for you</h2>
+    <p class="ask-lead">What you want to know about your community is never on
+       one screen. It is in the member list, in the posts, in the comments, in
+       your DMs, and catknows lets the AI you already use read all of that in
+       one pass. It runs on your own Skool login, so it sees what you see and
+       not a line more, and anything it writes waits for your yes before it
+       goes out.</p>
 
     <!-- The four big ones: each is a whole job, so each gets its own card with
          the result spelled out underneath. Click still copies the question,
@@ -895,17 +911,12 @@ input, textarea { cursor: text; }
     <p class="kicker">THREE STEPS, ABOUT TWO MINUTES</p>
     <h2 id="connect-title">Connecting it</h2>
 
+    <!-- Same three steps as the first screen; the copy button lives up there
+         (one id, one handler), here the link is just shown. -->
     <ol class="steps steps-connect">
       <li><span>Create an account</span></li>
       <li><span>Connect Skool</span></li>
-      <li>
-        <span>Add it to your AI</span>
-        <button type="button" class="copy" id="copy-mcp"
-                data-url="https://mcp.catknows.app/mcp">
-          <code>mcp.catknows.app/mcp</code>
-          <span class="copy-state" id="copy-state" aria-live="polite">copy</span>
-        </button>
-      </li>
+      <li><span>Add it to your AI: <code>mcp.catknows.app/mcp</code></span></li>
     </ol>
 
     <!-- Step 2 is where people stop, so it gets answered in full. -->
@@ -934,7 +945,8 @@ input, textarea { cursor: text; }
 </section>
 
 <!-- 5. Two honest ways to run it. Not a tier ladder: the free one is the full
-     one. $7 buys the machine it runs on, not more features. -->
+     one. $7 buys the machine it runs on, not more features. Paid through the
+     catnose community on Skool since 2026-11-14 (catknows/billing.py). -->
 <section class="ways" id="pricing" aria-labelledby="ways-title">
   <div class="ask-shell">
     <p class="kicker">TWO WAYS TO RUN IT</p>
@@ -960,7 +972,7 @@ input, textarea { cursor: text; }
 
       <article class="way way-hosted">
         <h3>On my server</h3>
-        <p class="way-price">$7<span> a month, once announced</span></p>
+        <p class="way-price">$7<span> a month, or $77 a year</span></p>
         <dl class="way-facts">
           <dt>Runs on</dt>
           <dd>a server in N&uuml;rnberg, Germany</dd>
@@ -968,17 +980,20 @@ input, textarea { cursor: text; }
           <dd>posts and comments are paused
               (<a href="/faq">the FAQ says why</a>)</dd>
           <dt>Costs</dt>
-          <dd>$7, once the price is announced</dd>
+          <dd>Premium in catnose, my Skool community, paid on Skool</dd>
           <dt>For</dt>
           <dd>anyone who just wants to use it, phone included</dd>
         </dl>
       </article>
     </div>
 
-    <p class="ways-note">Nobody pays anything today: the price is announced,
-       not switched on. Everyone who is here before it starts stays free
-       permanently. And the free way stays the full way, that is a promise,
-       not a trial.</p>
+    <p class="ways-note">You pay for hosted inside
+       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>,
+       my community on Skool: join, pick Premium, and use the same Skool account
+       you connect here. Skool takes the payment, I never see your card. If you
+       made your catknows account before 1 November 2026, hosted stays free for
+       you. And the free way stays the full way, that's a promise.</p>
+    <a class="cta" href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">Get Premium in catnose</a>
     <p class="faqline">More questions? <a href="/faq">Read the FAQ</a>, limits included.</p>
   </div>
 </section>

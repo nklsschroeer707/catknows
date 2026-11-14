@@ -156,6 +156,30 @@ say what was written on your behalf and to detect when Skool silently drops it.
 Kept for **90 days**, longer than the usage records in §2.5 because an un-listing
 has taken weeks to notice.
 
+### 2.7 Paid access check
+
+The hosted service is paid through the catnose community on Skool. To know
+whether your account may use the tools, the server compares the Skool user id
+inside your stored Skool session (§2.2) with a list of the Skool user ids that
+currently hold a paid tier (Premium or VIP) in catnose. That list holds ids,
+tier and state (active or cancelling), no names and no email addresses. I read
+it from catnose's ordinary member list, as the owner of that community, about
+every 6 hours, and copy it to the server. No payment data is involved: Skool
+processes the payment, and I neither receive nor store card or billing details.
+
+Founders (accounts created before 1 November 2026) and gift recipients pass
+the check without being on the list. For that the server keeps the founders'
+account ids and the gift entries with their end date.
+
+If the check fails, the tools answer with a link to the community and you get
+one email. Nothing is deleted. The server notes the account id and the time of
+the refusal until you pay again or your account is deleted.
+
+Legal basis: art. 6(1)(b), it is how the paid service you signed up for is
+provided. The check is automated and decides only whether the paid hosted
+service is available to you (art. 22(2)(a)). If you think it got it wrong,
+write to me and I will look myself.
+
 ## 3. What is *not* done
 
 - No analytics, tracking pixels, or advertising.
@@ -163,7 +187,7 @@ has taken weeks to notice.
 - No sale or sharing of your data, and none passed to third parties beyond the
   processors named in §4.
 - No use of your data or your community's data to train AI models.
-- No profiling and no automated decision-making with legal effect (art. 22).
+- No profiling. The only automated decision is the paid access check in §2.7.
 
 ## 4. Where it runs, and who else touches it
 
@@ -195,6 +219,8 @@ tools.
 | Usage records (§2.5) | 30 days |
 | Write-audit log (§2.6) | 90 days |
 | Failed-login counters | Reset on success, or after 12 hours |
+| Payer list (§2.7) | Replaced with every new list, about every 6 hours |
+| Refusal note (§2.7) | Until you pay again, or your account is deleted |
 
 An account that is never confirmed by email is removed after 30 days.
 

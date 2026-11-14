@@ -20,8 +20,11 @@ encrypted sessions later is the migration you don't want.
 >
 > **Sign-up is self-service since 2026-08-14.** Anyone can register, confirm
 > their address, connect Skool and use the tools — no operator step in between.
-> The only entitlement check left is `email_verified`, in `may_use_service()`
-> in `catknows/auth_oauth.py`, which every request passes through.
+> The token check is `email_verified`, in `may_use_service()` in
+> `catknows/auth_oauth.py`, which every request passes through. Since
+> 2026-11-14 a second check sits in front of every Skool tool: a paid tier in
+> the catnose community on Skool (`catknows/billing.py`, see "Paid access
+> through Skool" below). It is a dry run until `CATKNOWS_KASSE_AB` is set.
 >
 > The old `catknows_service=true` attribute gated this until 2026-08-14 and no
 > longer does: a per-account approval nobody performs is not a gate, it is a
@@ -410,6 +413,51 @@ Use a provider's alternate port instead — Scaleway TEM listens on **2465**
 for implicit TLS. The failure mode is a bare `SocketTimeoutException`, which
 reads like a wrong host or bad credentials rather than a blocked port, so
 check reachability first when mail "just doesn't send".
+
+## Paid access through Skool
+
+catknows hosted is billed through the catnose community on Skool (decided
+2026-11-13): Premium or VIP unlocks it, Skool is the merchant of record, this
+box holds no payment data. `catknows/billing.py` has the whole story; the
+operational part:
+
+* **Who passes:** founders (accounts created before 2026-11-01, one Keycloak id
+  per line in `/var/lib/catknows/billing/founders.txt`), gift exceptions with an
+  end date (sent along with the list), and anyone whose connected Skool account
+  is on the payer list. Not connected = no tools anyway; the check applies the
+  moment they connect. The Skool account is read from the stored session's
+  `auth_token` (a JWT with `user_id`) — this box never asks Skool who pays.
+* **Where the list comes from:** the operator's automation reads catnose's
+  ordinary members page with `tiers=premium,vip` every 6 h and pushes it over
+  SSH with a key that can only run `deploy/billing/receive.sh`:
+
+  ```bash
+  # once, as root: the key line (public key from the operator's machine)
+  echo 'command="/opt/catknows/deploy/billing/receive.sh",restrict ssh-ed25519 AAAA… kasse@homelab' >> /root/.ssh/authorized_keys
+  install -d -m 750 -o catknows -g catknows /var/lib/catknows/billing
+  # founders: ids from the 2026-11-01 export, nothing else
+  # (the CSV has CRLF line ends: strip the \r, or no line matches)
+  awk -F, '{sub(/\r$/,"")} NR>1 && $4=="True"{print $1}' /root/gruender-2026-11-01.csv \
+    | install -m 640 -o catknows -g catknows /dev/stdin /var/lib/catknows/billing/founders.txt
+  ```
+
+* **What `receive` does:** checks and stores the list (`payers.json`), decides
+  for every account, and prints one line of numbers — accounts, founders,
+  exceptions, connected, payers, would refuse, refused, mails — plus the hosts
+  Keycloak's Trusted Hosts policy turned away in the last 24 h (host names
+  only), so a new AI client that cannot register gets noticed.
+* **The switch:** `CATKNOWS_KASSE_AB=1` in `/etc/catknows/env`, then
+  `systemctl restart catknows-mcp`. Missing = dry run: nobody is refused, no
+  mail, the numbers say who *would* be.
+* **When armed:** an account that is neither founder, exception nor payer gets
+  the community link as the answer of every Skool tool, and one mail through
+  the realm's SMTP account (see "Outbound SMTP is blocked"). Nothing is
+  deleted; login, dashboard and stored session stay. Paying again lets them
+  back in with the next list. `blocked.json` lists who is refused and when.
+* **Safety:** a list older than 36 h, marked incomplete, or suddenly empty
+  refuses no one new (the sender marks the last two; this box checks the age).
+  Who was refused under the last good list stays refused. A state file that
+  does not parse fails *open* — refusing a paying user is the worse failure.
 
 ## Testing from the box itself
 

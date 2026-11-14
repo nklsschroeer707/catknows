@@ -248,6 +248,9 @@ echo "      - Max Clients: keep a ceiling"
 # before trusting it. Reconciled 2026-08-17: the two entries missing here were
 # anthropic.com and *.anthropic.com, added below, so both sides now say 36.
 # 2026-10-11: + anysphere.cursor-mcp (Cursor), both sides now say 37.
+# 2026-11-14: + meta.ai *.meta.ai meta.com *.meta.com (Meta AI registers with
+# client_uri https://agent.meta.ai/) and perplexity.com *.perplexity.com
+# (Perplexity's callback sits on staging.perplexity.com), both sides now say 43.
 #
 #   docker compose exec -T db psql -U keycloak -d keycloak -t -A -c \
 #     "SELECT cc.value FROM component c JOIN component_config cc ON cc.component_id=c.id
@@ -259,7 +262,8 @@ echo "      - Max Clients: keep a ceiling"
 #   cursor.sh *.cursor.sh cursor.com *.cursor.com anysphere.cursor-mcp
 #   notion.so *.notion.so notion.com *.notion.com
 #   windsurf.com *.windsurf.com codeium.com *.codeium.com
-#   perplexity.ai *.perplexity.ai mistral.ai *.mistral.ai
+#   perplexity.ai *.perplexity.ai perplexity.com *.perplexity.com
+#   meta.ai *.meta.ai meta.com *.meta.com mistral.ai *.mistral.ai
 #   zed.dev *.zed.dev vscode.dev *.vscode.dev
 #   localhost 127.0.0.1
 #

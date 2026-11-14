@@ -67,25 +67,38 @@ that first connection works anywhere your AI does.
 
 ## What does it cost?
 
-### Today
+### Running it yourself
 
-Nothing. Standard is $0: you run the open-source tool on your own machine, and
-that stays free whatever happens to the rest. The hosted service at
-catknows.app is also free right now.
+Nothing. The open-source tool on your own machine is free and stays free,
+whatever happens to the rest.
 
-### Later
+### Hosted
 
-Once the community reaches 100 members, the hosted service becomes $7 a month
-or $77 a year. Everyone who joined before then keeps it free. Forever, not for
-a year. Joining early is the whole discount.
+$7 a month or $77 a year. You pay inside
+[catnose](https://www.skool.com/catnose/about), my community on Skool: Premium
+(or VIP) unlocks hosted. Skool takes the payment, so there is no checkout on
+catknows.app and I never see your card.
 
-> Nobody pays anything today. The price is announced, not switched on: billing
-> does not exist yet, and nothing will start charging quietly.
+Use the same Skool account there that you connected to catknows. That is how
+the server knows it is you: about every 6 hours it checks catnose's member
+list for Premium and VIP.
+
+### I signed up early
+
+If you made your catknows account before 1 November 2026, hosted stays free
+for you. No upgrade needed.
+
+### What if I cancel?
+
+Hosted keeps working until your paid period ends. After that the tools pause
+and you get one email. Your account, your login and your connected Skool
+session stay, nothing gets deleted. Upgrade again and it works again within
+about 6 hours.
 
 ### What is VIP then?
 
-$67 a month, and it gets you nothing extra on purpose. You would be paying so
-that everyone else does not have to.
+$67 a month, and it gets you nothing extra on purpose. Hosted is included,
+same as Premium. You would be paying so that everyone else does not have to.
 
 ### Will the free version quietly get worse?
 
