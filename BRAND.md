@@ -45,7 +45,7 @@ The signature is the cat, alone, on its own closing line:
   docstrings, CLI success output). Everything else there stays sober.
 
 **Retired 2026-08-14: "You have been served by catknows. — you are welcome."**
-Dan Schaad flagged it from the English side: "You have been served" reads as
+A native English speaker flagged it: "You have been served" reads as
 *being sued* or *being beaten*, and paired with "you are welcome" it lands
 aggressive or sarcastic — the opposite of the German "Sie wurden bedient" it
 was translating. Not a phrasing tweak; the phrase carries a meaning we can't

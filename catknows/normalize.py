@@ -12,6 +12,7 @@ extractors, so a normalized record here matches what the graph app stored.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 
@@ -75,7 +76,12 @@ def _role(raw: str) -> str:
 
 
 def member(user: dict) -> dict:
-    """Flatten one raw ``pageProps.users[]`` object into a member record."""
+    """Flatten one raw ``pageProps.users[]`` object into a member record.
+
+    There is no ``email`` here on purpose: Skool sends the field to admins
+    (empty so far), and a flat record is what lands in tool output and vault
+    notes. Nothing reads it, so a day it is filled changes nothing downstream.
+    """
     m = user.get("member") or {}
     meta = user.get("metadata") or {}
     sp = _sp_data(meta)
@@ -84,7 +90,6 @@ def member(user: dict) -> dict:
     return {
         "skool_id": user.get("id", ""),
         "name": user.get("name", ""),
-        "email": user.get("email", ""),
         "first_name": user.get("firstName", ""),
         "last_name": user.get("lastName", ""),
         "role": _role(m.get("role", "")),
@@ -202,12 +207,76 @@ def post(tree: dict) -> dict:
     }
 
 
-def join_request(user: dict) -> dict:
+# Local part, "@", dotted domain. The domain must end in a label, so a full stop
+# closing a sentence stays outside the match.
+#
+# The local part is what RFC 5322 allows. Either a run of "atext" characters and
+# dots (`\w` keeps non-ASCII names working), taken whole: the lookbehind lets a
+# match start only where such a run starts, so a long text without an "@" is read
+# once and not once per start position (that was quadratic). Or the quoted form,
+# `"anna smith"@example.com`, at most 64 characters between the quotes (the RFC's
+# limit for a local part, and what keeps this branch linear too). Its closing quote
+# may be escaped (`\"`), which is how it arrives inside a JSON text. Its opening
+# quote does not follow a word character or a quote: that keeps the end of a JSON
+# key in `"key":"@handle.name"` from being taken for one, but only when the key
+# ends in a word character. After any other character (`"a key!":"@handle.name"`)
+# the key's closing quote, the colon and the value's opening quote are read as a
+# quoted local part and masked: too much hidden in a rare text, never too little.
+_LOCAL_CHARS = r"\w.!#$%&'*+/=?^`{|}~\-"
+_EMAIL_RE = re.compile(
+    r"(?:(?<![" + _LOCAL_CHARS + r"])[" + _LOCAL_CHARS + r"]+"
+    r'|(?<![\w"])"(?:[^"\\\r\n]|\\[^\r\n]){0,64}?\\?")'
+    r"@[\w\-]+(?:\.[\w\-]+)+")
+
+
+def _mask_match(mo: re.Match) -> str:
+    # The LAST "@" splits the address: a quoted local part may hold one itself.
+    address = mo.group(0)
+    return address[0] + "***" + address[address.rindex("@"):]
+
+
+def mask_email(text):
+    """Hide the local part of every email address in ``text``.
+
+    ``anna@example.com`` -> ``a***@example.com``: first character and domain
+    stay, mostly enough to tell two applicants apart and to see where they
+    signed up, not enough to write to them. A sign glued to the address counts
+    as its first character (``email=anna@example.com`` -> ``e***@example.com``),
+    and of a quoted local part the first character is its quote:
+    ``"anna smith"@example.com`` -> ``"***@example.com``. Text without an
+    address comes back unchanged, a text with several gets all of them masked,
+    and anything that is not a string (``None``, a number) passes through.
+    """
+    if not isinstance(text, str):
+        return text
+    return _EMAIL_RE.sub(_mask_match, text)
+
+
+def _mask_email_field(value):
+    """``mask_email`` for a field that IS an email answer.
+
+    A value that carries no address shape ("anna at example dot com") would
+    pass ``mask_email`` untouched, but the question asked for an email, so the
+    value is not let through: first character and ``***`` remain.
+    """
+    masked = mask_email(value)
+    if masked == value and isinstance(value, str) and value.strip():
+        return value.strip()[0] + "***"
+    return masked
+
+
+def join_request(user: dict, *, reveal_email: bool = False) -> dict:
     """Flatten one pending user from ``-/pending.json`` (docs/API.md §6.5).
 
     The application is the ``member`` block: ``member.id`` is what approving
     or declining needs, ``metadata.survey`` a JSON string with the answered
     join questions, ``highRiskScore`` Skool's own spam flag.
+
+    Email addresses come out masked (``mask_email``): ``email_answer``, every
+    answer to a question of type ``email`` and any address typed into another
+    answer. ``reveal_email=True`` returns them as Skool sent them. This reads
+    the RAW user; the result is already flat and never goes through ``scrub``
+    (``num_requests`` is one of scrub's admin keys).
     """
     m = user.get("member") or {}
     md = m.get("metadata") or {}
@@ -215,6 +284,14 @@ def join_request(user: dict) -> dict:
         answers = (json.loads(md.get("survey") or "{}") or {}).get("survey") or []
     except (TypeError, ValueError):
         answers = []
+
+    def answer(a: dict):
+        value = a.get("answer", "")
+        if reveal_email:
+            return value
+        return _mask_email_field(value) if a.get("type") == "email" else mask_email(value)
+
+    email_answer = m.get("searchAnswer", "")
     return {
         "member_id": m.get("id", ""),
         "user_id": user.get("id", ""),
@@ -227,9 +304,9 @@ def join_request(user: dict) -> dict:
         "risk_flag": bool(md.get("highRiskScore")),
         "num_requests": md.get("numRequests"),
         "source": md.get("attrSrcComp", ""),
-        "email_answer": m.get("searchAnswer", ""),
+        "email_answer": email_answer if reveal_email else _mask_email_field(email_answer),
         "answers": [{"question": a.get("question", ""), "type": a.get("type", ""),
-                     "answer": a.get("answer", "")} for a in answers if isinstance(a, dict)],
+                     "answer": answer(a)} for a in answers if isinstance(a, dict)],
     }
 
 
@@ -339,6 +416,23 @@ def search_member(hit: dict) -> dict:
     return {**member(user), "member_id": hit.get("id", "")}
 
 
+def search_user(hit: dict) -> dict:
+    """Flatten one ``users[]`` entry of ``POST /search/users`` (docs/API.md §5.13).
+
+    The entry is a user object, like the ones in ``members.json``, but api2 spells
+    the top-level names snake_case (``first_name``) where the Next.js routes use
+    camelCase: both are read. The record has exactly the fields of ``member()``,
+    so no ``email`` and no other contact data can come along. Whether a hit also
+    carries the membership is not known (§5.13 lists it as open): ``role`` and
+    ``group_id`` come out as they are delivered, and an empty one means "not
+    delivered", not "has no role".
+    """
+    user = dict(hit)
+    for camel, snake in (("firstName", "first_name"), ("lastName", "last_name")):
+        user[camel] = _either(user, camel, snake, "")
+    return member(user)
+
+
 def comments(merged: dict) -> list[dict]:
     """Flatten a merged comment tree into a list of comment records.
 
@@ -347,9 +441,11 @@ def comments(merged: dict) -> list[dict]:
     snake_case, so we read snake_case first, camelCase as fallback.
     """
     out: list[dict] = []
+    pinned = ((merged.get("pinned_post_tree") or {}).get("children")) or []
     children = ((merged.get("post_tree") or {}).get("children")) or []
-    _walk_comments(children, "", out)
-    return out
+    _walk_comments(pinned + children, "", out)
+    seen: set = set()
+    return [c for c in out if not (c["skool_id"] in seen or seen.add(c["skool_id"]))]
 
 
 def _walk_comments(nodes: list, explicit_parent: str, out: list) -> None:
@@ -373,6 +469,9 @@ def _walk_comments(nodes: list, explicit_parent: str, out: list) -> None:
             "parent_id": parent_id,
             "upvotes": int(meta.get("upvotes", 0) or 0),
             "created_at": _micros_to_dt(p.get("created_at") or p.get("createdAt")),
+            # Bilder/GIFs: ids in ``attachments``, Name/Typ/URL in ``attachments_data`` (wie bei DMs)
+            "attachments": meta.get("attachments") or "",
+            "files": _files(meta),
         })
         sub = node.get("children") or []
         if sub:
@@ -444,8 +543,8 @@ def notification(msg: dict) -> dict:
     is the object the notification is about — the comment for a mention in a
     reply — and ``root_post_id`` the post it hangs under, so a comment is the
     case where the two differ. The community slug is NOT in the payload: it is
-    the first segment of ``link_as`` (the display name is not a slug, and
-    hoomans' slug is ``the-skool-memes-4437``). ``target`` is shaped so it goes
+    the first segment of ``link_as`` (the display name is not a slug: a
+    "Some Group" can be ``some-group-1234``). ``target`` is shaped so it goes
     straight into get_post (community + post_name) and get_post_comments
     (community + post_id).
     """
@@ -640,24 +739,67 @@ SECRET_KEYS = frozenset({
     "env",
 })
 
+# Not credentials, but admin-side data about a PERSON: what Skool shows an admin
+# on each member (join survey, the email they answered, where they came from and
+# where they were, who approved them, how often they applied, an on-PC flag).
+# Same rule as SECRET_KEYS: dropped by name at every depth, camelCase and
+# snake_case. Normalizers read the RAW object before this runs (`join_request`
+# turns `survey` into `answers`); their flat output is never scrubbed. Accepted
+# side effect: a community's own join-QUESTION list is also called `survey`
+# (docs/API.md §6.3) and is gone from raw About payloads.
+PRIVATE_KEYS = frozenset({
+    "survey",
+    "searchAnswer", "search_answer",
+    "attrComp", "attr_comp",
+    "attrSrcComp", "attr_src_comp",
+    "requestLocation", "request_location",
+    "approvedBy", "approved_by",
+    "numRequests", "num_requests",
+    "onPc", "on_pc",
+})
 
-def scrub(obj):
-    """Recursively strip SECRET_KEYS from a payload (in place where possible).
+_SCRUBBED = SECRET_KEYS | PRIVATE_KEYS
 
-    Returns the same object with credential-class keys removed at every depth,
-    so a raw=True tool result can be handed to an AI or written to disk without
-    leaking account secrets. Idempotent; safe on any JSON-shaped structure.
+
+def scrub(obj, keys=_SCRUBBED):
+    """Recursively strip SECRET_KEYS and PRIVATE_KEYS from a payload (in place where possible).
+
+    Returns the same object with credential-class and admin-side member keys
+    removed at every depth, so a raw=True tool result can be handed to an AI or
+    written to disk without leaking account secrets or member data. Idempotent;
+    safe on any JSON-shaped structure. Raw Skool payloads only: a normalized
+    record may legitimately carry a key of the same name (``num_requests``).
+
+    ``keys`` is the set of names to drop; the default is the set above and every
+    existing caller relies on it. One walker serves another set too
+    (``strip_contact``), so the protection is never copied.
     """
     if isinstance(obj, dict):
         for key in list(obj.keys()):
-            if key in SECRET_KEYS:
+            if key in keys:
                 del obj[key]
             else:
-                scrub(obj[key])
+                scrub(obj[key], keys)
     elif isinstance(obj, list):
         for item in obj:
-            scrub(item)
+            scrub(item, keys)
     return obj
+
+
+# Contact data of a PERSON, dropped from raw member payloads the same way: by name,
+# at every depth, in one place. Only what Skool is known to send: ``email`` (admins
+# get it on member objects, docs/API.md §1.6). Normalizers never emit it anyway.
+CONTACT_KEYS = frozenset({"email"})
+
+
+def strip_contact(obj):
+    """Recursively drop CONTACT_KEYS from a raw payload (in place): ``scrub`` with that set.
+
+    For raw member output that must carry no address (``search_members(raw=True)``):
+    ``scrub`` takes the credential-class and admin-side keys, this takes the
+    contact keys, through the same walker. Returns the same object.
+    """
+    return scrub(obj, CONTACT_KEYS)
 
 
 if __name__ == "__main__":
@@ -762,7 +904,7 @@ if __name__ == "__main__":
     listed = post({"post": {"id": "p7", "metadata": {
         "attachments": "6ab9cacf0d444f63a441c69e22320f6a"}}})
     assert listed["attachments"] and listed["files"] == [], listed
-    # videoIds is a comma-joined string; two-video posts are real (skooligans).
+    # videoIds is a comma-joined string; two-video posts are real (measured).
     assert post({"post": {"id": "p6", "metadata": {
         "videoIds": "a,b"}}})["video_ids"] == ["a", "b"]
     assert post({"post": {"id": "p5", "metadata": {"videoIds": ""}}})["video_ids"] == []
@@ -812,6 +954,40 @@ if __name__ == "__main__":
     blob = _json.dumps(payload)
     for leak in ("acct_", "pk_live_", "zap_secret", "billingEmail", "4242"):
         assert leak not in blob, f"scrub leaked {leak!r}"
+
+    # admin-side member fields go too, in both spellings and at any depth —
+    # but the flat join_request record keeps its own `num_requests`, because
+    # its raw input is read BEFORE scrub and its output is never scrubbed.
+    adm = {"users": [{"name": "keep", "member": {
+        "searchAnswer": "a@b.c", "approvedBy": "u0",
+        "metadata": {"survey": "{}", "attrComp": "x", "attrSrcComp": "y",
+                     "requestLocation": "z", "numRequests": 1, "onPc": 1, "role": "keep"}},
+        "metadata": {"search_answer": "a@b.c", "approved_by": "u0", "attr_comp": "x",
+                     "attr_src_comp": "y", "request_location": "z", "num_requests": 1,
+                     "on_pc": 1, "bio": "keep"}}]}
+    scrub(adm)
+    assert adm == {"users": [{"name": "keep", "member": {"metadata": {"role": "keep"}},
+                              "metadata": {"bio": "keep"}}]}, f"admin keys must go, got {adm}"
+    assert not PRIVATE_KEYS & SECRET_KEYS, "the two lists must not overlap"
+    jr = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com",
+                                              "metadata": {"numRequests": 2}}})
+    assert jr["num_requests"] == 2, "normalized join request keeps num_requests"
+
+    # member(): no email, even when the raw user carries one.
+    assert "email" not in member({"id": "u5", "email": "ann@example.com"}), "member must not carry email"
+
+    # mask_email: first character + domain stay, all addresses, text untouched.
+    assert mask_email("anna@example.com") == "a***@example.com"
+    assert mask_email("a@x.org, b@y.org.") == "a***@x.org, b***@y.org."
+    assert mask_email("no address, just @handle") == "no address, just @handle"
+    jm = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com",
+                       "metadata": {"survey": json.dumps({"survey": [
+                           {"question": "q", "type": "email", "answer": "ann@example.com"}]})}}})
+    assert jm["email_answer"] == "a***@example.com", jm
+    assert jm["answers"][0]["answer"] == "a***@example.com", jm
+    jc = join_request({"id": "u1", "member": {"id": "m1", "searchAnswer": "ann@example.com"}},
+                      reveal_email=True)
+    assert jc["email_answer"] == "ann@example.com", jc
 
     # my_community: shaped like a REAL self/groups entry — verified against live
     # api2 output, which is snake_case throughout. The fixtures used to be
@@ -886,7 +1062,7 @@ if __name__ == "__main__":
     odd = my_community({"name": "g", "metadata": {"member": '{"role": "wat"}'}})
     assert odd["role"] == "wat", odd
     # Missing/unparseable metadata.member must NOT quietly become the founding
-    # date. Dan Schaad measured `skoolers` as 2019 (its founding) while having
+    # date. A member reported `skoolers` as 2019 (its founding) while having
     # joined in 2024 — that is this branch, and it used to assert 2019 as if it
     # were right. joined_at stays None and the record says why.
     for broken in ({}, {"member": "not json"}, {"member": None}):
@@ -913,14 +1089,14 @@ if __name__ == "__main__":
     assert dayone["joined_at"].day == 25 and dayone["joined_at"].hour == 20, dayone
     # archived: an archived community stays readable but every write is off, and
     # this record used to pass on neither of Skool's two statements of it. Shape
-    # copied from a live self/groups entry (vrooms-3264, 17.08.): outer bool AND
+    # copied from a live self/groups entry (17.08., names made up): outer bool AND
     # metadata 1, both present together. Either alone must still count — nothing
     # measured says Skool always sends both, and guessing that it does is how a
     # made-up fixture would freeze the bug in place.
     arch = my_community(
-        {"name": "vrooms-3264", "archived": True, "public": True,
+        {"name": "some-group-1234", "archived": True, "public": True,
          "created_at": "2025-06-30T05:15:16.746011Z",
-         "metadata": {"display_name": "vRooms - Real Connections", "archived": 1,
+         "metadata": {"display_name": "Some Group", "archived": 1,
                       "total_members": 11, "color": "#E9597F",
                       "member": '{"role": "member",'
                                 ' "created_at": "2025-07-01T05:15:16.746011Z"}'}}
@@ -935,4 +1111,16 @@ if __name__ == "__main__":
     for quiet in ({"name": "g", "metadata": {}},
                   {"name": "g", "archived": False, "metadata": {"archived": 0}}):
         assert my_community(quiet)["archived"] is False, quiet
+    # member search (POST /search/users): api2 spells the names snake_case, and a
+    # contact field on the entry never reaches the record.
+    su = search_user({"id": "u5", "name": "ann", "first_name": "Ann", "last_name": "Test",
+                      "email": "ann@example.com",
+                      "metadata": {"spData": '{"pts":5,"lv":2}', "bio": "hi"}})
+    assert su["first_name"] == "Ann" and su["last_name"] == "Test", su
+    assert su["points"] == 5 and su["level"] == 2 and su["bio"] == "hi", su
+    assert set(su) == set(member({})), "same fields as list_members"
+    assert "ann@example.com" not in str(su), "search_user leaked an email"
+    assert search_user({"id": "u6", "firstName": "Cam"})["first_name"] == "Cam"
+    assert strip_contact({"users": [{"email": "a@b.c", "member": {"email": "d@e.f", "role": "m"}}]}
+                         ) == {"users": [{"member": {"role": "m"}}]}, "strip_contact failed"
     print("normalize self-check OK")

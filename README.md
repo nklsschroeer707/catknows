@@ -85,7 +85,7 @@ the people who use it, not a pricing page.
 - 🆓 **Free forever, open source (MIT).** No trial, no seat limits, no locked endpoints. See [Why it's free](#why-its-free).
 - 🔒 **Runs on your machine, with your login.** Your data never leaves your house — there's no "us" server in the loop.
 - ☁️ **Or skip the setup entirely.** [catknows.app](https://catknows.app) is the same bridge, hosted — no Python, no terminal. Free while it's small; the code here stays free forever either way.
-- 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk.
+- 🛡️ **Secrets never leak into your AI.** Skool's payloads secretly carry credential-class fields — Zapier keys, Stripe payout ids, billing details. catknows scrubs every one of them out before any data reaches your AI or your disk. The same goes for what Skool shows only admins about each member (join answers, signup location, who approved them), and applicants' email addresses come out masked unless you ask for them.
 - 🗂️ **Or take the raw data anywhere** — clean Obsidian vault, raw JSON, a CSV, a spreadsheet, your own tooling.
 - 📖 **[Full API reference →](docs/API.md)** — every endpoint, header, and JSON field documented. Hand it to Claude/Codex and it builds a client in any language.
 - 📜 **[Changelog →](CHANGELOG.md)** — what shipped, in plain words.
@@ -219,8 +219,11 @@ Then just talk to your AI:
 **Writing (posts, comments & DMs) is off by default.** The server only registers
 the write tools — creating, editing and deleting posts and comments
 (`create_post`, `create_comment`, `edit_post`, `edit_comment`, `delete_post`,
-`delete_comment`), `send_dm`, and the classroom writers — when you opt in with
-an env var in the MCP config:
+`delete_comment`), `send_dm`, join-request decisions (`review_join_request`),
+the classroom writers (courses, pages, drip, folders, share key, import),
+calendar events, small post actions (likes, pins, categories, the About text,
+the comments switch, follows) and chat read marks — when you opt in with an
+env var in the MCP config:
 
 ```json
 "catknows": {
@@ -230,11 +233,12 @@ an env var in the MCP config:
 }
 ```
 
-Without the flag your AI can't even see the write tools. With it, three guards
-remain: your MCP client asks permission before every tool call, the tools are
-draft-first (the AI must show you the draft, then call again with
-`confirm=true`), and emailing all members (`notify_members`) is a separate
-explicit switch. Test in a private community first — these post as *you*.
+Without the flag the server has **31 tools** and your AI can't even see the
+write tools; with it, **63 tools**. With the flag, three guards remain: your
+MCP client asks permission before every tool call, the tools are draft-first
+(the AI must show you the draft, then call again with `confirm=true`), and
+emailing all members (`notify_members`) is a separate explicit switch. Test in
+a private community first — these post as *you*.
 
 #### One thing to know before you automate posting
 
@@ -347,11 +351,12 @@ growth curves build themselves.
 
 ## What can it pull?
 
-Members · posts · comments (full nested threads) · likes/upvoters · single-member
-profiles · community About · calendar · classroom · discovery · admin metrics
-(owner only) · chat channels & messages · your communities & roles · pending
-join requests (with the applicants' survey answers). Full list and JSON shapes
-in **[docs/API.md](docs/API.md)**.
+Members (and a name search) · posts · comments (full nested threads) ·
+likes/upvoters · single-member profiles · community About, rules and level names ·
+leaderboards · calendar · classroom · discovery · admin metrics (owner only) ·
+chat channels & messages · download links for uploaded files · your communities
+& roles · pending join requests (with the applicants' survey answers, emails
+masked). Full list and JSON shapes in **[docs/API.md](docs/API.md)**.
 
 **Market research from the discovery pages** ([docs/API.md §6](docs/API.md#6-discovery-the-global-leaderboard--scraping-any-community)):
 the global **revenue leaderboard** (top 100 communities with real monthly
@@ -370,8 +375,13 @@ covered too: `edit_post` / `edit_comment` (draft-first, showing old versus new,
 replacing only the fields you pass) and `delete_post` / `delete_comment`
 (explicit confirm). Category labels, video
 links and native **polls** (`create_poll` / the `poll_options` parameter) are
-supported too; GIF and video attachments stay documented for you to build on. **Write carefully** — these act as *you*, visible to real
-members; see the MCP section for the safety switch.
+supported too; GIF and video attachments stay documented for you to build on.
+The newest writers (calendar events, likes, pins, categories, the About text,
+comment switches, course drip, folders, share key and import, chat read marks)
+are built from Skool's own page code and tested against stand-ins, **not yet
+tried against Skool**: test them in a private community first. **Write
+carefully** — these act as *you*, visible to real members; see the MCP section
+for the safety switch.
 
 ---
 

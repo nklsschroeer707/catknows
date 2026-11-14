@@ -85,7 +85,7 @@ Also run the pure-stdlib self-check (no network, fast):
 ```bash
 <python> -m catknows.normalize
 ```
-Expect a version line, a tool count (14 read-only, or 16 with
+Expect a version line, a tool count (**31 tools**, or **63 tools** with
 `CATKNOWS_ALLOW_WRITE=1`), and `normalize self-check OK`. Any traceback → report it
 verbatim and stop; the update left something broken.
 

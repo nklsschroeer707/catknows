@@ -1,13 +1,13 @@
 """Self-check: an archived community is visible, and writes to it fail loudly.
 
-Dan Schaad, 2026-08-17: Skool states the state twice (outer ``archived: true``
+A user's report, 2026-08-17: Skool states the state twice (outer ``archived: true``
 plus ``metadata.archived: 1``) and the compact record passed on neither, so an
 agent could not tell a read-only community from a live one. Archiving leaves a
 community readable and turns posting, commenting and liking off, which means a
 write attempt failed with a Skool error that looked like a catknows bug.
 
-Fixtures copied from a live ``self/groups`` / ``GET /groups/{slug}`` response
-(`vrooms-3264`, 17.08.), not from what the payload was expected to look like.
+Fixtures shaped after a live ``self/groups`` / ``GET /groups/{slug}`` response
+(17.08., names made up), not after what the payload was expected to look like.
 
 Run: python test_archived_community.py    (no network, no pytest)
 """
@@ -17,8 +17,8 @@ from catknows.normalize import my_community
 
 # Real shape, 17.08.: both spellings arrive together.
 ARCHIVED_GROUP = {
-    "id": "a" * 32, "name": "vrooms-3264", "archived": True, "public": True,
-    "metadata": {"display_name": "vRooms - Real Connections", "archived": 1},
+    "id": "a" * 32, "name": "some-group-1234", "archived": True, "public": True,
+    "metadata": {"display_name": "Some Group", "archived": 1},
 }
 LIVE_GROUP = {"id": "b" * 32, "name": "hoomans-9944", "metadata": {}}
 
@@ -49,15 +49,15 @@ def test_compact_record_states_archived():
 def test_reads_still_work_on_an_archived_community():
     """Archiving does not hide the community — only writes are off."""
     c = _client(ARCHIVED_GROUP)
-    assert c.group_id_for("vrooms-3264") == "a" * 32
+    assert c.group_id_for("some-group-1234") == "a" * 32
 
 
 def test_writes_refuse_before_touching_skool():
     c = _client(ARCHIVED_GROUP)
-    for call in (lambda: c.create_post("vrooms-3264", "t", "b"),
-                 lambda: c.create_comment("vrooms-3264", "p1", "b"),
-                 lambda: c.create_poll("vrooms-3264", ["a", "b"]),
-                 lambda: c.create_course("vrooms-3264", "t")):
+    for call in (lambda: c.create_post("some-group-1234", "t", "b"),
+                 lambda: c.create_comment("some-group-1234", "p1", "b"),
+                 lambda: c.create_poll("some-group-1234", ["a", "b"]),
+                 lambda: c.create_course("some-group-1234", "t")):
         try:
             call()
             raise AssertionError("a write into an archived community must refuse")

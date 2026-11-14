@@ -7,7 +7,7 @@ yourself from the source (locally over stdio, or on your own server), none of
 this applies — no data reaches me, and you are your own controller. For the
 tool's terms of use and Skool-related caveats, see [LEGAL.md](../LEGAL.md).
 
-Last updated: 2026-08-17.
+Last updated: 2026-11-14.
 
 ---
 
@@ -123,20 +123,25 @@ are built from it and it is not combined with the Skool data in §2.3.
 
 §2.5 deliberately does not record which tool you called. There is one narrow
 exception, and it applies only to **writing**: when the server posts, edits,
-deletes or messages on your behalf against Skool, it appends one line about that
-write. Reads are never recorded here.
+deletes or messages on your behalf against Skool, or changes something in your
+community (a setting, a category, a calendar event, a course, a pinned post, a
+join request), it appends one line about that write. Reads are never recorded
+here.
 
 | Data | Why |
 |---|---|
 | Timestamp (UTC) | When the write went out |
 | Which write tool ran | Tells a comment apart from a deletion |
-| The community slug, and the id of the post, comment, course item or DM channel written to | Identifies the object, so a later disappearance can be traced back to the write that made it |
+| The community slug, and the id of the post, comment, course item, DM channel, category or calendar event written to | Identifies the object, so a later disappearance can be traced back to the write that made it |
+| The HTTP method and the Skool address the write went to, with its on/off flags (e.g. "notify members") | Tells what kind of change it was. Credentials in an address are blanked out before writing |
+| For a join request you approve or decline: the Skool id of that member | Shows which request the decision was about. It is an id, not a name or an email |
 | HTTP status, or `BLOCKED_draft_only` when posting is paused and nothing was sent | Whether it worked |
 | A short hash of Skool's response, and the id Skool assigned | Recognises the same response again without keeping it |
 | Whether the server ran hosted or local, and the active write mode | Which deployment the write came from |
 
-What this is **not**: the text you posted, the message you sent, or anything
-about the members who see it is **not** written. The response is stored as a
+What this is **not**: the text you posted, the message you sent, the new value
+of a setting you changed, or anything about the members who see it is **not**
+written. The one member-related entry is the id named in the table above. The response is stored as a
 hash, never as text, and it passes the same credential-scrubbing filter every
 other path uses before it is hashed.
 

@@ -1,7 +1,7 @@
 """Self-check: send_dm's attachment lookup must not list /self/chat-channels.
 
 Skool refuses limit > 30 on /self/chat-channels ("invalid limit: 100",
-Dan's 2026-08-15 report), and an account can hold hundreds of channels —
+a user's 2026-08-15 report), and an account can hold hundreds of channels —
 so ANY one-shot listing either crashes or silently misses recipients.
 The group_id now comes from the single-channel messages endpoint.
 

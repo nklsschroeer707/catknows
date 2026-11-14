@@ -21,10 +21,17 @@ import pathlib
 import re
 import time
 from typing import Iterator
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
+from . import audit
 from .auth import Session
-from .http import SkoolHTTP, SkoolHTTPError
+from .http import (
+    REJECTED_STATUSES,
+    SkoolHTTP,
+    SkoolHTTPError,
+    SkoolSecurityChallenge,
+    _answer_excerpt,
+)
 
 # Be polite to Skool between paginated requests (WAF-friendly, less robotic).
 # CATKNOWS_PAGE_DELAY (seconds) overrides — lower is faster but more robotic;
@@ -99,6 +106,29 @@ def _plain(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
 
 
+def _id_segment(value, name: str) -> str:
+    """An id for a path piece or a query value: checked, then percent-encoded.
+
+    Refuses (``ValueError`` naming the argument, never its value) anything that
+    is not text, empty or blank text, and text made only of dots. ``.`` and ``..``
+    survive ``quote(..., safe="")`` unchanged, and libcurl folds such a piece
+    away (``/posts/../pin`` becomes ``/pin``), so a model-supplied id could
+    otherwise steer the request to another endpoint. Everything else is encoded,
+    so an id cannot leave its path segment or add a query.
+
+    The ``www`` paths (``get_next``) send community slug, member handle and post
+    name through it too. Letters, digits, ``-``, ``_``, ``.`` and ``~`` are left
+    as they are, so a real slug, handle or post name goes out byte for byte.
+    Pass the raw value, not one already percent-encoded (copied from an
+    address bar): its ``%`` is encoded again (``%C3`` goes out as ``%25C3``).
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} is required (non-empty text).")
+    if set(value) <= {"."}:
+        raise ValueError(f"{name} must not be made only of dots.")
+    return quote(value, safe="")
+
+
 _MEMBER_SORTS = {
     "newest": "-memberapprovedat",
     "last_active": "-memberlastoffline",
@@ -113,14 +143,22 @@ _MEMBER_FLAGS = ("admin", "online", "trials", "monthly", "annual", "oneTime", "f
 def _members_query(slug: str, page: int, *, sort_type: str, lifecycle: str = "",
                    flags: dict | None = None, tiers: list[str] = (),
                    course_ids: list[str] = ()) -> str:
-    """The members.json query for one page, browser-faithful.
+    """The members.json query for one page, in the browser's parameter layout.
 
     Verified live 2026-08-15: page 1 takes only the active filters; follow-up
     pages carry the full filter tail (unset flags as ``false``/empty, exactly
     like Skool's own browser requests — including ``oneTime``/``free``, which
-    the old hand-written tail omitted).
+    the old hand-written tail omitted). That measurement covers which
+    parameters go out and in what order, not the comma between several
+    ``tiers``/``courseIds``: it is sent raw here, while Skool's page code
+    encodes it in the page URL. What the browser sends on this data route is
+    not measured (open point).
     """
     flags = flags or {}
+    # Each tier and course id is encoded on its own (the comma between them
+    # stays): a value can neither add a parameter nor cut the query off.
+    tiers = [quote(str(t), safe="") for t in tiers]
+    course_ids = [quote(str(c), safe="") for c in course_ids]
     q = []
     if lifecycle:
         q.append(f"t={lifecycle}")
@@ -206,16 +244,17 @@ class SkoolClient:
                  "monthly": monthly, "annual": annual, "oneTime": one_time,
                  "free": free}
         tiers, course_ids = list(tiers), list(course_ids)
+        slug = _id_segment(community_slug, "community_slug")
 
         out = MemberList()
         seen: set[str] = set()
         page = 1
         total_pages = 0
         while True:
-            q = _members_query(community_slug, page,
+            q = _members_query(slug, page,
                                sort_type=_MEMBER_SORTS[sort], lifecycle=lifecycle,
                                flags=flags, tiers=tiers, course_ids=course_ids)
-            data = self.http.get_next(q, community_slug)
+            data = self.http.get_next(q, slug)
             users = _dig(data, "pageProps", "users") or []
             tp = _dig(data, "pageProps", "totalPages")
             if tp:
@@ -313,20 +352,21 @@ class SkoolClient:
         """
         if sort not in POST_SORTS:
             raise ValueError(f"sort must be one of {', '.join(POST_SORTS)}")
+        slug = _id_segment(community_slug, "community_slug")
         filters = ""
         if unread_only:
             filters += "&s=newest&fl=unr"
         elif POST_SORTS[sort]:
             filters += f"&s={POST_SORTS[sort]}"
         if category_id:
-            filters += f"&c={category_id}"
+            filters += f"&c={quote(str(category_id), safe='')}"
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
         while True:
-            q = (f"/{community_slug}.json?group={community_slug}{filters}"
+            q = (f"/{slug}.json?group={slug}{filters}"
                  + (f"&p={page}" if page > 1 else ""))
-            data = self.http.get_next(q, community_slug)
+            data = self.http.get_next(q, slug)
             trees = _dig(data, "pageProps", "postTrees") or []
             fresh = []
             for tree in trees:
@@ -395,13 +435,15 @@ class SkoolClient:
         if not user:
             raise ValueError(f"no member @{user_name} in {community_slug}")
         uid = user["id"]
+        slug = _id_segment(community_slug, "community_slug")
+        handle = _id_segment(user_name, "user_name")
         out: list[dict] = []
         seen: set[str] = set()
         page = 1
         while True:
-            q = (f"/@{user_name}.json?g={community_slug}&group=@{user_name}"
+            q = (f"/@{handle}.json?g={slug}&group=@{handle}"
                  + (f"&p={page}" if page > 1 else ""))
-            trees = _dig(self.http.get_next(q, community_slug),
+            trees = _dig(self.http.get_next(q, slug),
                          "pageProps", "postTrees") or []
             fresh = [t for t in trees if (t.get("post") or {}).get("id") not in seen]
             seen.update((t.get("post") or {}).get("id") for t in fresh)
@@ -414,14 +456,43 @@ class SkoolClient:
             time.sleep(_INTER_PAGE_DELAY_S)
         return out
 
-    def post_categories(self, community_slug: str) -> list[dict]:
+    def post_categories(self, community_slug: str, *, via_api: bool = False) -> list[dict]:
         """The feed's categories (Skool calls them labels): id, name, post count.
 
-        Read from the feed's first page, the same URL an unfiltered
-        :meth:`posts` call fetches first, so it is usually a cache hit.
+        By default read from the feed's first page, the same URL an unfiltered
+        :meth:`posts` call fetches first, so it is usually a cache hit and costs
+        no extra request.
+
+        ``via_api=True`` reads ``GET /groups/{gid}/labels``
+        (``metadata.display_name``, ``metadata.posts``), Skool's own
+        ``getGroupLabels``, at the price of two requests (group id, labels).
+        Only if Skool answers the labels with 401, 403 or 404 does it fall back
+        to the feed page; any other error is raised, 429 included (no request
+        follows a rate limit). Both ways return the same shape.
+
+        That fallback sends one more request AFTER a 401 or 403. A caller that
+        must stop on 401/403 must not use ``via_api=True``; the default reads
+        only the feed page and raises its errors as they come. A 401/403/429 on
+        the group-id lookup is raised either way (`group_id_for`).
         """
-        data = self.http.get_next(f"/{community_slug}.json?group={community_slug}",
-                                  community_slug)
+        if not via_api:
+            return self._post_categories_via_page(community_slug)
+        gid = self.group_id_for(community_slug)
+        try:
+            data = self.http.get_api2(f"/groups/{gid}/labels")
+        except SkoolHTTPError as e:
+            if e.status not in (401, 403, 404):
+                raise
+            return self._post_categories_via_page(community_slug)
+        return [{"id": lb.get("id", ""),
+                 "name": (lb.get("metadata") or {}).get("display_name", ""),
+                 "posts": (lb.get("metadata") or {}).get("posts")}
+                for lb in data.get("labels") or []]
+
+    def _post_categories_via_page(self, community_slug: str) -> list[dict]:
+        """The categories as the feed page carries them (camelCase)."""
+        slug = _id_segment(community_slug, "community_slug")
+        data = self.http.get_next(f"/{slug}.json?group={slug}", slug)
         labels = _dig(data, "pageProps", "currentGroup", "labels") or []
         return [{"id": lb.get("id", ""),
                  "name": (lb.get("metadata") or {}).get("displayName", ""),
@@ -453,9 +524,10 @@ class SkoolClient:
             raise ValueError("kind must be 'posts' or 'members'")
         if page < 1:
             raise ValueError("page starts at 1")
-        q = (f"/{community_slug}/-/search.json?q={quote(query, safe='')}"
-             f"&t={kind}&group={community_slug}" + (f"&p={page}" if page > 1 else ""))
-        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
+        slug = _id_segment(community_slug, "community_slug")
+        q = (f"/{slug}/-/search.json?q={quote(query, safe='')}"
+             f"&t={kind}&group={slug}" + (f"&p={page}" if page > 1 else ""))
+        return (self.http.get_next(q, slug) or {}).get("pageProps") or {}
 
     def post_detail(self, community_slug: str, post_name: str) -> dict:
         """One post's own page (raw ``pageProps``), by its URL slug.
@@ -466,11 +538,13 @@ class SkoolClient:
         their playback handles here, in ``postTree.videos[]``.
 
         ``post_name`` is the post's ``name`` (URL slug), not its UUID — that is
-        what the Next.js route keys on.
+        what the Next.js route keys on. Pass it raw, as Skool's answers carry it,
+        not percent-encoded: a ``%`` in it is encoded again.
         """
+        slug = _id_segment(community_slug, "community_slug")
+        name = _id_segment(post_name, "post_name")
         return self.http.get_next(
-            f"/{community_slug}/{post_name}.json?group={community_slug}",
-            community_slug,
+            f"/{slug}/{name}.json?group={slug}", slug,
         ).get("pageProps", {})
 
     def video_transcript(self, community_slug: str, post_name: str) -> list[dict]:
@@ -523,8 +597,10 @@ class SkoolClient:
         dailyActivities, groupsMemberOf[], groupsCreatedByUser[]). ``user_name``
         is the Skool handle (the ``@handle`` slug), not the display name.
         """
-        q = f"/@{user_name}.json?g={community_slug}&group=@{user_name}"
-        data = self.http.get_next(q, community_slug)
+        slug = _id_segment(community_slug, "community_slug")
+        handle = _id_segment(user_name, "user_name")
+        q = f"/@{handle}.json?g={slug}&group=@{handle}"
+        data = self.http.get_next(q, slug)
         user = _dig(data, "pageProps", "currentUser")
         if not user or not user.get("id"):
             user = _dig(data, "pageProps", "renderData", "user")
@@ -545,6 +621,7 @@ class SkoolClient:
         """
         if direction not in ("followers", "following"):
             raise ValueError("direction must be 'followers' or 'following'")
+        handle = _id_segment(user_name, "user_name")
         self.http.build_id("skool")  # ensure a buildId is cached (any real slug)
         total_key = "totalFollowers" if direction == "followers" else "totalFollowing"
         entries: list[dict] = []
@@ -554,7 +631,7 @@ class SkoolClient:
         while True:
             if page > 1:
                 time.sleep(_INTER_PAGE_DELAY_S)
-            q = f"/@{user_name}.json?t={direction}&group=@{user_name}"
+            q = f"/@{handle}.json?t={direction}&group=@{handle}"
             if page > 1:
                 q += f"&p={page}"
             data = self.http.get_next(q, "")
@@ -589,6 +666,8 @@ class SkoolClient:
 
         Returns ``{"post_tree": {"children": [...]}, "pinned_post_tree": ...}``.
         """
+        post = _id_segment(post_skool_id, "post_skool_id")
+        group = _id_segment(group_skool_id, "group_skool_id")
         all_children: list[dict] = []
         pinned_tree = None
         cursor = 0
@@ -597,9 +676,13 @@ class SkoolClient:
         for page_idx in range(_MAX_COMMENT_PAGES):
             if page_idx > 0:
                 time.sleep(_INTER_PAGE_DELAY_S)
-            q = (f"/posts/{post_skool_id}/comments"
-                 f"?group-id={group_skool_id}&limit={_COMMENT_PAGE_LIMIT}"
+            q = (f"/posts/{post}/comments"
+                 f"?group-id={group}&limit={_COMMENT_PAGE_LIMIT}"
                  f"&created-gt={cursor}")
+            if page_idx == 0:
+                # Pinned comments (and their replies) are NOT in post_tree and
+                # only come back when asked for (catnose 2026-11-01).
+                q += "&pinned=true"
             data = self.http.get_api2(q)
 
             if page_idx == 0:
@@ -625,27 +708,72 @@ class SkoolClient:
 
     # -- likes -----------------------------------------------------------------
 
-    def likes(self, post_skool_id: str, group_skool_id: str) -> list[dict]:
-        """Everyone who upvoted a post (raw ``users[]``).
+    def likes_page(self, post_skool_id: str, *, limit: int = 10, cursor: str = "",
+                   tab: str = "upvotes") -> dict:
+        """ONE page of a post's voters, raw (docs/API.md §1.5).
+
+        ``GET /posts/{id}/vote-users?limit=&tab=&cursor=``, in that order, the
+        way Skool's own client sends it: the first page with ``cursor=""``, the
+        next with the ``cursor`` of the answer while ``has_more`` is true. No
+        ``group-id``. Returns ``{tab, users[], has_more, cursor,
+        total_upvote_users, total_downvote_users}``.
+        """
+        return self.http.get_api2(
+            f"/posts/{_id_segment(post_skool_id, 'post_skool_id')}/vote-users"
+            f"?limit={limit}&tab={quote(tab, safe='')}&cursor={quote(cursor, safe='')}"
+        )
+
+    def likes(self, post_skool_id: str, group_skool_id: str = "", *,
+              tab: str = "upvotes", page_limit: int = 10,
+              max_pages: int = 50) -> list[dict]:
+        """Everyone who upvoted a post (raw ``users[]``), every page walked.
 
         api2.skool.com endpoint, mixed case: user objects have ``id``, ``name``,
         and ``first_name``/``firstName`` + ``last_name``/``lastName``.
+
+        Pages with :meth:`likes_page` until ``has_more`` is false, a page is
+        empty, the cursor is empty or did not move, or ``max_pages`` is reached.
+        ``group_skool_id`` is still accepted so old callers keep working, but
+        it is never sent: the vote-users call does not carry it.
+
+        It ends without an error and without a flag in every one of those
+        cases. So when ``max_pages`` is reached, the cursor stands still or a
+        page comes back empty while ``has_more`` is still true, the list can be
+        SHORT and nothing says so; compare it with ``total_upvote_users`` of
+        :meth:`likes_page` if completeness matters. Voters are kept once per
+        ``id`` (first seen wins): a page Skool serves twice adds nobody.
         """
-        q = f"/posts/{post_skool_id}/vote-users?group-id={group_skool_id}"
-        data = self.http.get_api2(q)
-        return data.get("users") or []
+        out: list[dict] = []
+        seen: set = set()
+        cursor = ""
+        for page_idx in range(max_pages):
+            if page_idx > 0:
+                time.sleep(_INTER_PAGE_DELAY_S)
+            data = self.likes_page(post_skool_id, limit=page_limit, cursor=cursor, tab=tab)
+            users = data.get("users") or []
+            for user in users:
+                uid = user.get("id") if isinstance(user, dict) else None
+                if uid is not None:
+                    if uid in seen:
+                        continue
+                    seen.add(uid)
+                out.append(user)
+            nxt = data.get("cursor") or ""
+            if not data.get("has_more") or not users or not nxt or nxt == cursor:
+                break
+            cursor = nxt
+        return out
 
     # -- community metadata ----------------------------------------------------
 
     def community_about(self, community_slug: str) -> dict:
         """The community's About page data (raw ``pageProps``)."""
-        return self.http.get_next(
-            f"/{community_slug}/about.json?group={community_slug}", community_slug
-        )
+        slug = _id_segment(community_slug, "community_slug")
+        return self.http.get_next(f"/{slug}/about.json?group={slug}", slug)
 
     def group_info(self, group_skool_id: str) -> dict:
         """Group metadata by UUID (raw api2 response)."""
-        return self.http.get_api2(f"/groups/{group_skool_id}")
+        return self.http.get_api2(f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}")
 
     def discovery(self, page: int = 1) -> dict:
         """Skool's global discovery board (docs/API.md §6.2), one page of ~30.
@@ -679,7 +807,7 @@ class SkoolClient:
         """
         q = "/skoolers/-/games.json?group=skoolers"
         if category_id:
-            q += f"&category={category_id}"
+            q += f"&category={quote(str(category_id), safe='')}"
         return (self.http.get_next(q, "skoolers") or {}).get("pageProps") or {}
 
     def leaderboards(self, community_slug: str) -> dict:
@@ -692,8 +820,9 @@ class SkoolClient:
         full user object and the viewer's own carries credential-class fields:
         flatten with :func:`normalize.leaderboard`, never return it raw.
         """
+        slug = _id_segment(community_slug, "community_slug")
         return (self.http.get_next(
-            f"/{community_slug}/-/leaderboards.json?group={community_slug}", community_slug
+            f"/{slug}/-/leaderboards.json?group={slug}", slug
         ) or {}).get("pageProps") or {}
 
     def discovery_rank(self, group_skool_id: str) -> dict:
@@ -703,7 +832,8 @@ class SkoolClient:
         language_code, boost_enabled, rank_updated_at}``. Works beyond the
         top-1000 board; foreign communities get a 401.
         """
-        return self.http.get_api2(f"/groups/{group_skool_id}/discovery")
+        return self.http.get_api2(
+            f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}/discovery")
 
     def admin_metrics(self, group_skool_id: str, range_: str = "30d") -> dict:
         """Admin dashboard metrics (owner/admin only, raw api2 response).
@@ -714,7 +844,8 @@ class SkoolClient:
         takes one; don't advertise other values.
         """
         return self.http.get_api2(
-            f"/groups/{group_skool_id}/admin-metrics?range={range_}&amt=monthly"
+            f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}/admin-metrics"
+            f"?range={_id_segment(range_, 'range_')}&amt=monthly"
         )
 
     # -- join requests (admin/moderator) -------------------------------------
@@ -729,10 +860,11 @@ class SkoolClient:
         (``member.id`` is what a decision needs). ``total``/``totalPages``
         count the whole queue. Owner/moderator only.
         """
-        q = f"/{community_slug}/-/pending.json?group={community_slug}"
+        slug = _id_segment(community_slug, "community_slug")
+        q = f"/{slug}/-/pending.json?group={slug}"
         if page > 1:
             q += f"&p={page}"
-        return (self.http.get_next(q, community_slug) or {}).get("pageProps") or {}
+        return (self.http.get_next(q, slug) or {}).get("pageProps") or {}
 
     def decide_join_request(self, member_id: str, decision: str) -> dict:
         """Approve or decline one request, as the pending page's buttons do.
@@ -743,7 +875,7 @@ class SkoolClient:
         """
         if decision not in self.JOIN_DECISIONS:
             raise ValueError("decision must be 'approve' or 'decline'")
-        return self.http.post_api2(f"/members/{member_id}/role",
+        return self.http.post_api2(f"/members/{_id_segment(member_id, 'member_id')}/role",
                                    {"new": self.JOIN_DECISIONS[decision]})
 
     # The admin dashboard's charts (docs/API.md §1.9), owner/admin only.
@@ -768,7 +900,9 @@ class SkoolClient:
             if state == "completed":
                 break
             if state != "in-progress":
-                raise RuntimeError(f"Skool's wait for {path} ended in {state!r}")
+                # Not one of the two words: show its start only, as every error does.
+                raise RuntimeError(
+                    f"Skool's wait for {path} ended in {_answer_excerpt('', state, 80)!r}")
             time.sleep(_WAIT_POLL_S)
         else:
             raise RuntimeError(f"Skool's wait for {path} did not complete in time")
@@ -778,7 +912,7 @@ class SkoolClient:
     def growth_overview(self, group_skool_id: str) -> dict:
         """The dashboard's last-30-days tiles: ``num_visitors``, ``num_signups``,
         ``new_mrr`` (growth overview) plus ``num_members`` (overview)."""
-        base = f"/groups/{group_skool_id}"
+        base = f"/groups/{_id_segment(group_skool_id, 'group_skool_id')}"
         return {**self._analytics(f"{base}/analytics-growth-overview-v2"),
                 **self._analytics(f"{base}/analytics-overview-v2")}
 
@@ -786,22 +920,483 @@ class SkoolClient:
         """One dashboard chart's ``items`` (see ``ANALYTICS_CHARTS``)."""
         if chart not in self.ANALYTICS_CHARTS:
             raise ValueError(f"chart must be one of {', '.join(self.ANALYTICS_CHARTS)}")
-        data = self._analytics(f"/groups/{group_skool_id}/analytics-v2?chart={chart}")
+        gid = _id_segment(group_skool_id, "group_skool_id")
+        data = self._analytics(f"/groups/{gid}/analytics-v2?chart={chart}")
         return (data.get("chart_data") or {}).get("items") or []
 
     def calendar(self, community_slug: str, cal_date: int = 0) -> dict:
         """Calendar/events (raw ``pageProps``). ``cal_date`` = unix ts for a
         future month, 0 = current month."""
-        q = f"/{community_slug}/calendar.json?group={community_slug}"
+        slug = _id_segment(community_slug, "community_slug")
+        q = f"/{slug}/calendar.json?group={slug}"
         if cal_date > 0:
-            q = f"/{community_slug}/calendar.json?calDate={cal_date}&group={community_slug}"
-        return self.http.get_next(q, community_slug)
+            q = f"/{slug}/calendar.json?calDate={cal_date}&group={slug}"
+        return self.http.get_next(q, slug)
+
+    # -- calendar write path (docs/API.md §5.11) -------------------------------
+    # Read from Skool's own page code and NOT yet run live: the limits and the
+    # field set are the ones its event form enforces, nothing here is measured.
+    # An event is ONE object for create and update (the whole form), so these
+    # methods take that object and send it as it is. Which of its fields Skool
+    # insists on, and whether an update with fewer fields keeps or resets the
+    # rest, is not known (§5.11 lists it as open): nothing here guesses either.
+    CALENDAR_TITLE_MAX = 30
+    CALENDAR_DESCRIPTION_MAX = 300
+    # Location types without an input field: Skool hands out the call code.
+    CALENDAR_LOCATION_NO_INFO = (5, 6)  # 5 Skool call, 6 Skool webinar
+
+    @staticmethod
+    def check_calendar_event(event: dict) -> None:
+        """Refuse an event object Skool's own form would not send (ValueError).
+
+        Runs before the first request, so a refused event costs no call at all.
+        It looks only at the fields that are present: no required set is
+        invented. The refusal names the limit and never repeats the text.
+        """
+        if not isinstance(event, dict):
+            raise ValueError("event must be a dict: Skool's event object.")
+        meta = event.get("metadata", {})
+        if not isinstance(meta, dict):
+            raise ValueError("event['metadata'] must be a dict.")
+        for key, limit in (("title", SkoolClient.CALENDAR_TITLE_MAX),
+                           ("description", SkoolClient.CALENDAR_DESCRIPTION_MAX)):
+            if key not in meta:
+                continue
+            if not isinstance(meta[key], str):
+                raise ValueError(f"{key} must be text.")
+            if len(meta[key]) > limit:
+                raise ValueError(f"{key} has {len(meta[key])} characters; "
+                                 f"Skool's event form allows at most {limit}.")
+        if "location" in meta:
+            SkoolClient._check_calendar_location(meta["location"])
+
+    @staticmethod
+    def _check_calendar_location(location) -> None:
+        if not isinstance(location, str):
+            raise ValueError("location must be JSON text, not an object: "
+                             '\'{"location_type": 4, "location_info": "…"}\'.')
+        try:
+            parsed = json.loads(location)
+        except ValueError:
+            raise ValueError("location is not valid JSON text.") from None
+        if not isinstance(parsed, dict) or "location_type" not in parsed:
+            raise ValueError("location must be JSON text of an object with a "
+                             "location_type (and a location_info).")
+        if (parsed["location_type"] in SkoolClient.CALENDAR_LOCATION_NO_INFO
+                and "location_info" in parsed):
+            raise ValueError("location_type 5 (Skool call) and 6 (Skool webinar) "
+                             "take no location_info: Skool assigns the call code.")
+
+    @staticmethod
+    def calendar_event_path(event_id: str, from_occurrence_id: str = "") -> str:
+        """``/calendar-events/{id}``, plus ``?from_occurrence_id=`` for a series.
+
+        Without it a change or delete takes the whole event; with it, the
+        occurrence and everything after it (docs/API.md §5.11). The event id goes
+        through `_id_segment` (real text, not only dots: ``..`` would be folded
+        away, ``/calendar-events/..`` becoming ``/``, and aim a PUT or DELETE at
+        the API root). The occurrence id is a query value: empty means "not
+        given", anything else must be non-blank text, and it is percent-encoded
+        so it cannot add a parameter. Neither refusal repeats the value.
+        """
+        segment = _id_segment(event_id, "event_id")
+        if not isinstance(from_occurrence_id, str) or (
+                from_occurrence_id and not from_occurrence_id.strip()):
+            raise ValueError("from_occurrence_id must be non-empty text when given.")
+        path = f"/calendar-events/{segment}"
+        if from_occurrence_id:
+            path += f"?from_occurrence_id={quote(from_occurrence_id, safe='')}"
+        return path
+
+    @staticmethod
+    def calendar_event_body(group_id: str, event: dict) -> dict:
+        """The body of a calendar write: ``{"group_id": ..., **event}``.
+
+        The one place it is built, so a draft can show the body that goes out
+        (the MCP tools pass a placeholder for ``group_id`` there: a draft does
+        not contact Skool, and the id is looked up from the slug on confirm).
+        """
+        return {"group_id": group_id, **event}
+
+    def create_calendar_event(self, community_slug: str, event: dict) -> dict:
+        """Create a calendar event: ``POST /calendar-events`` (§5.11). Raw answer.
+
+        ``event`` is Skool's object without ``group_id`` (the slug decides it, and
+        an archived community is refused up front): ``start_time``, ``end_time``,
+        ``metadata`` {``title`` ≤ 30 characters, ``description`` ≤ 300,
+        ``timezone``, ``reminder_disabled``, ``cover_image``, ``location``,
+        ``privacy``} and ``recurrence``. ``location`` and ``privacy`` are JSON
+        TEXT, not objects. Times and timezone go out exactly as passed.
+        """
+        self.check_calendar_event(event)
+        if "group_id" in event:
+            raise ValueError("event carries no group_id: the community slug decides it.")
+        group_id = self.group_id_for(community_slug, for_write=True)
+        return self.http.post_api2("/calendar-events",
+                                   self.calendar_event_body(group_id, event))
+
+    def update_calendar_event(self, event_id: str, event: dict, *,
+                              from_occurrence_id: str = "") -> dict:
+        """Change an event: ``PUT /calendar-events/{id}`` (§5.11). Raw answer.
+
+        ``event`` goes out unchanged, so it is the whole object Skool's form
+        would send (``group_id`` included if wanted); the same limits as in
+        `create_calendar_event` apply to the fields that are in it. Whether Skool
+        keeps a field you leave out is not known: send the full set.
+        ``from_occurrence_id`` changes that occurrence and all later ones of a
+        series; empty changes the whole event. One occurrence alone
+        (``updateCalendarEventOccurrenceV2``) is not built.
+        """
+        self.check_calendar_event(event)
+        return self.http.put_api2(self.calendar_event_path(event_id, from_occurrence_id), event)
+
+    def delete_calendar_event(self, event_id: str, *, from_occurrence_id: str = "") -> dict:
+        """Delete an event: ``DELETE /calendar-events/{id}``, no body (§5.11).
+
+        Irreversible. ``from_occurrence_id`` deletes that occurrence and all
+        later ones of a series; empty deletes the whole event.
+        """
+        return self.http.delete_api2(self.calendar_event_path(event_id, from_occurrence_id))
+
+    # -- small post actions (docs/API.md §5.12) --------------------------------
+    # Read from Skool's own page code and NOT run live by catknows (the vote, pin,
+    # category and About calls also run in the author's autopilot): paths, bodies
+    # and limits are the ones its web client uses. Every method refuses a bad
+    # argument BEFORE the first request and hands Skool's answer back as it is.
+    # A SkoolSecurityChallenge is never caught here: the write counts as not sent.
+    POST_VOTES = ("", "up")  # "" = no vote; Skool's client has no downvote
+    CATEGORY_NAME_MAX = 30
+    # The values the category form offers (best-1y is shown in the feed only).
+    CATEGORY_SORTS = ("newest-cm", "newest", "best-1w", "best-1m")
+    CATEGORY_WRITE_ROLES = (4, 3)  # 4 members and admins may post, 3 admins only
+
+    @staticmethod
+    def post_action_path(post_id: str, action: str) -> str:
+        """``/posts/{id}/{action}``. The id goes through `_id_segment`: real text,
+        not only dots, percent-encoded. ``action`` is one of our own constants."""
+        return f"/posts/{_id_segment(post_id, 'post_id')}/{action}"
+
+    @staticmethod
+    def comment_pin_path(post_id: str, comment_id: str, *, pinned: bool = True) -> str:
+        """``/posts/{id}/pin-comment?comment={commentId}`` (``unpin-comment`` if not pinned).
+
+        A comment id is always required here: a missing one must not turn into a
+        call without the ``comment`` query. Both ids go through `_id_segment`.
+        """
+        action = "pin-comment" if pinned else "unpin-comment"
+        return (f"{SkoolClient.post_action_path(post_id, action)}"
+                f"?comment={_id_segment(comment_id, 'comment_id')}")
+
+    @staticmethod
+    def category_path(category_id: str) -> str:
+        """``/labels/{id}`` (Skool calls a category a label)."""
+        return f"/labels/{_id_segment(category_id, 'category_id')}"
+
+    @staticmethod
+    def check_post_vote(old, new) -> None:
+        """Only the two documented transitions: like (``"" -> "up"``) and take back."""
+        for name, value in (("old", old), ("new", new)):
+            if not isinstance(value, str) or value not in SkoolClient.POST_VOTES:
+                raise ValueError(f'{name} must be "" (no vote) or "up": '
+                                 "Skool's client has no downvote.")
+        if old == new:
+            raise ValueError("old and new are the same vote: that changes nothing, "
+                             "so it is not sent.")
+
+    @staticmethod
+    def check_category_name(display_name) -> None:
+        """A category name: non-blank text, at most 30 characters. Never echoes it.
+
+        30 is the limit of Skool's category form, read from the page code; the
+        server's own limit is not known, and neither is whether Skool counts
+        characters the way ``len()`` does (docs/API.md §5.12).
+        """
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValueError("display_name must be non-blank text.")
+        if len(display_name) > SkoolClient.CATEGORY_NAME_MAX:
+            raise ValueError(f"display_name has {len(display_name)} characters; "
+                             f"Skool's category form allows at most "
+                             f"{SkoolClient.CATEGORY_NAME_MAX}.")
+
+    @staticmethod
+    def check_category_options(default_sort, post_write_role) -> None:
+        """The sort and the write role the category form offers, nothing else."""
+        if not isinstance(default_sort, str) or default_sort not in SkoolClient.CATEGORY_SORTS:
+            raise ValueError("default_sort must be one of "
+                             + ", ".join(SkoolClient.CATEGORY_SORTS) + ".")
+        if (isinstance(post_write_role, bool) or not isinstance(post_write_role, int)
+                or post_write_role not in SkoolClient.CATEGORY_WRITE_ROLES):
+            raise ValueError("post_write_role must be 4 (members and admins may post) "
+                             "or 3 (admins only).")
+
+    @staticmethod
+    def check_about_description(description) -> None:
+        """The About text: non-blank text. catknows' own rule: a blank text is refused.
+
+        What Skool does with a blank About text is not verified against Skool.
+        """
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError("description must be non-blank text.")
+
+    @staticmethod
+    def check_flag(value, name: str) -> None:
+        """A real boolean: a text "false" is truthy and must not flip the direction."""
+        if not isinstance(value, bool):
+            raise ValueError(f"{name} must be true or false.")
+
+    def vote_post(self, post_id: str, old: str, new: str) -> dict:
+        """Like a post or take the like back: ``PUT /posts/{id}/vote`` (§5.12).
+
+        Body ``{"old", "new"}``; only ``""`` and ``"up"`` are allowed, so a like
+        is ``("", "up")`` and taking it back ``("up", "")``. No downvote. What
+        Skool does with an ``old`` that is not the stored vote is not known.
+        """
+        self.check_post_vote(old, new)
+        path = self.post_action_path(post_id, "vote")
+        return self.http.put_api2(path, {"old": old, "new": new})
+
+    def pin_post(self, post_id: str, *, pinned: bool = True) -> dict:
+        """Pin a post to the feed, or unpin it: ``POST /posts/{id}/pin|unpin`` (§5.12).
+
+        Skool's own client sends no body; this sends ``{}`` like the autopilot,
+        which once got HTTP 400 for it (cause open). Group admins only in the web
+        client.
+        """
+        self.check_flag(pinned, "pinned")
+        path = self.post_action_path(post_id, "pin" if pinned else "unpin")
+        return self.http.post_api2(path, {})
+
+    def create_category(self, community_slug: str, display_name: str, *,
+                        default_sort: str, post_write_role: int) -> dict:
+        """Create a feed category: ``POST /labels`` (§5.12). Raw answer (the new label).
+
+        Body ``{group_id, metadata: {display_name, default_sort, post_write_role}}``;
+        the slug decides the group (an archived community is refused up front).
+        No defaults of our own: the caller names the sort (``newest-cm``,
+        ``newest``, ``best-1w``, ``best-1m``) and the role (4 members and admins,
+        3 admins only). The category form stops at 10 categories (the server's
+        limit is not known); catknows does not count them.
+        """
+        self.check_category_name(display_name)
+        self.check_category_options(default_sort, post_write_role)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        return self.http.post_api2("/labels", {
+            "group_id": group_id,
+            "metadata": {"display_name": display_name, "default_sort": default_sort,
+                         "post_write_role": post_write_role},
+        })
+
+    def rename_category(self, category_id: str, display_name: str) -> dict:
+        """Rename a feed category: ``PUT /labels/{id}`` with ``{display_name}`` (§5.12).
+
+        Only the name is sent. Whether Skool then keeps the category's sort and
+        write role is not verified. ``category_id`` is the ``category_id`` of a
+        ``list_posts`` row.
+        """
+        self.check_category_name(display_name)
+        return self.http.put_api2(self.category_path(category_id),
+                                  {"display_name": display_name})
+
+    @staticmethod
+    def category_delete_path(category_id: str, migrate_to: str = "") -> str:
+        """``/labels/{id}``, plus ``?migrate={other id}`` to move its posts first.
+
+        ``migrate_to`` empty means "not given" (Skool's client leaves the query
+        out then); anything else must be non-blank text and not the category
+        itself. It is percent-encoded so it cannot add a parameter. No refusal
+        repeats a value.
+        """
+        path = SkoolClient.category_path(category_id)
+        if not isinstance(migrate_to, str) or (migrate_to and not migrate_to.strip()):
+            raise ValueError("migrate_to must be non-empty text when given.")
+        if migrate_to and migrate_to == category_id:
+            raise ValueError("migrate_to is the category itself: its posts cannot "
+                             "move into the category that is being deleted.")
+        if migrate_to:
+            path += f"?migrate={quote(migrate_to, safe='')}"
+        return path
+
+    def delete_category(self, category_id: str, *, migrate_to: str = "") -> dict:
+        """Delete a feed category: ``DELETE /labels/{id}``, no body (§5.12).
+
+        Irreversible. ``migrate_to`` is the id of another category: Skool's
+        client sends it as ``?migrate=`` to move the posts there first ("bulk
+        migrate"), and sends no query for a category without posts. Its form
+        does not offer deleting a category that still has posts without it;
+        what the server answers to that is not verified.
+        """
+        return self.http.delete_api2(self.category_delete_path(category_id, migrate_to))
+
+    def update_about_description(self, community_slug: str, description: str) -> dict:
+        """Replace the About page's description (§5.12).
+
+        ``POST /groups/{gid}/update-landing-page-description`` with
+        ``{"description": text}``, sent unchanged: the format Skool wants (plain
+        text or ``[v2]`` TipTap) is not documented. The slug decides the group
+        (an archived community is refused). Public text, so the caller shows it
+        to a human first; a blank text is refused.
+        """
+        self.check_about_description(description)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        path = f"/groups/{_id_segment(group_id, 'group_id')}/update-landing-page-description"
+        return self.http.post_api2(path, {"description": description})
+
+    def set_post_comments(self, post_id: str, *, enabled: bool) -> dict:
+        """Turn comments off or on for one post (§5.12).
+
+        ``POST /posts/{id}/disable-comments`` or ``enable-comments``, no body.
+        """
+        self.check_flag(enabled, "enabled")
+        path = self.post_action_path(post_id, "enable-comments" if enabled else "disable-comments")
+        return self.http.post_api2(path, None)
+
+    def pin_comment(self, post_id: str, comment_id: str, *, pinned: bool = True) -> dict:
+        """Pin a comment under its post, or unpin it (§5.12).
+
+        ``POST /posts/{post_id}/pin-comment?comment={comment_id}`` (or
+        ``unpin-comment``), no body. ``comment_id`` is from ``get_post_comments``.
+        The web client allows one pinned comment; what the server does with a
+        second is not verified.
+        """
+        self.check_flag(pinned, "pinned")
+        path = self.comment_pin_path(post_id, comment_id, pinned=pinned)
+        return self.http.post_api2(path, None)
+
+    def follow_post(self, post_id: str, *, follow: bool = True) -> dict:
+        """Follow a post (the bell) or stop following it (§5.12).
+
+        ``POST /posts/{id}/follow`` or ``unfollow``, no body.
+        """
+        self.check_flag(follow, "follow")
+        path = self.post_action_path(post_id, "follow" if follow else "unfollow")
+        return self.http.post_api2(path, None)
+
+    # -- chat read marks, member search, file download link (docs/API.md §5.13) --
+    # Read from Skool's own page code and NOT run live by catknows. The two marks
+    # are writes (they change the unread state of the account): `post_api2`, so
+    # they are spaced and logged. The search and the link request are POSTs that
+    # only read: `post_api2_read`, which writes no audit line and does not wait.
+    # Every method refuses a bad argument BEFORE the first request, and a
+    # SkoolSecurityChallenge is never caught here.
+
+    @staticmethod
+    def chat_read_path(channel_id: str, last: str | None = None) -> str:
+        """``/channels/{id}/read``, with ``?last={last}`` when ``last`` is given.
+
+        Both go through `_id_segment`. ``last`` is sent as the text it is: the
+        page code passes the id of the chat message that just came into view, and
+        no ``last`` at all for "the whole chat". ``None`` means not given; an
+        empty text is refused rather than turned into "not given".
+        """
+        path = f"/channels/{_id_segment(channel_id, 'channel_id')}/read"
+        if last is None:
+            return path
+        return f"{path}?last={_id_segment(last, 'last')}"
+
+    @staticmethod
+    def file_download_path(file_id: str, expire: int | None = None) -> str:
+        """``/files/{id}/download-url``, with ``?expire={n}`` when ``expire`` is given.
+
+        Skool's own name for ``expire`` is ``expireSecs``, so seconds; the unit
+        and the allowed range were not run. Only what cannot be a number is
+        refused here (not a whole number, below 1, a boolean).
+        """
+        path = f"/files/{_id_segment(file_id, 'file_id')}/download-url"
+        if expire is None:
+            return path
+        if isinstance(expire, bool) or not isinstance(expire, int) or expire < 1:
+            raise ValueError("expire must be a whole number of 1 or more, or left out.")
+        return f"{path}?expire={expire}"
+
+    def mark_chat_read(self, channel_id: str, last: str | None = None) -> dict:
+        """Mark one chat as read for this account: ``POST /channels/{id}/read`` (§5.13).
+
+        No body. ``last`` (query) is the id of a chat message, as the page code
+        passes it; without it the whole chat is meant. What the server does with
+        ``last`` was not run, so it is sent exactly as given. Returns Skool's
+        answer as it is.
+        """
+        return self.http.post_api2(self.chat_read_path(channel_id, last), None)
+
+    def mark_all_chats_read(self) -> dict:
+        """Mark EVERY chat of this account as read: ``POST /self/chat-channels/read`` (§5.13).
+
+        No query, no body, no way to name a community or a channel. Returns
+        Skool's answer as it is.
+        """
+        return self.http.post_api2("/self/chat-channels/read", None)
+
+    # The one member-search request catknows sends. Skool's page code (build
+    # 1794436674711, `static_chunks_8402`) asks for 7 hits on desktop (5 on a phone)
+    # and never sends a cursor. Effect of a cursor or of another limit is not
+    # documented ("contracts, not guesses"), and paging a search would be a detour
+    # around the member-list limit (LEGAL.md boundary 4: a non-owner is served the
+    # first page only). So the body is always exactly {query, group_id, limit: 7}.
+    # That is sticking to the documented request, not a disguise of the client.
+    SEARCH_USERS_LIMIT = 7
+
+    @staticmethod
+    def check_search_limit(limit) -> int:
+        """A result limit for the tool: a whole number of 1 or more (not a boolean)."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a whole number of 1 or more.")
+        return limit
+
+    def search_members(self, community_slug: str, query: str) -> dict:
+        """The @mention member search of one community: ``POST /search/users`` (§5.13).
+
+        Reads only, although it is a POST (`post_api2_read`). The body is always
+        exactly ``{query, group_id, limit: 7}``: Skool's own client sends no
+        cursor and no other limit, and catknows sends only that documented form
+        (`SEARCH_USERS_LIMIT`), so there is no ``limit`` or ``cursor`` argument.
+        A blank query is refused: this is a name search, not a way to list a
+        community. Returns Skool's answer (an object, ``users[]`` in the page
+        code) as it is; flatten it with ``normalize.search_user``. Archived
+        communities stay searchable.
+        """
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must be non-blank text.")
+        body = {"query": query, "group_id": self.group_id_for(community_slug),
+                "limit": self.SEARCH_USERS_LIMIT}
+        answer = self.http.post_api2_read("/search/users", body)
+        if not isinstance(answer, dict):
+            raise SkoolHTTPError(
+                "Skool answered the member search with something that is not an object "
+                "(the answer is not shown).")
+        return answer
+
+    def file_download_url(self, file_id: str, expire: int | None = None) -> str:
+        """A download link for one uploaded file: ``POST /files/{id}/download-url`` (§5.13).
+
+        Reads only (`post_api2_read`), no body. Returns the link as text. The page
+        code uses the answer as the link itself, so ONE text starting with
+        ``https://``, naming a host and holding no white space is the only thing
+        accepted (the "https with a host" part is catknows' own safeguard, not
+        checked against Skool; no list of allowed hosts, none is documented).
+        Anything else (an object, a list, empty, ``http://``, a line break, an HTML page such
+        as a WAF challenge or login page, a progress word like ``in-progress``) is an
+        error that does NOT show the answer, because it may hold the access link.
+        The link must not be logged and is not: nothing here writes it anywhere.
+        This is for files (documents, images). Video download is an admin right in
+        Skool and is not offered.
+        """
+        answer = self.http.post_api2_read(self.file_download_path(file_id, expire), None)
+        link = answer.strip() if isinstance(answer, str) else ""
+        try:
+            host = urlsplit(link).hostname if link.startswith("https://") else None
+        except ValueError:  # e.g. a malformed port or IPv6 part
+            host = None
+        if not host or any(ch.isspace() for ch in link):
+            raise SkoolHTTPError(
+                "Skool's answer to the download-link request is not a link (one https:// text "
+                "with a host and without white space was expected; the answer is not shown: it may hold an "
+                "access link).")
+        return link
 
     def classroom(self, community_slug: str) -> dict:
         """Classroom / courses (raw ``pageProps``)."""
-        return self.http.get_next(
-            f"/{community_slug}/classroom.json?group={community_slug}", community_slug
-        )
+        slug = _id_segment(community_slug, "community_slug")
+        return self.http.get_next(f"/{slug}/classroom.json?group={slug}", slug)
 
     # -- classroom write path (docs/API.md §7) ---------------------------------
     # Course, folder and page are ONE object type ("unit") in a tree:
@@ -820,10 +1415,15 @@ class SkoolClient:
 
         So: api2 first (it is the only door for our own drafts and the write
         path), the page as the fallback. ``community_slug`` enables that
-        fallback; without it a non-member just gets the 401.
+        fallback; without it a non-member just gets the 401. Only 401 and 403
+        fall back; any other error is raised, 429 included (no request follows
+        a rate limit).
+
+        That fallback sends one more request AFTER a 401 or 403. A caller that
+        must stop on 401/403 must not pass ``community_slug``.
         """
         try:
-            return self.http.get_api2(f"/courses/{course_id}?withChildren=true")
+            return self.http.get_api2(f"/courses/{_id_segment(course_id, 'course_id')}")
         except SkoolHTTPError as e:
             if not community_slug or e.status not in (401, 403):
                 raise
@@ -849,15 +1449,18 @@ class SkoolClient:
         if not name:
             return None
 
-        base = f"/{community_slug}/classroom/{name}.json?group={community_slug}"
-        data = self.http.get_next(base, community_slug)
+        slug = _id_segment(community_slug, "community_slug")
+        # name and md come from Skool's answer, not from the caller; encoded all
+        # the same, so that neither can add a path piece or a parameter.
+        base = f"/{slug}/classroom/{quote(str(name), safe='')}.json?group={slug}"
+        data = self.http.get_next(base, slug)
         pp = data.get("pageProps") or {}
         if not pp.get("course"):
             target = str(pp.get("__N_REDIRECT") or "")
             md = target.partition("md=")[2].split("&", 1)[0]
             if not md:
                 return None
-            data = self.http.get_next(f"{base}&md={md}", community_slug)
+            data = self.http.get_next(f"{base}&md={quote(md, safe='')}", slug)
             pp = data.get("pageProps") or {}
         return pp.get("course") or None
 
@@ -953,11 +1556,20 @@ class SkoolClient:
         Page ``desc`` is TipTap ``[v2]`` JSON — plain text is wrapped for you.
         A COURSE ``desc`` is plain text (§7.3) and goes out unchanged: wrapping
         it shows the raw JSON under the classroom tile.
+
+        Only a tree read that Skool answers with another error (a folder or
+        page answers 400) means "not a root unit". 401, 403, 429, a network
+        error and the security question are raised, and no PUT is sent.
         """
         fields = dict(fields)
         try:
             cur = (self.course_tree(unit_id).get("course") or {}).get("metadata") or {}
-        except SkoolHTTPError:
+        except SkoolSecurityChallenge:
+            raise  # Skool's security question is no "not a root unit": no blind PUT
+        except SkoolHTTPError as e:
+            # 401/403/429 or a network error say nothing about the unit: no blind PUT.
+            if e.status in REJECTED_STATUSES or not e.status:
+                raise
             cur = None  # not a root unit -> flat update, caller sends full set
         if cur is None and "desc" in fields and not str(fields["desc"]).startswith("[v2]"):
             fields["desc"] = tiptap(str(fields["desc"]))
@@ -973,21 +1585,26 @@ class SkoolClient:
                 if flag in base:
                     base[flag] = bool(base[flag])
             fields = base
-        return self.http.put_api2(f"/courses/{unit_id}", fields)
+        return self.http.put_api2(f"/courses/{_id_segment(unit_id, 'unit_id')}", fields)
 
     def set_course_state(self, course_id: str, published: bool) -> dict:
         """Publish (visible to members) or unpublish (draft) a course."""
         state = "published" if published else "draft"
-        return self.http.put_api2(f"/courses/{course_id}/state?state={state}", {})
+        return self.http.put_api2(
+            f"/courses/{_id_segment(course_id, 'course_id')}/state?state={state}", {})
 
     def move_course_item(self, unit_id: str, position: int) -> dict:
         """Reorder a unit among its siblings; ``position`` is the 0-based target.
 
         Course tiles reorder within the classroom, pages within their parent.
-        This does NOT re-parent (Skool ignores a PUT ``parent_id`` too) — to
-        move a page into another folder, recreate it there and delete the old.
+        This does NOT re-parent (Skool ignores a PUT ``parent_id`` too). To move
+        a page into a folder or out of one, use `move_course_to_folder` (read
+        from Skool's page code, not run live yet); until that has been tried,
+        recreating the page in the target folder and deleting the old one is
+        the proven way.
         """
-        return self.http.post_api2(f"/courses/{unit_id}/move2?dst={position}", {})
+        return self.http.post_api2(
+            f"/courses/{_id_segment(unit_id, 'unit_id')}/move2?dst={position}", {})
 
     def delete_course_item(self, unit_id: str, *, client_id: str = "") -> None:
         """Delete a unit. ⚠ Deleting a FOLDER does not delete its pages — they
@@ -1000,8 +1617,163 @@ class SkoolClient:
         ``/auth/email-verify``). The browser's own id stays verified across
         sessions — capture it once from the web app and reuse it (§7.6).
         """
-        q = f"?client_id={client_id}" if client_id else ""
-        self.http.delete_api2(f"/courses/{unit_id}{q}")
+        unit = _id_segment(unit_id, "unit_id")
+        q = f"?client_id={_id_segment(client_id, 'client_id')}" if client_id else ""
+        self.http.delete_api2(f"/courses/{unit}{q}")
+
+    # -- course settings: drip, folder, share key, import (docs/API.md §7.8) ----
+    # Read from Skool's own page code and NOT run live by catknows: paths, query
+    # and body are the ones its web client sends. Every method refuses a bad
+    # argument BEFORE the first request and hands Skool's answer back as it is.
+    # A SkoolSecurityChallenge is never caught here: the write counts as not sent.
+    # The share key is a credential (a query value on the import, the answer of
+    # the key request), and so is the client id of a course delete. Nothing in this
+    # class puts one in a message of its own; the HTTP layer keeps them out of the
+    # audit line, the error texts and the exception chain (docs/API.md §7.8:
+    # `audit.redact`, `audit.secret_answer`, `audit.carries_secret`). What it does
+    # not cover: the key request's answer, which is returned to the caller on purpose.
+    COURSE_DRIP_DAYS_MAX = 999   # the drip form clamps the field to 1..999
+    CLONE_CODE_LENGTH = 64       # the import form refuses any other length
+    COURSE_ID_LENGTH = 32        # ... and takes the course id from the first 32
+
+    @staticmethod
+    def course_action_path(course_id: str, action: str) -> str:
+        """``/courses/{id}/{action}``. The id goes through `_id_segment`: real text,
+        not only dots, percent-encoded. ``action`` is one of our own constants."""
+        return f"/courses/{_id_segment(course_id, 'course_id')}/{action}"
+
+    @staticmethod
+    def course_parent_path(course_id: str, parent_id: str) -> str:
+        """``/courses/{id}/update-parent?parent={parentId}``.
+
+        Both ids go through `_id_segment` (the parent is a query value, so it is
+        percent-encoded and cannot add a parameter). A unit cannot be its own parent.
+        """
+        path = SkoolClient.course_action_path(course_id, "update-parent")
+        parent = _id_segment(parent_id, "parent_id")
+        if course_id == parent_id:
+            raise ValueError("course_id and parent_id are the same id: a unit cannot sit "
+                             "inside itself.")
+        return f"{path}?parent={parent}"
+
+    @staticmethod
+    def check_course_drip(enabled, days) -> int:
+        """The days to send with a drip switch, after the checks of Skool's own form.
+
+        ``enabled`` must be a real boolean. ``days`` a whole number (not a boolean):
+        1 to 999 when drip is on (the form clamps to that, and its Save button stays
+        off without days), 0 to 999 when it is off. The server wants 1 to 999 in
+        BOTH directions (seen live 2026-11-13: ``enabled: false`` with ``days: 0``
+        is answered 400 "days must be between 1 and 999"), so with drip off a 0
+        goes out as 1; the days of a switched-off drip are not kept by Skool.
+        """
+        SkoolClient.check_flag(enabled, "enabled")
+        low, high = (1 if enabled else 0), SkoolClient.COURSE_DRIP_DAYS_MAX
+        if isinstance(days, bool) or not isinstance(days, int) or not low <= days <= high:
+            raise ValueError(f"days must be a whole number from {low} to {high}"
+                             + (" (drip is on)." if enabled else " (0 when drip is off)."))
+        return days or 1
+
+    @staticmethod
+    def check_import_course(course_id, clone_code) -> str:
+        """The share key for an import, after the checks of Skool's own form; returns it lowercased.
+
+        The form refuses a key that is not exactly 64 characters, lowercases it,
+        and takes the course id from its first 32 characters, so that is the only
+        pair it ever sends. The refusals say how long, never what was passed.
+        """
+        if (not isinstance(clone_code, str)
+                or len(clone_code) != SkoolClient.CLONE_CODE_LENGTH):
+            raise ValueError(f"clone_code must be exactly {SkoolClient.CLONE_CODE_LENGTH} "
+                             "characters, the share key as Skool shows it.")
+        code = clone_code.lower()
+        _id_segment(course_id, "course_id")
+        if course_id != code[:SkoolClient.COURSE_ID_LENGTH]:
+            raise ValueError(f"course_id must be the first {SkoolClient.COURSE_ID_LENGTH} "
+                             "characters of clone_code: Skool's own form takes the course id "
+                             "from the key.")
+        return code
+
+    def set_course_drip(self, course_id: str, enabled: bool, days: int = 0) -> dict:
+        """Switch drip (timed release) on or off: ``POST /courses/{id}/update-drip`` (§7.8).
+
+        Body ``{"enabled", "days"}``. Skool's web client offers it in a page's
+        menu, so ``course_id`` is a page id; whether a course or folder id works
+        is not known. ``days``: see `check_course_drip` (1 to 999 when ``enabled``;
+        when not, the default 0 is sent as 1, which the server demands). Returns
+        Skool's answer as it is.
+        """
+        days = self.check_course_drip(enabled, days)
+        path = self.course_action_path(course_id, "update-drip")
+        return self.http.post_api2(path, {"enabled": enabled, "days": days})
+
+    def move_course_to_folder(self, course_id: str, parent_id: str) -> dict:
+        """Put a page into a folder, or out of it: ``POST /courses/{id}/update-parent?parent=`` (§7.8).
+
+        No body. ``parent_id`` is a folder's id, or the id of the course itself
+        (what the page's "None" sends: the page's ``root_id``). It sets the parent
+        and nothing else: the place among the new siblings is not set (reorder
+        with `move_course_item`). Skool's web client moves pages only. Returns
+        Skool's answer as it is.
+        """
+        return self.http.post_api2(self.course_parent_path(course_id, parent_id), None)
+
+    def create_course_share_key(self, course_id: str) -> dict:
+        """Ask for a course's share key: ``POST /courses/{id}/clone-code``, no body (§7.8).
+
+        The answer is an object with ``code`` (what the page reads), a 64-character
+        key. **It is a credential**: whoever holds it can duplicate the whole
+        course into any community. Returned to the caller as it is, which is the
+        point; the audit line keeps only a hash of it, and an error about this
+        request shows no piece of the answer and has no chain (docs/API.md §7.8).
+        """
+        return self.http.post_api2(self.course_action_path(course_id, "clone-code"), None)
+
+    def import_course(self, course_id: str, community_slug: str, clone_code: str) -> dict:
+        """Import a course into a community with its share key: ``POST /courses/{id}/import`` (§7.8).
+
+        Query ``group`` (the community's group ID, from the slug: an archived
+        community is refused up front) and ``clone_code`` (the key, lowercased as
+        Skool's form does); no body. ``course_id`` is the SOURCE course, the first 32
+        characters of the key; the copy goes into the community. Skool makes the copy
+        on its side, so the answer says nothing about the finished course. The key
+        is a credential: it is sent on the wire, and hidden by its name
+        (``clone_code=``) in the audit line and in every error text, and an error
+        has no exception chain (docs/API.md §7.8). An error whose text repeats the
+        bare key (Skool's answer echoing it) shows ``[redacted]`` in its place: the
+        key is known here, so it is replaced by its value (`audit.redact_value`).
+        Returns Skool's answer as it is.
+        """
+        code = self.check_import_course(course_id, clone_code)
+        group_id = self.group_id_for(community_slug, for_write=True)
+        path = (f"{self.course_action_path(course_id, 'import')}"
+                f"?group={_id_segment(group_id, 'group_id')}&clone_code={quote(code, safe='')}")
+        try:
+            return self.http.post_api2(path, None)
+        except SkoolHTTPError as e:
+            # Only a text that holds the key is rebuilt, status kept. A security
+            # question never repeats the answer, so it passes as it is.
+            said = str(e)
+            clean = audit.redact_value(said, code)
+            if clean == said:
+                raise
+            status = e.status
+        # Raised outside the handler, with no cause: the first error holds the key.
+        raise SkoolHTTPError(clean, status) from None
+
+    # -- community rules and level names (docs/API.md §1.11) -------------------
+    # Plain GETs, no query. Read from the page code, answer shape not run live, so
+    # both return the answer as it is. Archived communities stay readable.
+
+    def group_rules(self, community_slug: str) -> dict:
+        """The community's rules: ``GET /groups/{gid}/rules`` (§1.11). Raw answer."""
+        gid = _id_segment(self.group_id_for(community_slug), "group_id")
+        return self.http.get_api2(f"/groups/{gid}/rules")
+
+    def group_levels(self, community_slug: str) -> dict:
+        """The community's level names: ``GET /groups/{gid}/levels`` (§1.11). Raw answer."""
+        gid = _id_segment(self.group_id_for(community_slug), "group_id")
+        return self.http.get_api2(f"/groups/{gid}/levels")
 
     # -- notifications ---------------------------------------------------------
 
@@ -1037,14 +1809,23 @@ class SkoolClient:
 
     # -- chat ------------------------------------------------------------------
 
-    def chat_channels(self, *, offset: int = 0, limit: int = 30) -> dict:
+    def chat_channels(self, *, offset: int = 0, limit: int = 30,
+                      unread_only: bool = False) -> dict:
         """Your DM channels (docs/API.md §1.6) — the channel ids `send_dm` needs.
 
-        ``limit`` above 30 is refused by Skool ("invalid limit").
+        ``limit`` above 30 is refused by Skool ("invalid limit"). With
+        ``unread_only`` Skool lists only channels with unread messages; when
+        there are none it answers ``{"channels": null}``, which comes back here
+        as ``"channels": []`` so callers never see ``None``. The raw object is
+        returned otherwise.
         """
-        return self.http.get_api2(
-            f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only=false"
+        flag = "true" if unread_only else "false"
+        data = self.http.get_api2(
+            f"/self/chat-channels?offset={offset}&limit={limit}&last=true&unread-only={flag}"
         )
+        if data.get("channels") is None:
+            data = {**data, "channels": []}
+        return data
 
     def chat_messages(self, channel_id: str, *, count: int = 30) -> dict:
         """Messages of one DM channel, newest last (docs/API.md §1.6).
@@ -1054,7 +1835,9 @@ class SkoolClient:
 
         * The opening read takes ``before=N`` — NOT a timestamp and NOT a
           message id, but "how many messages back from newest". It is capped
-          at 50; anything larger is refused with ``invalid before``.
+          at 50; anything larger is refused with ``invalid before``. No
+          ``limit`` goes with it: Skool's own client sends none, and ``before``
+          alone gives the same answer.
         * Going further back needs the ``msg={id}`` cursor: it returns a
           window *around* that message (``before``/``after`` then count
           outwards from it). Walking it from the oldest message of the
@@ -1065,11 +1848,29 @@ class SkoolClient:
         page merged into ``messages`` (oldest first).
         """
         n = min(50, max(1, count))
+        channel = _id_segment(channel_id, "channel_id")
         data = self.http.get_api2(
-            f"/channels/{channel_id}/messages?limit={n}&before={n}"
+            f"/channels/{channel}/messages?before={n}"
         )
         msgs = list(data.get("messages") or [])
         seen = {m.get("id") for m in msgs}
+
+        # With unread messages the opening window ends at *your* last read
+        # position, not at the newest message (``has_more_after`` is true).
+        # Walk forward first, or exactly the unread messages go missing.
+        fwd = data
+        while fwd.get("has_more_after") and msgs:
+            newest = max(msgs, key=lambda m: m.get("created_at") or "").get("id")
+            time.sleep(_INTER_PAGE_DELAY_S)
+            fwd = self.http.get_api2(
+                f"/channels/{channel}/messages?before=0&after=50&msg={newest}"
+            )
+            fresh = [m for m in fwd.get("messages") or [] if m.get("id") not in seen]
+            if not fresh:  # cursor stopped moving
+                break
+            seen.update(m.get("id") for m in fresh)
+            msgs += fresh
+        msgs.sort(key=lambda m: m.get("created_at") or "")
 
         # Walk the cursor backwards while more history exists and the caller
         # still wants more than we hold.
@@ -1078,7 +1879,7 @@ class SkoolClient:
             if not oldest:
                 break
             data = self.http.get_api2(
-                f"/channels/{channel_id}/messages?before=50&after=0&msg={oldest}"
+                f"/channels/{channel}/messages?before=50&after=0&msg={oldest}"
             )
             fresh = [m for m in data.get("messages") or [] if m.get("id") not in seen]
             if not fresh:  # cursor stopped moving — end of the history
@@ -1234,6 +2035,7 @@ class SkoolClient:
         content: str,
         *,
         parent_comment_id: str = "",
+        parent_is_top_level: bool = False,
         attachments: str = "",
     ) -> dict:
         """Comment on a post, or reply to a comment (§5.8).
@@ -1245,8 +2047,23 @@ class SkoolClient:
         with an @-mention first, the way Skool's own UI does it — see
         :meth:`reply_target`. `attachments` is a comma-joined list of file ids
         from `upload_file`. Returns the created comment object.
+
+        Pass ``parent_is_top_level=True`` only when you know for sure that
+        ``parent_comment_id`` is a top-level comment: the lookup in
+        :meth:`reply_target` is skipped and the reply hangs under that comment
+        as given. The hint is believed, not checked (a wrong one gets the reply
+        shown as "Comment was deleted"); without it, or with an empty
+        ``parent_comment_id`` or the post's own id, everything works as before.
         """
-        target = self.reply_target(community_slug, post_id, parent_comment_id)
+        # Both ids go into the body, not a path; checked anyway (same rules as a
+        # path segment) so a bad one is refused before the first request.
+        _id_segment(post_id, "post_id")
+        if parent_comment_id:
+            _id_segment(parent_comment_id, "parent_comment_id")
+        if parent_is_top_level is True and parent_comment_id and parent_comment_id != post_id:
+            target = {"parent_id": parent_comment_id, "flattened": False, "mention": ""}
+        else:
+            target = self.reply_target(community_slug, post_id, parent_comment_id)
         metadata: dict = {"title": "", "content": with_mention(target["mention"], content)}
         if attachments:
             metadata["attachments"] = attachments
@@ -1265,15 +2082,24 @@ class SkoolClient:
                      parent_comment_id: str) -> dict:
         """Where a reply may hang: ``{parent_id, flattened, mention}``.
 
-        Skool threads are two levels deep — comments, and one flat column of
-        replies under each. A comment whose ``parent_id`` is itself a reply
-        gets created, counted and indexed, then shows as "Comment was deleted"
-        (Dan's write test 2026-09-15: all 5 replies under top-level comments
-        survived, both replies under replies died; the same texts posted by
-        hand under the top-level comment stayed). Skool's own UI never sends
-        that: replying to a reply posts under the top-level comment and opens
-        with an @-mention of the person. We do the same. ``mention`` is the
-        prefix to put before the text ("" when nothing was re-hung).
+        Skool's page shows threads two levels deep — comments, and one flat
+        column of replies under each. In one write test (2026-09-15) a comment
+        whose ``parent_id`` was itself a reply got created, counted and
+        indexed, then showed as "Comment was deleted": all 5 replies under
+        top-level comments survived, both replies under replies died; the same
+        texts posted by hand under the top-level comment stayed. So catknows
+        never sends a reply's id as ``parent_id``: a reply to a reply goes under the top-level
+        comment and opens with an @-mention of the person. That is catknows' own
+        rule. Skool's page code was read as sending ``parent_id`` = the reply's
+        id for a reply to a reply; whether the server then re-hangs it under the
+        top-level comment is not known, and why the test replies died is not
+        either. ``mention`` is the prefix to put before the text ("" when
+        nothing was re-hung).
+
+        The lookup behind this (``GET /posts/{id}``) is catknows' own rule, not
+        a call of Skool's web client. This method does it for every reply; a
+        caller that knows the target is a top-level comment skips it through
+        ``create_comment(..., parent_is_top_level=True)``.
         """
         if not parent_comment_id or parent_comment_id == post_id:
             return {"parent_id": post_id, "flattened": False, "mention": ""}
@@ -1296,7 +2122,7 @@ class SkoolClient:
         ``metadata.content``, ``label_id``, ``root_id``), which is what an edit
         needs to keep the fields it isn't changing.
         """
-        return self.http.get_api2(f"/posts/{post_id}")
+        return self.http.get_api2(f"/posts/{_id_segment(post_id, 'post_id')}")
 
     def update_post(self, post_id: str, *, title: str | None = None,
                     content: str | None = None, labels: str | None = None,
@@ -1340,7 +2166,7 @@ class SkoolClient:
         label = keep(labels, "labels", "label_id") or current.get("label_id") or ""
         if label:
             body["labels"] = label
-        return self.http.post_api2(f"/posts/{post_id}/update", body)
+        return self.http.post_api2(f"/posts/{_id_segment(post_id, 'post_id')}/update", body)
 
     def delete_post(self, post_id: str) -> dict:
         """Delete a post or a comment (§5.9). Empty 200 on success.
@@ -1348,9 +2174,10 @@ class SkoolClient:
         Same endpoint for both, because a comment IS a post. Verified live
         2026-08-16 (post) and 2026-08-17 (comment) on throwaway objects in
         `hoomans-9944`. Deleting somebody *else's* post needs moderator rights
-        and is untested.
+        and is untested. Sends an empty JSON body ``{}``, as Skool's own client
+        does for ``deletePost``; it is the only DELETE catknows sends with a body.
         """
-        return self.http.delete_api2(f"/posts/{post_id}")
+        return self.http.delete_api2(f"/posts/{_id_segment(post_id, 'post_id')}", {})
 
     def send_dm(self, channel_id: str, content: str, *, attachments: list[str] = ()) -> dict:
         """Send a direct message into an existing chat channel (§5.7).
@@ -1361,7 +2188,7 @@ class SkoolClient:
         Returns the created message.
         """
         return self.http.post_api2(
-            f"/channels/{channel_id}/messages?ct=wdm",
+            f"/channels/{_id_segment(channel_id, 'channel_id')}/messages?ct=wdm",
             {"content": content, "attachments": list(attachments)},
         )
 
@@ -1376,15 +2203,30 @@ class SkoolClient:
 
         ``for_write=True`` additionally refuses archived communities. That group
         payload already states it (``archived: true`` plus ``metadata.archived:
-        1``, measured on `vrooms-3264` 17.08.), so the check costs no extra
-        request. Archiving leaves a community readable and turns every write
+        1``, measured on an archived community, 17.08.), so the check costs no
+        extra request. Archiving leaves a community readable and turns every write
         off, so only the write paths pass the flag; reads must keep working.
+
+        When ``GET /groups/{slug}`` fails, this raises the `SkoolHTTPError`
+        (nothing else is requested) if Skool answered 401, 403 or 429, on
+        every path, or if ``for_write=True``, whatever the error: a community
+        that could not be checked for "archived" is not written to. Only a read
+        that failed some other way (a 500, a 404, a network error) falls back
+        to the feed page. The slug goes through `_id_segment` (``ValueError``
+        before any request).
         """
         group = {}
+        slug = _id_segment(community_slug, "community_slug")
         try:
-            group = self.http.get_api2(f"/groups/{community_slug}") or {}
-        except SkoolHTTPError:
-            pass  # e.g. WAF hiccup — the posts bootstrap still works
+            group = self.http.get_api2(f"/groups/{slug}") or {}
+        except SkoolSecurityChallenge:
+            raise  # Skool's security question is a stop, not a hiccup to route around
+        except SkoolHTTPError as e:
+            # 401/403/429: the account is being turned away; one more request
+            # (and above all the write that would follow) is what must not happen.
+            if for_write or e.status in REJECTED_STATUSES:
+                raise
+            # any other read failure: the posts bootstrap still works
         # Outside the try: an archived community is a definitive answer, not a
         # transient failure, so it must not fall through to the posts bootstrap.
         if for_write and (group.get("archived")
@@ -1509,7 +2351,7 @@ if __name__ == "__main__":  # python -m catknows.client
     p1 = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
     # Skool serving page 1 again (the degraded-session case): stop, don't
     # collect it twice — and SAY the list is truncated. A silently short list
-    # that looks complete is the bug Dan reported on 2026-08-14.
+    # that looks complete is the bug a user reported on 2026-08-14.
     repeat = _client([p1, p1, p1]).members("x")
     assert [u["id"] for u in repeat] == ["a", "b", "c"], repeat
     assert repeat.incomplete is True, "a repeated-page walk must flag incomplete"

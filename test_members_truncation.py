@@ -1,6 +1,6 @@
 """Self-check: a truncated members walk must SAY it is truncated.
 
-Dan Schaad's 2026-08-14 report: on a degraded session Skool re-serves page 1
+A user's 2026-08-14 report: on a degraded session Skool re-serves page 1
 for every follow-up members page. The dedupe (14.08.) stopped the duplicate
 rows, but the walk then ended silently at ~30 of 600 — a wrong result that
 LOOKS complete, which is worse than the duplicates were. members() now
@@ -32,7 +32,7 @@ class _FakeHTTP:
         pp = {"users": page,
               "totalPages": self.total_pages or len(self.pages),
               # Native bool, spelled as Skool spells it — copied from a live
-              # members.json (hoomans True / skooligans False, 2026-08-17).
+              # members.json (hoomans True / as a plain member False, 2026-08-17).
               "isAdmin": self.is_admin}
         if self.total is not None:
             pp["total"] = self.total
@@ -217,7 +217,7 @@ def test_mcp_trailer_states_the_role_cap():
 def test_limit_marker_reports_real_rows_when_role_cap_hits_first():
     """Both markers can fire on one call (limit=650 as a plain member). The
     limit marker must then report the rows that actually came back, not the
-    200 it would have allowed — measured live on skooligans: 30 rows."""
+    200 it would have allowed — measured live as a plain member: 30 rows."""
     import catknows.mcp_server as m
 
     class FakeClient:
@@ -327,7 +327,7 @@ def test_mcp_tool_appends_incomplete_trailer():
 
 
 def test_mcp_tool_flags_our_own_cap():
-    """Dan Schaad, 17.08.: hoomans has 592 members, limit=650 returned exactly
+    """A user's report, 17.08.: hoomans has 592 members, limit=650 returned exactly
     200 and said nothing. The cap is ours and deliberate; being silent about it
     was the bug, because 200 rows with no marker read as the whole community.
     The incomplete trailer never covered this — it only fires when SKOOL cuts

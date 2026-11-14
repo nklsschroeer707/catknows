@@ -25,7 +25,7 @@ os.environ["CATKNOWS_WRITE_GAP_S"] = "0"
 # where a fake 401 would read as a write we actually sent.
 os.environ["CATKNOWS_AUDIT_LOG"] = os.path.join(tempfile.mkdtemp(), "writes.jsonl")
 
-URL = "https://api2.skool.com/courses/abc?withChildren=true"
+URL = "https://api2.skool.com/courses/abc"
 
 
 def _client(code, body):
@@ -63,7 +63,7 @@ def _fails_with(http, write: bool) -> str:
         if write:
             http.post_api2("/courses", {})
         else:
-            http.get_api2("/courses/abc?withChildren=true")
+            http.get_api2("/courses/abc")
     except SkoolHTTPError as e:
         return str(e)
     raise AssertionError("a 401 must raise")

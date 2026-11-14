@@ -25,6 +25,7 @@ from __future__ import annotations
 import mimetypes
 import functools
 import inspect
+import json
 import os
 import sys
 from contextlib import redirect_stdout
@@ -85,6 +86,8 @@ _AUDIT_ARGS = {  # tool argument -> audit field
     "course_id": "course_item_id",
     "channel_id": "dm_channel_id",
     "member_id": "member_id",
+    "event_id": "calendar_event_id",
+    "category_id": "category_id",
 }
 
 
@@ -311,7 +314,7 @@ def _batch_marker(capped: dict | None, rows: int, offset: int, *,
                   more: bool, also_cut: bool = False) -> dict | None:
     """The limit marker for one batch, or None when nothing was cut.
 
-    The 200 cap is a batch size, not the end of the list (Dan Schaad,
+    The 200 cap is a batch size, not the end of the list (a user's report,
     2026-09-24: list_posts(author=...) and get_follows could never get past
     200). ``more`` says the walk filled the batch, so rows may follow — the
     marker then carries ``next_offset`` for the follow-up call. ``also_cut``
@@ -364,8 +367,11 @@ def _safe_raw(payload):
 
     Every ``raw=True`` path routes through here so account secrets (Zapier
     keys, Stripe payout ids, billing/payment, affiliate, and Skool's own
-    client-side platform keys — docs/API.md §6.6) never reach an AI context or
-    a log. The scrub list lives in one place: normalize.SECRET_KEYS.
+    client-side platform keys — docs/API.md §6.6) and the admin-side data Skool
+    attaches to each member (join survey, email answer, attribution, request
+    location, approver — docs/API.md §6.5) never reach an AI context or a log.
+    The scrub lists live in one place: normalize.SECRET_KEYS and
+    normalize.PRIVATE_KEYS.
     """
     return normalize.scrub(payload)
 
@@ -594,6 +600,80 @@ def search_community(community_slug: str, query: str, kind: str = "posts",
 
 
 @mcp.tool()
+def search_members(community_slug: str, query: str, limit: int = 7, raw: bool = False) -> dict:
+    """Find members of one community by name with Skool's @mention search: id, handle, name, points, level.
+
+    A quick answer to "who is X?" when you need a person's handle or id. It
+    returns the same fields as list_members and no email or other contact
+    data; raw=True returns Skool's records through the secret scrub, with
+    email keys removed too. `query` is required: this is a person search, not
+    a way to list a community (use list_members for that, and note that
+    Skool's role limits on member lists still apply).
+
+    catknows asks Skool for 7 hits and sends only that one request (the one
+    Skool's own page sends; what another limit or a paging cursor would do is
+    not documented, so there is no cursor). `limit` (1 to 7, default 7) only
+    shortens what you get back; a larger value is lowered to 7 and a
+    `limit_capped` entry says so. To find someone further down, make the query
+    more specific. `has_more` appears only when Skool sends it. Names and bios
+    are personal data: use them for the task at hand, do not collect them.
+    """
+    from .client import SkoolClient
+
+    effective = min(SkoolClient.check_search_limit(limit), SkoolClient.SEARCH_USERS_LIMIT)
+    answer = _get_client().search_members(community_slug, query)
+    users = (answer.get("users") or [])[:effective]
+    if raw:
+        members = normalize.strip_contact(_safe_raw(users))
+    else:
+        members = [_jsonable(normalize.search_user(u)) for u in users]
+    out: dict = {"query": query, "community": community_slug,
+                 "returned": len(members), "members": members}
+    if "has_more" in answer:  # as Skool sent it; never invented. Its cursor is not passed on.
+        out["has_more"] = answer["has_more"]
+    if limit > effective:
+        out["limit_capped"] = {
+            "requested": limit, "returned": len(members), "ceiling": effective,
+            "note": (f"catknows asks Skool for {effective} hits per call, the one request "
+                     f"Skool's own page sends, so you get at most {effective}: limit {limit} "
+                     f"was lowered to {effective}. Narrow the query to find someone further "
+                     "down."),
+        }
+    return out
+
+
+@mcp.tool()
+def get_file_download_url(file_id: str, expire: int = 0) -> dict:
+    """Get a download link for one uploaded FILE (document, image, other attachment) by its file id.
+
+    The link is an ACCESS LINK: whoever holds it can fetch the file until it
+    expires. Use it to fetch the file, then drop it. Do not paste it into a
+    post, a DM or a note, and do not store it; catknows itself writes it
+    nowhere (not into the audit log, not into an error message). A post's
+    attachments already carry a ready link in get_post (`files[].url`): use
+    that first, this is for a file id without one.
+
+    expire: how long the link should stay valid. 0 (default) means not sent,
+    Skool decides. Skool's own client calls it `expireSecs` (so seconds;
+    28800 for chat attachments), but the unit and the allowed range were not
+    run: pass it only when you know you need it.
+
+    Files only. Downloading a VIDEO is an admin right in Skool and is not
+    offered here; videos embedded from Loom, Wistia or Vimeo are not touched
+    either (LEGAL.md).
+    """
+    url = _get_client().file_download_url(file_id, expire or None)
+    return _safe_raw({
+        "file_id": file_id,
+        "download_url": url,
+        "expire": expire or "not sent (Skool's default)",
+        "note": ("This is an access link: anyone who has it can fetch the file until it "
+                 "expires. Fetch what you need, do not paste it into posts, DMs or notes, "
+                 "and do not keep it. How long it works is not known."),
+    })
+
+
+@mcp.tool()
 def get_post(community_slug: str, post_name: str, raw: bool = False) -> Any:
     """Get ONE post with its file attachments (name, type, download URL) and video ids.
 
@@ -633,13 +713,28 @@ def get_post_comments(community_slug: str, post_id: str, raw: bool = False) -> A
 
 
 @mcp.tool()
-def get_post_likes(community_slug: str, post_id: str) -> list[dict]:
-    """List the users who liked/upvoted a post (id, handle, first/last name)."""
-    client = _get_client()
-    users = client.likes(post_id, client.group_id_for(community_slug))
+def get_post_likes(community_slug: str, post_id: str, limit: int = 10, cursor: str = "",
+                   tab: str = "upvotes") -> dict:
+    """List who liked/upvoted a post, ONE page at a time (id, handle, first/last name).
+
+    Returns `likes` (this page), `has_more`, `cursor`, `total_upvotes` and
+    `total_downvotes`. To read the next page, call again with the same post and
+    `cursor` set to the `cursor` of the previous answer, and stop when
+    `has_more` is false. The first call needs no cursor; `limit` is how many
+    people one page holds (the website asks for 10; the highest value Skool
+    accepts is not measured). `community_slug` is not needed for the lookup any
+    more but is still accepted.
+    """
+    data = _get_client().likes_page(post_id, limit=limit, cursor=cursor, tab=tab)
     # Raw liker objects carry full user metadata — including the caller's own
     # payout/affiliate ids on their own like. Only names leave this tool.
-    return [normalize.like(u, post_id) for u in users]
+    return {
+        "likes": [normalize.like(u, post_id) for u in data.get("users") or []],
+        "has_more": bool(data.get("has_more")),
+        "cursor": data.get("cursor") or "",
+        "total_upvotes": int(data.get("total_upvote_users") or 0),
+        "total_downvotes": int(data.get("total_downvote_users") or 0),
+    }
 
 
 @mcp.tool()
@@ -669,7 +764,7 @@ def get_follows(user_name: str, direction: str = "followers", limit: int = 1000,
     the rest. If Skool stopped serving pages early, "incomplete" is true —
     don't treat that list as everyone. On other people's profiles Skool often
     re-serves page 1 for every page, so only the first 30 are reachable there
-    (measured 2026-10-11: @schaad 210 and @mindyy 940 followers → 30 each,
+    (measured 2026-10-11: two profiles with 210 and 940 followers → 30 each,
     incomplete; the caller's own 115 → all 115).
     """
     limit, capped = _cap(limit, False)
@@ -721,6 +816,34 @@ def get_community_about(community_slug: str, raw: bool = False) -> dict:
         "owner": owner.get("name") if isinstance(owner, dict) else owner,
         "created_by": md.get("createdBy"),
     }
+
+
+@mcp.tool()
+def get_community_rules(community_slug: str) -> Any:
+    """Get a community's rules (the list its members see and pick from when they report a post), as Skool sends them.
+
+    Returned RAW, through the secret scrub, and not reshaped: the page code reads
+    a `rules` list with a `title` and a `content` per rule, but what the call
+    really answers was not run against Skool, so nothing is renamed or filled in.
+    Reading the rules is what any member of the community can do. Archived
+    communities stay readable. The write side (add, edit, delete, reorder a rule)
+    is not available.
+    """
+    return _safe_raw(_get_client().group_rules(community_slug))
+
+
+@mcp.tool()
+def get_community_levels(community_slug: str) -> Any:
+    """Get a community's level names (what each of its 9 levels is called), as Skool sends them.
+
+    Returned RAW, through the secret scrub, and not reshaped: the Leaderboards
+    page shows a `[{number, title, ...}]` list of level names to every member,
+    but that this call answers with the same list was not run against Skool, so
+    nothing is renamed or filled in. For the levels together with the points
+    board and each level's share of members, `get_leaderboard` is the page's own
+    view. Archived communities stay readable. Renaming a level is not available.
+    """
+    return _safe_raw(_get_client().group_levels(community_slug))
 
 
 @mcp.tool()
@@ -814,29 +937,41 @@ def get_growth(community_slug: str,
 
 
 def _join_queue(community_slug: str, *, max_pages: int = 10) -> list[dict]:
-    """The whole join queue, flattened (at most ``max_pages`` × 30)."""
+    """The whole join queue, flattened (at most ``max_pages`` × 30).
+
+    Email answers are masked, always: this feeds the draft of
+    ``review_join_request``, and deciding on a person never needs the address.
+    """
     client = _get_client()
     out: list[dict] = []
     for page in range(1, max_pages + 1):
         pp = client.join_requests(community_slug, page=page)
         users = pp.get("users") or []
-        out.extend(_jsonable(normalize.join_request(u)) for u in users)
+        out.extend(_jsonable(normalize.join_request(u, reveal_email=False)) for u in users)
         if not users or page >= int(pp.get("totalPages") or 1):
             break
     return out
 
 
 @mcp.tool()
-def list_join_requests(community_slug: str, query: str = "", page: int = 1) -> dict:
+def list_join_requests(community_slug: str, query: str = "", page: int = 1,
+                       reveal_email: bool = False) -> dict:
     """Pending join requests of a community you own or moderate.
 
     Each: name, bio, when, where from (location), how they found you
     (source), Skool's spam flag (risk_flag), and every answered join question.
     member_id is what review_join_request needs. query narrows to requests
-    whose name, bio or answers contain it (case-insensitive). 30 per page.
+    whose name, bio or answers contain it (case-insensitive), as printed: with
+    the addresses masked, searching for an address finds nothing. 30 per page.
+
+    Email addresses (the email answer and any address in an answer) come out
+    masked by default, e.g. a***@example.com. reveal_email=True prints them in
+    full; use it only when the owner asked for the addresses (to write to an
+    applicant, say), never to "look closer".
     """
     pp = _get_client().join_requests(community_slug, page=page)
-    reqs = [_jsonable(normalize.join_request(u)) for u in pp.get("users") or []]
+    reqs = [_jsonable(normalize.join_request(u, reveal_email=reveal_email))
+            for u in pp.get("users") or []]
     if query:
         q = query.lower()
         reqs = [r for r in reqs if q in " ".join(
@@ -1002,11 +1137,15 @@ def get_course_tree(course_id: str, community_slug: str = "", raw: bool = False)
 
 
 @mcp.tool()
-def list_chat_channels(offset: int = 0, limit: int = 30) -> dict:
-    """List your Skool DM/chat channels (ids, participants, last message). Channel ids are what send_dm needs."""
+def list_chat_channels(offset: int = 0, limit: int = 30, unread_only: bool = False) -> dict:
+    """List your Skool DM/chat channels (ids, participants, last message). Channel ids are what send_dm needs.
+
+    unread_only=true lists only channels with unread messages (an empty `channels` list when there are none).
+    """
     # Channel objects embed the other participant's full metadata (and, on your
     # own entries, afl/payout secrets) — scrub before returning.
-    return _safe_raw(_get_client().chat_channels(offset=offset, limit=limit))
+    return _safe_raw(_get_client().chat_channels(offset=offset, limit=limit,
+                                                 unread_only=unread_only))
 
 
 @mcp.tool()
@@ -1109,7 +1248,15 @@ if not sessions.enabled():
     def pull_to_vault(
         community_slug: str, vault_dir: str = "./vault", include_comments: bool = True
     ) -> dict:
-        """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path."""
+        """Pull the whole community (members, posts, comments) into an Obsidian vault of Markdown notes with YAML frontmatter. Returns counts and the vault path.
+
+        A post whose comments fail to load is counted in `comments_failed` and the
+        pull goes on. Not so if Skool answers with HTTP 401, 403 or 429, with a 202
+        again and again, or with its security question: the pull stops there with
+        an error (in the comments loop it says how far it got) and requests nothing
+        more. The notes already written stay. Do not start it again right away:
+        tell the user.
+        """
         return _pull_to_vault(community_slug, vault_dir, include_comments)
 
 
@@ -1117,6 +1264,7 @@ def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) 
     import time
 
     from .client import _INTER_PAGE_DELAY_S
+    from .http import SkoolHTTPError, SkoolSecurityChallenge, turned_away
 
     client = _get_client()
     out = Path(vault_dir).expanduser().resolve()
@@ -1148,7 +1296,31 @@ def _pull_to_vault(community_slug: str, vault_dir: str, include_comments: bool) 
             fetched_comments += 1
             try:
                 comment_recs = normalize.comments(client.comments(prec["skool_id"], group_id))
-            except Exception:  # one bad post shouldn't kill the pull
+            except SkoolSecurityChallenge as e:
+                # Not "one bad post": after Skool's security question every further
+                # request would be an automaton ignoring it. Stop the whole pull
+                # with an error, not a partial result that looks like success.
+                raise SkoolSecurityChallenge(
+                    e.code, e.method, e.path,
+                    stopped=(f"pull_to_vault stopped after {posts_written} of {len(trees)} "
+                             "posts: Skool asked a security question while the comments "
+                             "were read, so nothing more was requested. The notes already "
+                             "written stay in the vault; the rest was not pulled."),
+                ) from e
+            except Exception as e:  # one bad post shouldn't kill the pull
+                if turned_away(e):
+                    # 401/403/429 or a repeated 202: the account is being turned
+                    # away. Same stop as for the security question, the status
+                    # (0 for the repeated 202) and its mark stay on the error.
+                    stop = SkoolHTTPError(
+                        f"pull_to_vault stopped after {posts_written} of {len(trees)} "
+                        f"posts: Skool answered HTTP {e.status or 202} while the comments "
+                        "were read, so nothing more was requested. The notes already "
+                        f"written stay in the vault; the rest was not pulled. {e}",
+                        e.status,
+                    )
+                    stop.repeated_202 = getattr(e, "repeated_202", False)
+                    raise stop from e
                 comments_failed += 1
         vault.write_post(out, community_slug, prec, comment_recs)
         posts_written += 1
@@ -1287,17 +1459,23 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         "Match how the user writes if you have seen their writing."
     )
 
-    def _draft(status: str, key: str, body: dict, *, prose: bool = True) -> dict:
+    def _draft(status: str, key: str, body: dict, *, prose: bool = True,
+               not_verified: str = "") -> dict:
         """A draft reply: nothing written yet, here is what would be.
 
         `prose` is False for drafts a human never reads as text (a move, a
         delete, a course's metadata) — nothing to humanize there.
+        `not_verified` is a fixed text for an action with a side effect nobody
+        has checked: a warning that lives only in a docstring is not seen by the
+        human who confirms, so it travels in the draft itself.
         """
         out = {
             "status": status,
             key: body,
             "next_step": "Show this draft to the user; call again with confirm=true once they approve.",
         }
+        if not_verified:
+            out["not_verified"] = not_verified
         if prose:
             out["before_you_show_this"] = _HUMANIZE
             voice = _voice()
@@ -1699,12 +1877,18 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
             # messages endpoint returns the channel object in one call; listing
             # /self/chat-channels instead cannot work: Skool refuses limit > 30
             # there, and accounts have hundreds of channels.
-            from .http import SkoolHTTPError
+            from .http import REJECTED_STATUSES, SkoolHTTPError, SkoolSecurityChallenge
 
             try:
                 gid = (client.chat_messages(channel_id, count=1)
                        .get("channel") or {}).get("group_id") or ""
-            except SkoolHTTPError:
+            except SkoolSecurityChallenge:
+                raise  # not an "unknown channel": Skool asked a security question
+            except SkoolHTTPError as e:
+                # 401/403/429 or a network error: not an "unknown channel" either,
+                # and nothing more may go out after them.
+                if e.status in REJECTED_STATUSES or not e.status:
+                    raise
                 gid = ""
             if not gid:
                 raise ValueError(f"Unknown channel {channel_id} — cannot attach files.")
@@ -1837,8 +2021,10 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
     def move_course_item(item_id: str, position: int, confirm: bool = False) -> dict:
         """Reorder a course/folder/page among its siblings (position = 0-based target index).
 
-        Moving between folders is NOT possible via the API — recreate the page
-        in the target folder instead. Draft-first: confirm=true executes.
+        This does not change the parent. To move a page into a folder or out of
+        one, use move_course_to_folder (read from Skool's page code, not run live
+        yet); until that has been tried, recreating the page in the target folder
+        is the proven way. Draft-first: confirm=true executes.
         """
         if not confirm:
             return {"status": "DRAFT — nothing was moved",
@@ -1866,15 +2052,776 @@ if os.environ.get("CATKNOWS_ALLOW_WRITE", "") == "1":
         _get_client().delete_course_item(item_id, client_id=client_id)
         return {"status": "deleted", "item_id": item_id}
 
+    # -- course settings: drip, folder, share key, import (docs/API.md §7.8) ------
+    # Read from Skool's page code, not run live by catknows. Each draft sends
+    # nothing and does not contact Skool, and carries a fixed `not_verified` text.
+    # No community slug on three of them (like publish_course): the ids name the
+    # target. The share key is a credential: `import_course` never shows it back,
+    # `create_course_share_key` hands it to its caller and nothing else.
+
+    _NV_DRIP = (
+        "Not verified: who the server lets switch drip (the web client shows it in a "
+        "page's menu); whether a course or folder id works as well as a page id; and "
+        "what drip does to members who already have access. The server wants days "
+        "1-999 in both directions, so switching off sends 1 when no days are given. "
+        "The current setting is not read first, so the draft cannot show it."
+    )
+    _NV_MOVE_TO_FOLDER = (
+        "Not verified, not run: where the page lands among the new folder's pages (the "
+        "call sets the parent only; `move_course_item` reorders afterwards); whether "
+        "Skool refuses a parent that is not a folder, or one of another course (catknows "
+        "does not check it, the ids are not read back); what Skool answers. The web "
+        "client moves pages into folders, and never a folder into a folder."
+    )
+    _NV_SHARE_KEY = (
+        "Not verified, not run: what Skool answers besides `code`, and whether a second "
+        "call gives the same key or a new one. The key is an ACCESS CODE: anybody who "
+        "holds it can duplicate the whole course into any community (Skool's own warning "
+        "in the dialog), so hand it only to the person the user names and never post or "
+        "store it. The web client offers it to the owner of the community only (read from "
+        "its code). catknows keeps the key out of its audit log (only a short fingerprint "
+        "of the answer is logged) and out of error messages; this tool's answer is the "
+        "one place it appears."
+    )
+    _NV_IMPORT = (
+        "Not verified, not run: what Skool answers (the web client then only says 'Import "
+        "in progress' and waits for a notice, only 1 course at a time), whether the copy "
+        "arrives as a draft or already PUBLISHED and visible to members, where it lands in "
+        "the classroom, and whether importing needs a paid plan. Check get_classroom "
+        "afterwards, and unpublish the copy with publish_course if it is visible and "
+        "should not be. catknows keeps the key out of its audit log and error messages, "
+        "and this draft does not show it; it still sits in this conversation, so do not "
+        "paste it anywhere else."
+    )
+
+    @mcp.tool()
+    def set_course_drip(course_id: str, enabled: bool, days: int = 0,
+                        confirm: bool = False) -> dict:
+        """Switch drip (timed release) on or off for ONE page, and set after how many days it opens.
+
+        With drip on, a member sees the page `days` days after they join. Skool's
+        web client offers this in a PAGE's menu ("Drip status"), so course_id is a
+        page's id (from get_course_tree). enabled=true needs days from 1 to 999;
+        enabled=false needs none (Skool wants a number anyway, so 1 is sent).
+        There is no default direction: say which one you mean.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the id, not the page's title, and not the
+        current setting. Call again with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        days = SkoolClient.check_course_drip(enabled, days)
+        SkoolClient.course_action_path(course_id, "update-drip")  # refuse a bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed", "would_set_drip",
+                {"course_id": course_id, "enabled": enabled, "days": days,
+                 "does": (f"release the page {days} days after a member joins" if enabled
+                          else "switch drip off for the page")},
+                prose=False, not_verified=_NV_DRIP)
+        answer = _get_client().set_course_drip(course_id, enabled, days)
+        return {"status": "drip_set", "course_id": course_id, "enabled": enabled,
+                "days": days, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def move_course_to_folder(course_id: str, parent_id: str, confirm: bool = False) -> dict:
+        """Move a page into a folder, or back out to the course root (ids via get_course_tree).
+
+        course_id is the page's id. parent_id is the folder's id (type `set` in
+        get_course_tree), or the id of the course itself to take the page out of
+        its folder. Only the parent changes; the page's place among its new
+        siblings is not set (reorder with move_course_item afterwards). Skool's
+        web client moves pages only, never a folder into a folder.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the ids, not the titles. Call again with
+        confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.course_parent_path(course_id, parent_id)  # bad or equal ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was moved", "would_move",
+                {"course_id": course_id, "parent_id": parent_id,
+                 "does": ("make parent_id the new parent of course_id (a folder, or the "
+                          "course itself for 'no folder')")},
+                prose=False, not_verified=_NV_MOVE_TO_FOLDER)
+        answer = _get_client().move_course_to_folder(course_id, parent_id)
+        return {"status": "moved", "course_id": course_id, "parent_id": parent_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def create_course_share_key(course_id: str, confirm: bool = False) -> dict:
+        """Get the SHARE KEY of one of your courses: an access code that lets whoever holds it duplicate the course into any community.
+
+        This is Skool's "Share course key" (owner only in the web client); the
+        key is the answer. THE KEY IS A CREDENTIAL: give it only to the person
+        the user names, never post, store or log it. The other side imports it
+        with import_course. course_id is the course's id (get_classroom).
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.course_action_path(course_id, "clone-code")  # refuse a bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was requested", "would_create_share_key",
+                {"course_id": course_id,
+                 "does": ("ask Skool for this course's share key; whoever holds the key can "
+                          "duplicate the whole course into any community")},
+                prose=False, not_verified=_NV_SHARE_KEY)
+        answer = _get_client().create_course_share_key(course_id)
+        code = answer.get("code") if isinstance(answer, dict) else None
+        if not isinstance(code, str) or not code:
+            from .http import SkoolHTTPError
+            raise SkoolHTTPError(
+                "Skool answered the share-key request without a `code` (the answer is not "
+                "shown: it may hold the key). The request was sent, so a key may exist.")
+        return {"status": "share_key_created", "course_id": course_id, "code": code,
+                "warning": ("This key is an access code: whoever holds it can duplicate the "
+                            "whole course into any community. Hand it only to the person the "
+                            "user names; do not post, store or paste it anywhere else.")}
+
+    @mcp.tool()
+    def import_course(course_id: str, community_slug: str, clone_code: str,
+                      confirm: bool = False) -> dict:
+        """Import (duplicate) a course INTO this community with a share key its owner gave you.
+
+        clone_code is the 64-character share key (from the owner's
+        create_course_share_key). course_id is the SOURCE course: the first 32
+        characters of the key (Skool's own form takes it from there), and it
+        must match. The copy is made on Skool's side and can take a while; only
+        1 course may be imported at a time. Whether it arrives as a draft or
+        already visible to members is not known: check get_classroom afterwards.
+        Use a key only if its owner gave it to the user for this.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the key's length, never the key. Call again
+        with confirm=true once the user approved.
+        """
+        from .client import SkoolClient
+
+        SkoolClient.check_import_course(course_id, clone_code)  # refuse bad input up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was imported", "would_import",
+                {"community": community_slug, "course_id": course_id,
+                 "clone_code": f"{len(clone_code)} characters (not shown)",
+                 "does": "copy the whole course this key belongs to into the community"},
+                prose=False, not_verified=_NV_IMPORT)
+        answer = _get_client().import_course(course_id, community_slug, clone_code)
+        return {"status": "import_started", "community": community_slug,
+                "course_id": course_id, "answer": _safe_raw(answer)}
+
+    # -- calendar events ---------------------------------------------------------
+    # Read from Skool's page code, not yet run live (docs/API.md §5.11). The web
+    # client shows the buttons to community admins only; whether the server
+    # enforces the same is not verified.
+
+    def _calendar_event_object(
+        title: str, description: str, start_time: str, end_time: str, timezone: str,
+        reminder_disabled: int, location_type: int, location_info: str,
+        privacy: str, recurrence: str,
+    ) -> dict:
+        """Skool's event object from the flat tool arguments.
+
+        Whatever was not given (empty text, 0, -1) is left out, not sent as blank.
+        Times and timezone go through as given: their wire format is not documented.
+        """
+        meta: dict = {}
+        if title:
+            meta["title"] = title
+        if description:
+            meta["description"] = description
+        if timezone:
+            meta["timezone"] = timezone
+        if reminder_disabled >= 0:
+            meta["reminder_disabled"] = reminder_disabled
+        if location_type:
+            loc: dict = {"location_type": location_type}
+            if location_info:
+                loc["location_info"] = location_info
+            # JSON text, as Skool's form sends it (no spaces, like JSON.stringify).
+            meta["location"] = json.dumps(loc, separators=(",", ":"), ensure_ascii=False)
+        elif location_info:
+            raise ValueError("location_info needs a location_type.")
+        if privacy:
+            meta["privacy"] = privacy
+        event: dict = {}
+        if start_time:
+            event["start_time"] = start_time
+        if end_time:
+            event["end_time"] = end_time
+        if meta:
+            event["metadata"] = meta
+        if recurrence:
+            try:
+                event["recurrence"] = json.loads(recurrence)
+            except ValueError:
+                raise ValueError("recurrence must be JSON text of an object.") from None
+            if not isinstance(event["recurrence"], dict):
+                raise ValueError("recurrence must be JSON text of an object.")
+        from .client import SkoolClient
+        SkoolClient.check_calendar_event(event)  # a draft must not promise what would fail
+        return event
+
+    # Fixed texts for the drafts: what only a live run can settle travels with the
+    # draft, because a docstring is not seen by the human who confirms.
+    # A draft does not contact Skool, so it cannot know the community's id. The
+    # body it shows is built by the same call as the one that is sent
+    # (`SkoolClient.calendar_event_body`), with this text in place of the id.
+    _GROUP_ID_ON_CONFIRM = "(the community's id, looked up from community_slug on confirm)"
+    _NV_CALENDAR_GROUP_ID = (
+        " `event` is the request body as it goes out, except group_id: that is the "
+        "community's id, which catknows looks up from community_slug only on confirm, "
+        "so the draft shows a placeholder for it."
+    )
+    _NV_CALENDAR_CREATE = (
+        "Not verified live: which fields Skool requires, and the format it wants for "
+        "start_time, end_time and timezone (they go out exactly as shown)."
+        + _NV_CALENDAR_GROUP_ID
+    )
+    _NV_CALENDAR_UPDATE = (
+        "Not verified: whether Skool keeps or resets a field this update leaves out "
+        "(its own form always sends the whole event), so every field the event should "
+        "keep must be in this draft. The current event is not read back."
+        + _NV_CALENDAR_GROUP_ID
+    )
+    _NV_CALENDAR_DELETE = (
+        "This draft cannot show the event's title. Make sure the user knows which "
+        "event belongs to this id before they confirm."
+    )
+
+    def _calendar_scope(from_occurrence_id: str) -> str:
+        if from_occurrence_id:
+            return "this occurrence and all following ones of the series"
+        return "the whole event (every occurrence)"
+
+    @mcp.tool()
+    def create_calendar_event(
+        community_slug: str,
+        title: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        description: str = "",
+        timezone: str = "",
+        reminder_disabled: int = -1,
+        location_type: int = 0,
+        location_info: str = "",
+        privacy: str = "",
+        recurrence: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Create a calendar event in the community, as the logged-in user.
+
+        title at most 30 characters, description at most 300. Empty / 0 / -1 means
+        "not sent". start_time, end_time and timezone go to Skool exactly as you
+        pass them (their format is not documented, so nothing is converted).
+        reminder_disabled: 0 = reminder email 1 day before, 1 = no reminder.
+        location_type: 1 Zoom, 2 Meet, 3 Address, 4 Link (location_info = the
+        link or address), 5 Skool call, 6 Skool webinar (5 and 6 take NO
+        location_info: Skool assigns the call).
+        privacy: JSON text, {"privacy_type": 0} all members, 1 on/above a level
+        (+ "min_access_level" 1-9), 2 a course (+ "access_course"), 3 on/above a
+        tier (+ "min_tier" 1-3). recurrence: JSON text of {"frequency": "daily" |
+        "weekly" | "monthly" | "yearly", "interval", "days", "month_day",
+        "position", "until", "count"}.
+
+        Draft-first: with confirm=false NOTHING is created and Skool is not
+        contacted. The draft's `event` is the request body; its group_id is a
+        placeholder, because the community's id is looked up only on confirm.
+        Call again with confirm=true once the user approved.
+        """
+        event = _calendar_event_object(title, description, start_time, end_time, timezone,
+                                       reminder_disabled, location_type, location_info,
+                                       privacy, recurrence)
+        if not confirm:
+            from .client import SkoolClient
+            return _draft("DRAFT — nothing was created", "would_create",
+                          {"community": community_slug,
+                           "event": SkoolClient.calendar_event_body(
+                               _GROUP_ID_ON_CONFIRM, event)},
+                          not_verified=_NV_CALENDAR_CREATE)
+        created = _get_client().create_calendar_event(community_slug, event)
+        return {"status": "created", "event": _safe_raw(created)}
+
+    @mcp.tool()
+    def update_calendar_event(
+        community_slug: str,
+        event_id: str,
+        title: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        description: str = "",
+        timezone: str = "",
+        reminder_disabled: int = -1,
+        location_type: int = 0,
+        location_info: str = "",
+        privacy: str = "",
+        recurrence: str = "",
+        from_occurrence_id: str = "",
+        confirm: bool = False,
+    ) -> dict:
+        """Change an EXISTING calendar event, as the logged-in user.
+
+        Same fields and limits as create_calendar_event. Only what you set is
+        sent (plus the community's group_id). ⚠ Skool's own form always sends
+        the whole event; whether a field you leave out is kept or reset is not
+        verified, so pass every field the event should keep. from_occurrence_id
+        empty = the whole event; set = that occurrence and all following ones
+        of the series.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. The draft shows the ids and, as `event`, the request body
+        (the new values; group_id is a placeholder, looked up only on confirm);
+        the current event is not read back. Call again with confirm=true once
+        approved.
+        """
+        event = _calendar_event_object(title, description, start_time, end_time, timezone,
+                                       reminder_disabled, location_type, location_info,
+                                       privacy, recurrence)
+        if not event:
+            raise ValueError("Nothing to update: pass at least one field.")
+        from .client import SkoolClient
+        SkoolClient.calendar_event_path(event_id, from_occurrence_id)  # refuse a bad id up front
+        if not confirm:
+            meta = event.get("metadata", {})
+            return _draft("DRAFT — nothing was changed", "would_update",
+                          {"community": community_slug, "event_id": event_id,
+                           "from_occurrence_id": from_occurrence_id,
+                           "applies_to": _calendar_scope(from_occurrence_id),
+                           "event": SkoolClient.calendar_event_body(
+                               _GROUP_ID_ON_CONFIRM, event)},
+                          prose="title" in meta or "description" in meta,
+                          not_verified=_NV_CALENDAR_UPDATE)
+        client = _get_client()
+        group_id = client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.update_calendar_event(
+            event_id, SkoolClient.calendar_event_body(group_id, event),
+            from_occurrence_id=from_occurrence_id)
+        return {"status": "updated", "event": _safe_raw(updated)}
+
+    @mcp.tool()
+    def delete_calendar_event(community_slug: str, event_id: str,
+                              from_occurrence_id: str = "", confirm: bool = False) -> dict:
+        """PERMANENTLY delete a calendar event. This cannot be undone.
+
+        from_occurrence_id empty = the whole event, every occurrence; set = that
+        occurrence and all following ones of the series.
+
+        confirm=false (the default) deletes nothing and does not contact Skool. The
+        draft shows the id and what it covers; the event's title is not read
+        back, so make sure the user knows which event this id is.
+        """
+        from .client import SkoolClient
+        SkoolClient.calendar_event_path(event_id, from_occurrence_id)  # refuse a bad id up front
+        if not confirm:
+            return _draft("DRAFT — nothing was deleted", "would_delete",
+                          {"community": community_slug, "event_id": event_id,
+                           "from_occurrence_id": from_occurrence_id,
+                           "applies_to": _calendar_scope(from_occurrence_id)},
+                          prose=False, not_verified=_NV_CALENDAR_DELETE)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        client.delete_calendar_event(event_id, from_occurrence_id=from_occurrence_id)
+        return {"status": "deleted", "event_id": event_id,
+                "from_occurrence_id": from_occurrence_id}
+
+    # -- small post actions ------------------------------------------------------
+    # Read from Skool's page code, not run live by catknows (docs/API.md §5.12).
+    # Skool calls a category a "label". A tool takes the community slug for the
+    # archived-community guard and the audit line; the id of the post, comment
+    # or category is what names the target. Each draft sends nothing and does
+    # not contact Skool; actions with an unchecked side effect carry a fixed
+    # `not_verified` text in the draft.
+
+    def _skool():
+        """The SkoolClient class, imported on use (its HTTP stack is not needed to list tools)."""
+        from .client import SkoolClient
+        return SkoolClient
+
+    _NV_VOTE = (
+        "Not verified: what Skool does when `old` is not the vote it has stored for "
+        "this account (the call sends exactly the old and new you passed). Skool "
+        "answers a quick series of likes with 429 'Liking too fast'."
+    )
+    _NV_PIN_POST = (
+        "Not verified: catknows sends an empty object {} here, as the autopilot does, "
+        "while Skool's own client sends no body. The autopilot got HTTP 400 once in 8 "
+        "days, cause unclear. The web client offers pinning to group admins only; the "
+        "server rule is not verified."
+    )
+    _NV_CREATE_CATEGORY = (
+        "Not verified: Skool's category form stops at 10 categories (the server's "
+        "limit is not known) and catknows does not count them, so whether Skool refuses "
+        "one more shows only in its answer. No description is sent. The draft shows "
+        "the values flat; what is sent is {group_id, metadata}."
+    )
+    _NV_RENAME_CATEGORY = (
+        "Not verified: only display_name is sent, and Skool's own form always sends "
+        "name, sort and write role together, so a name-only update is not something "
+        "the web client does. Whether Skool then keeps the category's sort and write "
+        "role is not checked live. The current name is not read back."
+    )
+    _NV_DELETE_CATEGORY = (
+        "Not verified: what Skool answers when the category still has posts and no "
+        "migrate_to is given (its web client does not offer that), and what happens "
+        "to the last category of a community. Skool's client reads the category "
+        "first and then deletes; catknows sends the delete alone. The name is not "
+        "read back. Deleting cannot be undone."
+    )
+    _NV_ABOUT = (
+        "Not verified: which format Skool wants for the About text (plain text or "
+        '"[v2]" TipTap): it goes out exactly as shown. This REPLACES the whole About '
+        "description. Skool's editor allows 1000 plain characters; a longer text is "
+        "probably refused."
+    )
+    _NV_COMMENTS = (
+        "Not verified: who the server lets switch comments (the web client offers it to "
+        "admins and moderators) and whether existing comments stay visible while "
+        "comments are off. Skool's page code handles a 409 ('Comments have been "
+        "disabled') for a new comment on such a post (read from the code, not run)."
+    )
+    _NV_PIN_COMMENT = (
+        "Not verified: the web client allows one pinned comment per post; whether a "
+        "second pin is refused or replaces the first is the server's rule. post_id is "
+        "the post the comment sits under, comment_id the comment's own id."
+    )
+
+    @mcp.tool()
+    def vote_post(community_slug: str, post_id: str, old: str = "", new: str = "up",
+                  confirm: bool = False) -> dict:
+        """Like a post, or take your like back, as the logged-in user.
+
+        Like: old="" new="up" (the default). Take it back: old="up" new="". Those
+        are the only two values Skool's client uses (no downvote), and old and new
+        must differ. post_id comes from list_posts.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        _skool().check_post_vote(old, new)
+        _skool().post_action_path(post_id, "vote")  # refuse a bad id up front
+        if not confirm:
+            liking = new == "up"
+            return _draft(
+                "DRAFT — nothing was voted", "would_vote" if liking else "would_unvote",
+                {"community": community_slug, "post_id": post_id, "old": old, "new": new,
+                 "does": "like the post" if liking else "take the like back"},
+                prose=False, not_verified=_NV_VOTE)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.vote_post(post_id, old, new)
+        return {"status": "voted" if new == "up" else "vote_taken_back", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def pin_post(community_slug: str, post_id: str, pinned: bool = True,
+                 confirm: bool = False) -> dict:
+        """Pin a post to the top of the community feed (pinned=true), or unpin it (pinned=false).
+
+        Skool's web client offers this to group admins only. Pinning to a course
+        page is a different call and not available here.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved. The draft
+        shows the id, not the post's title: make sure the user knows which post it is.
+        """
+        _skool().check_flag(pinned, "pinned")
+        _skool().post_action_path(post_id, "pin" if pinned else "unpin")  # bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was pinned" if pinned else "DRAFT — nothing was unpinned",
+                "would_pin" if pinned else "would_unpin",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "pin the post to the feed" if pinned else "unpin the post from the feed"},
+                prose=False, not_verified=_NV_PIN_POST)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.pin_post(post_id, pinned=pinned)
+        return {"status": "pinned" if pinned else "unpinned", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def create_category(community_slug: str, display_name: str, default_sort: str,
+                        post_write_role: int, confirm: bool = False) -> dict:
+        """Create a feed category (Skool calls it a label) in the community, as the logged-in user.
+
+        display_name: at most 30 characters (the category form's limit, not
+        measured on the server), public. default_sort: newest-cm
+        (shown as "Default", latest activity), newest ("New"), best-1w ("Top
+        (week)") or best-1m ("Top (month)"). post_write_role: 4 = members and
+        admins may post in it, 3 = admins only. There are no defaults: choose the
+        values with the user. The category form stops at 10 categories (the
+        server's limit is not known). The answer carries the new category's id.
+
+        Draft-first: with confirm=false NOTHING is created and Skool is not
+        contacted. Call again with confirm=true once the user approved the name.
+        """
+        _skool().check_category_name(display_name)
+        _skool().check_category_options(default_sort, post_write_role)
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was created", "would_create",
+                {"community": community_slug, "display_name": display_name,
+                 "default_sort": default_sort, "post_write_role": post_write_role,
+                 "who_may_post": "admins only" if post_write_role == 3 else "members and admins"},
+                not_verified=_NV_CREATE_CATEGORY)
+        created = _get_client().create_category(
+            community_slug, display_name, default_sort=default_sort,
+            post_write_role=post_write_role)
+        return {"status": "created", "category": _safe_raw(created)}
+
+    @mcp.tool()
+    def rename_category(community_slug: str, category_id: str, display_name: str,
+                        confirm: bool = False) -> dict:
+        """Rename an EXISTING feed category (Skool calls it a label), as the logged-in user.
+
+        category_id is the `category_id` of a post from list_posts. display_name:
+        at most 30 characters (the category form's limit, not measured on the
+        server), public. Only the name changes; the category's sort and write
+        role are not sent.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. The draft shows the id and the new name; the current name is
+        not read back. Call again with confirm=true once the user approved.
+        """
+        _skool().check_category_name(display_name)
+        _skool().category_path(category_id)  # refuse a bad id up front
+        if not confirm:
+            return _draft("DRAFT — nothing was renamed", "would_rename",
+                          {"community": community_slug, "category_id": category_id,
+                           "display_name": display_name},
+                          not_verified=_NV_RENAME_CATEGORY)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        updated = client.rename_category(category_id, display_name)
+        return {"status": "renamed", "category": _safe_raw(updated)}
+
+    @mcp.tool()
+    def delete_category(community_slug: str, category_id: str, migrate_to: str = "",
+                        confirm: bool = False) -> dict:
+        """PERMANENTLY delete a feed category (Skool calls it a label). This cannot be undone.
+
+        category_id is the `category_id` of a post from list_posts, or the id
+        create_category answered. migrate_to is the id of ANOTHER category:
+        every post of the deleted one moves there first. Leave it empty only
+        for a category without posts; Skool's web client makes you move the
+        posts before it deletes. The category form keeps at least 1 category.
+
+        confirm=false (the default) deletes nothing and does not contact Skool.
+        The draft shows the ids only; the category's name and its number of
+        posts are not read back, so make sure the user knows which category
+        this id is.
+        """
+        _skool().category_delete_path(category_id, migrate_to)  # refuse bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was deleted", "would_delete",
+                {"community": community_slug, "category_id": category_id,
+                 "migrate_to": migrate_to or "(none: the category must have no posts)",
+                 "does": ("move every post of this category into the other one, then "
+                          "delete the category" if migrate_to else "delete the category")},
+                prose=False, not_verified=_NV_DELETE_CATEGORY)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.delete_category(category_id, migrate_to=migrate_to)
+        return {"status": "deleted", "category_id": category_id, "migrate_to": migrate_to,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def update_about_description(community_slug: str, description: str,
+                                 confirm: bool = False) -> dict:
+        """REPLACE the description on the community's About page, as the logged-in user.
+
+        The About page is public: everyone who opens the community link reads it.
+        description is the whole new text (sent exactly as given; Skool's editor
+        allows 1000 plain characters). Skool's web client offers the editor to
+        admins only. A blank text is refused.
+
+        This overwrites a public text, and the draft shows the NEW text only, so
+        read the current About text first and show it to the user next to the
+        new one. The compact get_community_about does not carry it; raw=true
+        does (pageProps.currentGroup.metadata.lpDescription) but is large and
+        may exceed the tool-result size limit.
+
+        Draft-first: with confirm=false NOTHING is changed and Skool is not
+        contacted. Call again with confirm=true once the user approved that
+        exact text.
+        """
+        _skool().check_about_description(description)
+        if not confirm:
+            return _draft("DRAFT — nothing was changed", "would_update",
+                          {"community": community_slug, "description": description},
+                          not_verified=_NV_ABOUT)
+        answer = _get_client().update_about_description(community_slug, description)
+        return {"status": "updated", "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def set_post_comments(community_slug: str, post_id: str, enabled: bool,
+                          confirm: bool = False) -> dict:
+        """Turn comments OFF (enabled=false) or back ON (enabled=true) for one post.
+
+        Skool's web client offers this to at least admins and moderators (whether
+        the post's author can switch it is not known). post_id comes from
+        list_posts. There is no default: say which direction you mean.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the id, not the post's title. Call again with
+        confirm=true once the user approved.
+        """
+        _skool().check_flag(enabled, "enabled")
+        _skool().post_action_path(post_id, "enable-comments" if enabled else "disable-comments")
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed",
+                "would_enable_comments" if enabled else "would_disable_comments",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "turn comments on" if enabled else "turn comments off"},
+                prose=False, not_verified=_NV_COMMENTS)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.set_post_comments(post_id, enabled=enabled)
+        return {"status": "comments_enabled" if enabled else "comments_disabled",
+                "post_id": post_id, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def pin_comment(community_slug: str, post_id: str, comment_id: str, pinned: bool = True,
+                    confirm: bool = False) -> dict:
+        """Pin one comment to the top of its post (pinned=true), or unpin it (pinned=false).
+
+        post_id is the post the comment sits under, comment_id the comment's own
+        id (both from get_post_comments / list_posts). Skool's web client offers
+        this to at least admins and moderators and allows one pinned comment per
+        post.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. The draft shows the ids, not the comment's text. Call again
+        with confirm=true once the user approved.
+        """
+        _skool().check_flag(pinned, "pinned")
+        _skool().comment_pin_path(post_id, comment_id, pinned=pinned)  # bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was pinned" if pinned else "DRAFT — nothing was unpinned",
+                "would_pin_comment" if pinned else "would_unpin_comment",
+                {"community": community_slug, "post_id": post_id, "comment_id": comment_id,
+                 "does": "pin the comment" if pinned else "unpin the comment"},
+                prose=False, not_verified=_NV_PIN_COMMENT)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.pin_comment(post_id, comment_id, pinned=pinned)
+        return {"status": "comment_pinned" if pinned else "comment_unpinned",
+                "post_id": post_id, "comment_id": comment_id, "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def follow_post(community_slug: str, post_id: str, follow: bool = True,
+                    confirm: bool = False) -> dict:
+        """Follow a post (follow=true, the bell on the post) or stop following it (follow=false).
+
+        post_id comes from list_posts.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved.
+        """
+        _skool().check_flag(follow, "follow")
+        _skool().post_action_path(post_id, "follow" if follow else "unfollow")  # bad id up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was changed", "would_follow" if follow else "would_unfollow",
+                {"community": community_slug, "post_id": post_id,
+                 "does": "follow the post" if follow else "stop following the post"},
+                prose=False)
+        client = _get_client()
+        client.group_id_for(community_slug, for_write=True)  # archived guard
+        answer = client.follow_post(post_id, follow=follow)
+        return {"status": "followed" if follow else "unfollowed", "post_id": post_id,
+                "answer": _safe_raw(answer)}
+
+    # -- chat read marks (docs/API.md §5.13) ------------------------------------
+    # Both change the unread state of the account, nothing else. No slug and no
+    # archived guard: a chat belongs to no single community. The draft does not
+    # contact Skool.
+
+    _NV_MARK_READ = (
+        "Not verified: what `last` does on the server. Skool's page sends the id of the "
+        "chat message that just came into view, and no `last` when the newest message is "
+        "in view or when a chat is marked read from the channel list; catknows sends "
+        "exactly the text you passed. Also not verified: whether the other person can see "
+        "that you read the chat. Anything that looks for unread chats "
+        "(list_chat_channels with unread_only, a poller) stops seeing this one as unread."
+    )
+    _NV_MARK_ALL_READ = (
+        "Not verified: what Skool answers, and whether the other people can see that you "
+        "read their chats. This marks EVERY chat of the account as read at once, and "
+        "there is no way back for all of them in one call: anything that looks for unread "
+        "chats (list_chat_channels with unread_only, a poller) sees none afterwards."
+    )
+
+    @mcp.tool()
+    def mark_chat_read(channel_id: str, last: str = "", confirm: bool = False) -> dict:
+        """Mark ONE chat (DM channel) as read for the logged-in account, so its unread counter drops.
+
+        channel_id comes from list_chat_channels. `last` is optional and sent as
+        text exactly as given: Skool's own page sends the id of a chat message
+        (the one that just came into view) and nothing for "the whole chat";
+        leave it empty to mark the whole chat. What the server does with `last`
+        was not run.
+
+        This changes what looks unread: anything that polls unread chats stops
+        seeing this one. Draft-first: with confirm=false NOTHING is sent and
+        Skool is not contacted. Call again with confirm=true once the user
+        approved. The draft shows the ids, not the chat's participants.
+        """
+        _skool().chat_read_path(channel_id, last or None)  # bad ids up front
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was marked as read", "would_mark_read",
+                {"channel_id": channel_id,
+                 "last": last or "(none: the whole chat)",
+                 "does": (f"mark this chat as read, sending last={last} (a chat message id; "
+                          "what Skool does with it is not verified)" if last
+                          else "mark the whole chat as read")},
+                prose=False, not_verified=_NV_MARK_READ)
+        answer = _get_client().mark_chat_read(channel_id, last or None)
+        return {"status": "marked_read", "channel_id": channel_id,
+                "answer": _safe_raw(answer)}
+
+    @mcp.tool()
+    def mark_all_chats_read(confirm: bool = False) -> dict:
+        """Mark ALL chats of the logged-in account as read at once: every chat in every community, not one.
+
+        There is no way to name a channel or a community here; for one chat use
+        mark_chat_read. Afterwards nothing looks unread, so anything that polls
+        unread chats (list_chat_channels with unread_only) finds none.
+
+        Draft-first: with confirm=false NOTHING is sent and Skool is not
+        contacted. Call again with confirm=true once the user approved, and say
+        in plain words that it is every chat of the account.
+        """
+        if not confirm:
+            return _draft(
+                "DRAFT — nothing was marked as read", "would_mark_all_read",
+                {"scope": "ALL chats of the logged-in Skool account",
+                 "does": ("mark EVERY chat of this account as read: all channels in all "
+                          "communities, not just one")},
+                prose=False, not_verified=_NV_MARK_ALL_READ)
+        answer = _get_client().mark_all_chats_read()
+        return {"status": "all_chats_marked_read", "answer": _safe_raw(answer)}
+
 
 # -- tool annotations ----------------------------------------------------------
 # Clients (and the Anthropic connector directory) read these hints to decide
 # what needs a confirmation prompt. Everything here talks to Skool, so all tools
 # are open-world; the only question per tool is whether it changes anything.
 #
-# Set in one place rather than as 17 decorator arguments: the safe default is
-# "not read-only", so a tool added later is treated as a writer until someone
-# lists it here on purpose. Failing closed beats a forgotten annotation.
+# Set in one place rather than as a decorator argument on every tool: the safe
+# default is "not read-only", so a tool added later is treated as a writer until
+# someone lists it here on purpose. Failing closed beats a forgotten annotation.
 
 _READ_ONLY = {
     "list_members", "list_posts", "get_post_comments", "get_post_likes",
@@ -1882,6 +2829,7 @@ _READ_ONLY = {
     "get_discovery_rank", "get_admin_metrics", "get_calendar", "get_classroom",
     "get_course_tree", "list_chat_channels", "read_dms", "list_my_communities",
     "get_post", "get_video_transcript", "get_notifications", "search_community", "get_growth", "list_join_requests", "get_revenue_leaderboard", "get_leaderboard",
+    "search_members", "get_file_download_url", "get_community_rules", "get_community_levels",
 }
 # Acts as the user, visible to real members, can't be taken back.
 _DESTRUCTIVE = {
@@ -1889,6 +2837,11 @@ _DESTRUCTIVE = {
     "edit_post", "edit_comment", "delete_post", "delete_comment",
     "create_course", "create_course_item", "update_course_item",
     "publish_course", "move_course_item", "delete_course_item", "review_join_request",
+    "create_calendar_event", "update_calendar_event", "delete_calendar_event",
+    "vote_post", "pin_post", "create_category", "rename_category", "delete_category",
+    "update_about_description", "set_post_comments", "pin_comment", "follow_post",
+    "mark_chat_read", "mark_all_chats_read",
+    "set_course_drip", "move_course_to_folder", "create_course_share_key", "import_course",
 }
 
 # Titles shown in the client's own tool list (Claude's Actions panel, for one).
@@ -1905,7 +2858,7 @@ _TITLES = {
 
 def _annotate_tools() -> None:
     # mcp._tool_manager is private SDK API — the decorator takes annotations
-    # per tool, but that means repeating the same block 17 times. The
+    # per tool, but that means repeating the same block on every tool. The
     # self-check asserts the annotations actually land, so an SDK rename
     # fails loudly instead of silently shipping unannotated tools.
     from mcp.types import ToolAnnotations

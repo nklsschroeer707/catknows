@@ -56,11 +56,20 @@
   `[@Display Name](obj://user/{userId})` — plain `@name` text does NOT
   notify anyone. A userId is in `get_member_profile(..., raw=true)`; your
   own is in `workspaces/_config/me.md` once you've set it up.
-- **Post categories ("labels")** are ids, not names. To find one, pull an
-  existing post of that category with `list_posts(raw=true)` and reuse its
-  label id.
+- **Post categories ("labels")** are ids, not names, where a tool takes one
+  (`create_post`'s `labels`, `rename_category`). Every `list_posts` row carries
+  its `category_id` and its `category` name, so read the id there — no
+  `raw=true` needed. To filter, pass the name: `list_posts(category="feedback")`.
 - **Post attachments (PDFs etc.):** the post list only carries attachment
-  *ids* in `metadata.attachments`. The download link lives in the post-detail
-  page (`/{group}/{post-name}.json` → `metadata.attachmentsData`, a JSON
+  *ids* in `metadata.attachments`. `get_post` returns the links as
+  `files[].url` (from the post-detail page,
+  `/{group}/{post-name}.json` → `metadata.attachmentsData`, a JSON
   string with `file_name` + `read_url` on assets.skool.com). The asset CDN
-  is not WAF-gated like the API.
+  is not WAF-gated like the API. For a file id that has no ready link,
+  `get_file_download_url` asks Skool for one — an access link: use it, never
+  paste or keep it.
+- **A security question is not an error to retry.** Skool can answer a call
+  with HTTP 200 and a code like `AUTH-SEC-501` instead of the data. The tool
+  stops and says so; nothing was done (a write counts as not sent). Tell the
+  human and stop; do not loop on it. Today it only concerns login paths
+  catknows never calls, so seeing it at all is news.

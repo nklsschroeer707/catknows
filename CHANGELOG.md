@@ -9,6 +9,140 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-11-13
+
+Version 0.2.0. The server now has 31 tools, 63 with `CATKNOWS_ALLOW_WRITE=1`.
+
+### Added
+- **22 new tools.** They are built from Skool's own page code. **21 of them were
+  run against Skool on 2026-11-13** and did what they say; what can be undone
+  was undone, and the result read afterwards. The one exception is `pin_post`: Skool
+  answered it properly (a community holds at most 3 pinned posts, and ours had
+  3), but a pin that takes effect has not been seen yet. Still open on the
+  tested ones: `mark_chat_read` and `mark_all_chats_read` were run with nothing
+  unread, `delete_category` was run on an empty category only (moving posts
+  first is not run), and `get_community_levels` and the admin tools answer 401 where you
+  are a plain member. Every new write is draft-first like the rest, and every
+  draft except `follow_post`'s carries a `not_verified` text to show you.
+  - Calendar (writes): `create_calendar_event`, `update_calendar_event`,
+    `delete_calendar_event`.
+  - Post actions (writes): `vote_post`, `pin_post`, `create_category`,
+    `rename_category`, `delete_category`, `update_about_description`,
+    `set_post_comments`,
+    `pin_comment`, `follow_post`. `update_about_description` overwrites a
+    public text and its draft shows only the new one: read the current About
+    text first.
+  - Course settings (writes): `set_course_drip`, `move_course_to_folder`,
+    `create_course_share_key` (the key is a credential, treat it like a
+    password) and `import_course` (the copy arrives as a draft).
+  - Chat read marks (writes): `mark_chat_read`, and `mark_all_chats_read`,
+    which marks every chat of the account.
+  - Reads: `search_members` (find a person by name, at most 7 hits, no email),
+    `get_file_download_url` (an access link for one uploaded file),
+    `get_community_rules` and `get_community_levels`.
+- **`list_chat_channels` takes `unread_only`:** only channels with unread
+  messages.
+- **Library:** `SkoolHTTP.build_id_provider` lets an outside source supply the
+  Next.js buildId, and `SkoolSecurityChallenge` is exported (see below).
+- **Library:** `SkoolClient.create_comment` takes `parent_is_top_level=True`: a
+  caller that knows the comment it answers is a top-level one skips the lookup
+  request. The MCP tool is unchanged and still looks it up.
+
+### Changed
+- **Breaking: `get_post_likes` returns an object with one page, not a list.**
+  It holds `likes` (10 by default), `has_more`, `cursor`, `total_upvotes` and
+  `total_downvotes`. For everyone, call again with `cursor` set to the last
+  answer's `cursor` until `has_more` is false. The two workspaces that read
+  likes (`who-liked-it`, `find-your-fans`) do this now.
+- **A security question from Skool stops the batch jobs.** Skool can answer
+  with HTTP 200 and a code such as `AUTH-SEC-501` instead of the data. catknows
+  does not answer it and does not retry: a write counts as not sent, and
+  `pull_to_vault` raises with how far it got instead of returning a partial
+  result (`python -m catknows pull` exits with 1, `python -m catknows.snapshot`
+  with 3). Notes and rows already written stay. Skool uses it today only on
+  login paths that catknows does not call (as read from Skool's page code).
+- **Six calls were aligned with what Skool's own site sends:** likes, DM
+  channels, DM messages, one course, deleting a post, and the category list
+  on request. `docs/API.md` has the details.
+- **The write log names two more ids:** `calendar_event_id` and `category_id`.
+  Still ids only, never content.
+- **Breaking (library): `group_id_for` now raises instead of carrying on.**
+  When Skool answers `GET /groups/{slug}` with 401, 403 or 429, the error is
+  raised and nothing else is requested. On the write paths
+  (`for_write=True`) every error is raised: a community that could not be
+  checked for "archived" is not written to. Only a read that failed some
+  other way still falls back to the feed page. Code that relied on the quiet
+  fallback has to catch `SkoolHTTPError` now.
+- **After 401, 403 or 429 no write follows.** Editing a course item no
+  longer reads such an answer (or a network error) as "not a course" and
+  sends the change anyway, and `send_dm` with attachments no longer reports
+  it as an unknown channel; both stop with Skool's error.
+- **The security-question message says stop.** It no longer suggests trying
+  again later: do not retry automatically, stop and tell the user.
+- **`likes()` keeps each voter once,** and says in its docstring that it ends
+  quietly (no error, no flag) at `max_pages`, on a standing cursor or an
+  empty page.
+- The category list with `via_api=True` and `course_tree` with a slug still
+  fall back to the page after 401/403 and never after 429; their docstrings
+  now say a caller that must stop on 401/403 cannot use that fallback.
+
+### Fixed
+- **A course share key and a verified client id stay out of the audit log and
+  the error texts.** `clone_code` (import) and `client_id` (deleting a whole
+  course) are blanked there, and an error about the key request shows nothing
+  of Skool's answer. The tool's own answer and a bare key that Skool echoes
+  in an import error body are not covered.
+- **An id from the caller cannot point a request elsewhere.** Every id that
+  goes into a path or query is checked and encoded the same way (blank text
+  or only dots is refused before anything is sent), the two reading POSTs
+  accept only their own two paths, and a file download link must be https
+  with a host.
+- **Error texts carry no address, no token and no bare share key.** The
+  piece of Skool's answer shown in an error is cut first and has every
+  e-mail address masked; a URL that carries a one-shot token is named
+  without its query; a share key that Skool repeats in an import error is
+  blanked; upload errors show only the storage's code and message. Network
+  errors of the video host and the buildId page are now `SkoolHTTPError`.
+  The address pattern runs in linear time and knows quoted local parts.
+- **A calendar draft shows the body that is sent.** `create_calendar_event`
+  and `update_calendar_event` build draft and request from the same place;
+  only `group_id` is a named placeholder, because a draft never contacts
+  Skool.
+- **Batch jobs stop when Skool turns them away.** `pull_to_vault`, the CLI
+  `pull` and `snapshot` end at the first 401, 403 or 429 (also a 429 with an
+  empty body) and at a 202 that is still there after the retries. What was
+  written stays, the message says how far the job got.
+- **Slug, handle, post name and the member filters cannot steer a page
+  request.** They are encoded like the ids; real values go out byte for
+  byte as before, blank text or only dots is refused before anything is sent.
+- **Wording says only what was observed.** The two-level comment rule is
+  catknows' own rule from one write test, the form limits are named as
+  Skool's form limits, and the docs say the `Authorization` header is
+  catknows' own and not something Skool's browser client sends.
+- Names of other people and communities are gone from code, tests and docs.
+
+## 2026-11-12
+
+### Changed
+- **Join requests hide email addresses unless you ask.** `list_join_requests`
+  shows an applicant's email as `a***@example.com`, in the email answer and in
+  any answer that holds an address, and so does the draft of
+  `review_join_request`. Names, locations, sources and answers are unchanged.
+  To see the addresses (to write to an applicant, say), call
+  `list_join_requests` with `reveal_email=true`. The search matches what is
+  shown, so a masked call finds nobody by address.
+- **Member records and vault notes no longer have an `email` field.** Skool
+  sends it empty today; if it ever fills it, it stays out of tool results and
+  out of the notes `pull_to_vault` writes. Notes written earlier keep what
+  they have.
+
+### Fixed
+- **`raw=True` no longer hands out what only admins see about a member.**
+  The join answers, the email they answered, where they came from and where
+  they were, who approved them, how often they applied and an on-PC flag are
+  removed from every raw result, next to the credential fields that were
+  already removed.
+
 ## 2026-10-11
 
 ### Added

@@ -7,7 +7,7 @@
 
 ## Process
 1. Confirm the recipient with the human — right person, right channel
-   (show the channel's last message as context so nobody DMs the wrong Dan).
+   (show the channel's last message as context so nobody DMs the wrong Anna).
 2. Write the draft in the human's voice. DMs are short.
 3. Show it in full; iterate until they say it's right.
 

@@ -32,7 +32,7 @@ class _FakeHTTP:
             if "t=members" in q:
                 return {"pageProps": {"totalMembers": 1, "page": 1, "members": [{
                     "id": "m1", "role": "group-admin", "groupId": "g1",
-                    "user": {"id": "u1", "name": "mindy", "firstName": "Mindy",
+                    "user": {"id": "u1", "name": "example-member", "firstName": "Example",
                              "metadata": {"bio": "hi", "spData": '{"pts":7,"lv":2}'}}}]}}
             return {"pageProps": {"totalPosts": 24, "totalPostPages": 3, "page": 2,
                                   "postTrees": [TREE]}}
@@ -133,10 +133,10 @@ def test_search_posts_query_and_paging():
 
 def test_search_members_come_out_as_member_records():
     c = _client()
-    out = c.search(SLUG, "mindy", kind="members")
+    out = c.search(SLUG, "example-member", kind="members")
     raw, = out["members"]
     rec = normalize.search_member(raw)
-    assert rec["name"] == "mindy" and rec["role"] == "admin", rec
+    assert rec["name"] == "example-member" and rec["role"] == "admin", rec
     assert rec["points"] == 7 and rec["level"] == 2, rec
     assert rec["member_id"] == "m1", "the membership id, needed to act on a member"
 
@@ -166,7 +166,7 @@ def test_the_tools_name_the_category_and_count_the_hits():
         found = fn(m.search_community)(SLUG, "hello", page=2)
         assert found["total"] == 24 and found["pages"] == 3, found
         assert found["results"][0]["category"] == "📮 Feedback", found
-        people = fn(m.search_community)(SLUG, "mindy", kind="members")
+        people = fn(m.search_community)(SLUG, "example-member", kind="members")
         assert people["results"][0]["member_id"] == "m1", people
     finally:
         m._get_client = old

@@ -1,6 +1,6 @@
 """Self-check: a capped list must be continuable, not the end of history.
 
-Dan Schaad, catnose 2026-09-24 (comments 0daf4b97…, 02d4ebe6…): the 200-per-call
+A user's report, catnose 2026-09-24 (comments 0daf4b97…, 02d4ebe6…): the 200-per-call
 cap is fine as a batch size, but list_posts(author=...) and get_follows stopped
 there for good — a member with 210 followers or 300 posts could never be read
 in full. The same held for list_members since 17.08. All three take `offset`
@@ -19,7 +19,7 @@ from catknows.client import MemberList
 def _tree(i):
     return {"post": {"id": f"p{i}", "name": f"p{i}", "userId": "u",
                      "metadata": {"title": f"t{i}"}},
-            "user": {"id": "u", "name": "dan"}}
+            "user": {"id": "u", "name": "anna"}}
 
 
 class FakeClient:
@@ -106,17 +106,17 @@ def test_author_filter_pages_too():
 
 
 def test_follows_offset_reaches_the_tail():
-    first = _run(FakeClient(), m.get_follows, "dan", limit=500)
+    first = _run(FakeClient(), m.get_follows, "anna", limit=500)
     assert first["returned"] == 200 and first["limit_capped"]["next_offset"] == 200
-    rest = _run(FakeClient(), m.get_follows, "dan", limit=500, offset=200)
+    rest = _run(FakeClient(), m.get_follows, "anna", limit=500, offset=200)
     assert rest["returned"] == 10, rest["returned"]
     assert rest["people"][0]["name"] == "f200", rest["people"][0]
     assert "limit_capped" not in rest, rest.get("limit_capped")
 
 
 def test_follows_default_call_says_more_exist():
-    """Dan's exact call: get_follows on 210 followers, no limit given."""
-    out = _run(FakeClient(), m.get_follows, "dan")
+    """The reported call: get_follows on 210 followers, no limit given."""
+    out = _run(FakeClient(), m.get_follows, "anna")
     assert out["returned"] == 200, out["returned"]
     assert out["limit_capped"]["next_offset"] == 200, out.get("limit_capped")
 

@@ -10,11 +10,13 @@ against.
 
 It writes, it does not steer: no queue, no retry, nothing hangs off the log.
 A failure to log must never fail a write, so `record` swallows its own errors.
-The old rule D5 "no throttle" is replaced (decision Niklas 2026-09-22): there
+The old rule D5 "no throttle" is replaced (owner's decision 2026-09-22): there
 is now a fixed minimum gap between writes, but it lives in
 `http._write_api2`, not here, so the log stays a record and never a control.
 
-What must NEVER be in here (E4): post text, DM text, member data. Only
+What must NEVER be in here (E4): post text, DM text, member data, and a
+credential in a query string (the course share key and the delete's client id,
+`redact`). Only
 technical metadata about our own writes. The response is stored as a hash, not
 as text, because Skool payloads carry credential-class fields — logging them
 raw would make the log the leak. `normalize.scrub` runs before hashing anyway,
@@ -28,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -47,6 +50,65 @@ _CONTEXT: ContextVar[dict] = ContextVar("catknows_audit_context", default={})
 # Fallback path so a local install that never sets the env var still logs
 # somewhere findable, rather than silently not logging at all.
 _DEFAULT_PATH = Path.home() / ".catknows" / "writes.jsonl"
+
+
+# Query parameters whose VALUE is a credential: the course share key
+# (`importCourse` carries it as `clone_code`, docs/API.md §7.8), the verified
+# client id that lets a whole course be deleted (`deleteCourse`, §7.6: an id that
+# passed the e-mail code check once and is reused for good) and the one-shot token
+# of the dashboard numbers (`/wait?token=` and the read that follows it, §1.9: no
+# write, so it never reaches the log, but the read paths name their URL in error
+# texts and take the rule from here). The log line keeps
+# the path with its query because the flags in it explain the write
+# (`notify=members`, `state=published`), so the value is replaced and the name
+# stays: the line still says that a key was sent, never which. A new secret
+# query name goes in this tuple, not into a call site.
+_SECRET_QUERY_KEYS = ("clone_code", "client_id", "token")
+_SECRET_QUERY = re.compile(
+    r"([?&](?:" + "|".join(map(re.escape, _SECRET_QUERY_KEYS)) + r"))=[^&#\s]*")
+
+# Paths whose ANSWER is a credential: the course share key comes back in the body
+# of `POST /courses/{id}/clone-code` (docs/API.md §7.8). No error text may repeat
+# a piece of such an answer (see `SkoolHTTP._write_api2`), and the audit line
+# keeps only its hash (`record`). A new path goes here, not into a call site.
+_SECRET_ANSWER_PATH = re.compile(r"/courses/[^/?#]+/clone-code")
+
+
+def redact(text: str) -> str:
+    """``text`` with the value of every secret query parameter replaced by ``[redacted]``.
+
+    For anything that may repeat a request path or URL and is allowed to leave
+    this process: an audit line, an error message. A text without such a
+    parameter comes back unchanged, byte for byte.
+    """
+    return _SECRET_QUERY.sub(r"\1=[redacted]", text)
+
+
+def redact_value(text: str, value: str) -> str:
+    """``text`` with every occurrence of ``value`` replaced by ``[redacted]``, in any case.
+
+    `redact` finds a credential behind its parameter name. This is for the caller
+    that knows the value it sent (the course share key of an import) and must not
+    see it come back bare in an answer that an error text repeats. An empty
+    ``value`` hides nothing.
+    """
+    if not value:
+        return text
+    return re.sub(re.escape(value), "[redacted]", text, flags=re.IGNORECASE)
+
+
+def secret_answer(path_and_query: str) -> bool:
+    """True if Skool's ANSWER to a request on this path is a credential."""
+    return _SECRET_ANSWER_PATH.fullmatch(path_and_query.split("?")[0].split("#")[0]) is not None
+
+
+def carries_secret(path_and_query: str) -> bool:
+    """True if the request or the answer on this path is a credential.
+
+    Then nothing about the call may travel on in an exception chain either: a
+    logger prints the whole chain, and the library's own message can repeat the URL.
+    """
+    return secret_answer(path_and_query) or redact(path_and_query) != path_and_query
 
 
 def log_path() -> Path:
@@ -112,13 +174,16 @@ def record(*, method: str, path: str, status, response=None, **extra) -> None:
             "community": ctx.get("community", ""),
             "method": method.upper(),
             # Query strings carry only flags (notify=members, state=published),
-            # no content — keep them, they explain what the write did.
-            "path": path,
+            # no content — keep them, they explain what the write did. The one
+            # exception is a credential in the query (`redact`: the course share
+            # key `clone_code`, the delete's `client_id`).
+            "path": redact(path),
             "status": status,
             "mode": mode(),
             "write_mode": write_mode(),
         }
-        for key in ("post_id", "comment_id", "course_item_id", "dm_channel_id", "member_id"):
+        for key in ("post_id", "comment_id", "course_item_id", "dm_channel_id", "member_id",
+                    "calendar_event_id", "category_id"):
             if ctx.get(key):
                 line[key] = ctx[key]
         line.update({k: v for k, v in extra.items() if v not in ("", None)})
@@ -187,6 +252,19 @@ if __name__ == "__main__":
         h = response_hash({"a": 1, "b": 2})
         assert h == response_hash({"b": 2, "a": 1}), "hash must not depend on key order"
         assert h != response_hash({"a": 1, "b": 3}), "different payload, same hash"
+
+        # A credential in the query never reaches the line; the other flags stay.
+        key = "0123456789abcdef0123456789abcdef" * 2
+        record(method="post", path=f"/courses/c1/import?group=g1&clone_code={key}", status=200)
+        last = json.loads(log_path().read_text("utf-8").splitlines()[-1])
+        assert key not in json.dumps(last), "a share key reached the log"
+        assert last["path"] == "/courses/c1/import?group=g1&clone_code=[redacted]", last
+        assert redact("/posts?follow=true") == "/posts?follow=true", "a plain path must not change"
+        assert redact("/courses/c1?client_id=abc") == "/courses/c1?client_id=[redacted]"
+        assert redact("/wait?token=abc") == "/wait?token=[redacted]"
+        assert redact_value(f"Invalid code {key.upper()}", key) == "Invalid code [redacted]"
+        assert secret_answer("/courses/c1/clone-code") and not secret_answer("/courses/c1/import")
+        assert carries_secret("/courses/c1?client_id=abc") and not carries_secret("/posts/p1/pin")
 
         # A log that cannot be written must not raise into the write path.
         os.environ["CATKNOWS_AUDIT_LOG"] = str(Path(tmp) / "w.jsonl" / "nope.jsonl")
