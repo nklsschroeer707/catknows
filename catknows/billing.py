@@ -257,13 +257,24 @@ def validate(doc: Any) -> dict:
 
 
 def _write(p: Path, data: dict, owner: str | None) -> None:
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.chmod(0o640)
-    if owner:
-        import shutil
-        shutil.chown(tmp, owner, owner)
-    tmp.replace(p)
+    """Atomic write. `receive` runs as root into a directory the service user owns,
+    so the temp file is created with O_EXCL under a random name (mkstemp): a
+    symlink planted there cannot redirect a root write."""
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(prefix=f".{p.name}.", dir=p.parent)
+    try:
+        os.fchmod(fd, 0o640)
+        if owner:
+            import pwd
+            pw = pwd.getpwnam(owner)
+            os.fchown(fd, pw.pw_uid, pw.pw_gid)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def sync(state: State, accounts: Iterable[dict], skool_ids: dict[str, str], now: datetime,
@@ -321,12 +332,16 @@ def sync(state: State, accounts: Iterable[dict], skool_ids: dict[str, str], now:
 # Only used by `receive`, which runs as root through the restricted SSH key.
 
 
+# docker runs from a root process: a fixed, minimal environment, nothing inherited.
+_SUBPROCESS_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
+
+
 def _psql(sql: str) -> str:
     import subprocess
 
     db = os.environ.get("CATKNOWS_KC_DB_CONTAINER", "catknows-auth-db-1")
     r = subprocess.run(["docker", "exec", db, "psql", "-U", "keycloak", "-d", "keycloak", "-tAF", "\t", "-c", sql],
-                       capture_output=True, text=True, timeout=60)
+                       capture_output=True, text=True, timeout=60, env=_SUBPROCESS_ENV)
     if r.returncode:
         raise RuntimeError("keycloak db query failed")
     return r.stdout
@@ -426,7 +441,8 @@ def rejected_hosts(since: str = "24h") -> list[str]:
     from urllib.parse import urlsplit
 
     kc = os.environ.get("CATKNOWS_KC_CONTAINER", "catknows-auth-keycloak-1")
-    r = subprocess.run(["docker", "logs", "--since", since, kc], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(["docker", "logs", "--since", since, kc], capture_output=True, text=True, timeout=60,
+                       env=_SUBPROCESS_ENV)
     return sorted({urlsplit(m.group(1)).hostname or "" for m in _TRUSTED_HOST.finditer(r.stdout + r.stderr)} - {""})
 
 
@@ -439,7 +455,8 @@ def receive(stdin=None, now: datetime | None = None, owner: str | None = "catkno
     doc = validate(json.loads(raw))
     now = now or _now()
     d = billing_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    if d.is_symlink() or not d.is_dir():
+        raise RuntimeError(f"{d} must be a real directory (deploy/billing/install.sh creates it)")
     doc["received"] = _iso(now)
     _write(d / "payers.json", doc, owner)
     state = load_state(d)
@@ -460,12 +477,19 @@ def receive(stdin=None, now: datetime | None = None, owner: str | None = "catkno
     return numbers
 
 
-def load_env_file(path: str) -> None:
-    """KEY=value lines of the service's env file (systemd format), without overriding what is already set.
+# Never a directory to write into (CATKNOWS_BILLING_DIR): the file belongs to the service user.
+ENV_KEYS = ("CATKNOWS_KASSE_AB", "CATKNOWS_SESSION_DIR", "CATKNOWS_SESSION_KEY")
 
-    The forced command runs outside systemd, but must see the same switch
-    (CATKNOWS_KASSE_AB) and the same session key as the MCP server.
+
+def load_env_file(path: str, keys: Iterable[str] = ENV_KEYS) -> None:
+    """The few KEY=value lines `receive` needs from the service's env file, without overriding what is set.
+
+    The forced command runs as root outside systemd, but must see the same
+    switch (CATKNOWS_KASSE_AB) and the same session key as the MCP server.
+    Only these keys: the file belongs to the service user, and a line like
+    LD_PRELOAD= must never reach the root process or the docker calls it makes.
     """
+    keys = set(keys)
     try:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -478,7 +502,7 @@ def load_env_file(path: str) -> None:
         k, v = k.strip(), v.strip()
         if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
             v = v[1:-1]
-        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", k):
+        if k in keys:
             os.environ.setdefault(k, v)
 
 
@@ -595,10 +619,17 @@ def _self_check() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         env = Path(tmp, "env")
-        env.write_text("# comment\nCATKNOWS_TEST_A=1\nCATKNOWS_TEST_B='x=y'\nbad line\nPATH=/nope\n")
-        load_env_file(str(env))
+        env.write_text("# comment\nCATKNOWS_TEST_A=1\nCATKNOWS_TEST_B='x=y'\nbad line\nPATH=/nope\nLD_PRELOAD=/x\n")
+        load_env_file(str(env), keys=("CATKNOWS_TEST_A", "CATKNOWS_TEST_B", "PATH"))
         assert os.environ.pop("CATKNOWS_TEST_A") == "1" and os.environ.pop("CATKNOWS_TEST_B") == "x=y"
         assert os.environ["PATH"] != "/nope", "the env file never overrides what is set"
+        load_env_file(str(env))
+        assert "LD_PRELOAD" not in os.environ, "only the billing keys are read"
+        # The temp file of a root write cannot be redirected by a planted symlink.
+        target = Path(tmp, "victim"); target.write_text("keep")
+        Path(tmp, "payers.json.tmp").symlink_to(target)
+        _write(Path(tmp, "payers.json"), {"a": 1}, None)
+        assert target.read_text() == "keep" and json.loads(Path(tmp, "payers.json").read_text()) == {"a": 1}
 
     m = _TRUSTED_HOST.search("WARN KC-SERVICES0102: URL 'https://agent.meta.ai/' doesn't match any trustedHost")
     assert m and m.group(1) == "https://agent.meta.ai"

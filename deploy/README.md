@@ -429,17 +429,26 @@ operational part:
   `auth_token` (a JWT with `user_id`) — this box never asks Skool who pays.
 * **Where the list comes from:** the operator's automation reads catnose's
   ordinary members page with `tiers=premium,vip` every 6 h and pushes it over
-  SSH with a key that can only run `deploy/billing/receive.sh`:
+  SSH with a key that can only run the receiver. The receiver runs as root
+  (it reads Keycloak through docker), so it never runs anything the service
+  user can change: `deploy/billing/install.sh` copies it, `billing.py` and
+  `sessions.py` to root-owned places and the system `python3` runs them with
+  `-I`. Re-run `install.sh` after every deploy that touches either file.
 
   ```bash
-  # once, as root: the key line (public key from the operator's machine)
-  echo 'command="/opt/catknows/deploy/billing/receive.sh",restrict ssh-ed25519 AAAA… kasse@homelab' >> /root/.ssh/authorized_keys
-  install -d -m 750 -o catknows -g catknows /var/lib/catknows/billing
+  # once, as root
+  sh /opt/catknows/deploy/billing/install.sh
   # founders: ids from the 2026-11-01 export, nothing else
   # (the CSV has CRLF line ends: strip the \r, or no line matches)
   awk -F, '{sub(/\r$/,"")} NR>1 && $4=="True"{print $1}' /root/gruender-2026-11-01.csv \
     | install -m 640 -o catknows -g catknows /dev/stdin /var/lib/catknows/billing/founders.txt
+  # the key line (public key from the operator's machine)
+  echo 'command="/usr/local/sbin/catknows-billing-receive",restrict ssh-ed25519 AAAA… kasse@homelab' >> /root/.ssh/authorized_keys
   ```
+
+  From `/etc/catknows/env` the receiver reads only `CATKNOWS_KASSE_AB`,
+  `CATKNOWS_SESSION_DIR` and `CATKNOWS_SESSION_KEY`; that file belongs to the
+  service user, so nothing else from it may reach a root process.
 
 * **What `receive` does:** checks and stores the list (`payers.json`), decides
   for every account, and prints one line of numbers — accounts, founders,
