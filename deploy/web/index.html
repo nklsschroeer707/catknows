@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>catknows. Your Skool data, in your AI</title>
-<meta name="description" content="catknows connects your Skool community to the AI you already use. Free while in testing, open source, hosted in Germany. Sign up, confirm your email, connect Skool.">
+<meta name="description" content="catknows connects your Skool community to the AI you already use. Open source and hosted in Germany. Free on your own computer, or $7 a month on my server.">
 <style>
 /* Tokens: catknows Style Guide v3 (nimcat/docs/design/catknows_style_guide.md)
    §3.1 brand, §3.2 semantic, §3.3 warm-dark neutrals, §3.4 hero glow, §19 dark
@@ -131,7 +131,6 @@ header > .account { justify-self: end; }
 }
 .social a:hover { color: var(--ink); border-color: var(--line); }
 .social svg { width: 15px; height: 15px; flex: 0 0 15px; }
-.social .skool-mark { width: 15px; height: 15px; flex: 0 0 15px; border-radius: 4px; }
 
 .account { position: relative; }
 .account summary {
@@ -419,9 +418,9 @@ footer .unofficial { color: var(--brand); }
 .ask-note { color: var(--dim); font-size: 0.85rem; margin: 16px 0 22px; max-width: 58ch; }
 /* Below the fold .cta is a button in a wide column, not the single action of a
    full screen, so it takes its label's width instead of the whole shell. */
-.ask .cta, .connect .cta, .ways .cta { display: inline-block; padding: 13px 30px; }
+.ask .cta, .proof .cta, .ways .cta { display: inline-block; padding: 13px 30px; }
 @media (max-width: 700px) {
-  .ask .cta, .connect .cta, .ways .cta { display: block; padding: 13px 22px; }
+  .ask .cta, .proof .cta, .ways .cta { display: block; padding: 13px 22px; }
 }
 
 /* The four big questions. Same copy-on-click button as .prompts, but each one
@@ -463,7 +462,7 @@ footer .unofficial { color: var(--brand); }
 
 /* -- 3. the proof ---------------------------------------------------------- */
 .proof { background: var(--bg); border-top: 1px solid var(--line); padding: 54px 22px 60px; }
-.proof h2, .connect h2, .ways h2 {
+.proof h2, .ways h2 {
   font-family: var(--serif); font-weight: 900;
   font-size: clamp(1.45rem, 5.4vw, 2.05rem);
   line-height: 1.08; letter-spacing: -0.02em;
@@ -471,14 +470,10 @@ footer .unofficial { color: var(--brand); }
 }
 .ask-lead a { color: var(--ink); text-underline-offset: 3px; }
 .ask-lead a:hover { color: var(--brand); }
-.proof-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); }
+.proof-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); }
 .proof-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   padding: 15px 16px 16px;
-}
-.proof-tool {
-  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
 }
 /* The number is the point of the card, so it is the only thing set in coral. */
 .proof-num {
@@ -493,15 +488,27 @@ footer .unofficial { color: var(--brand); }
   color: var(--dim); font-size: 0.8rem; line-height: 1.6;
   max-width: 62ch; margin: 20px 0 0;
 }
+.proof .cta { margin-top: 22px; }
+/* Quotes: a coral rule, the words, then who and when in mono. */
+.quotes { display: grid; gap: 10px; margin: 18px 0 0; }
+.quotes blockquote, .price-quote { border-left: 3px solid var(--coral); padding: 4px 0 4px 14px; }
+.quotes p, .price-quote p { color: var(--ink); font-size: 0.9rem; line-height: 1.55; }
+.quotes cite, .price-quote cite {
+  display: block; font-style: normal; font-family: var(--mono);
+  font-size: 0.66rem; color: var(--dim); margin-top: 4px;
+}
+.price-quote { margin: 20px 0 0; }
+/* Folded lists (more questions, more quotes): closed by default on every
+   screen, so the phone page stays short. */
+.more-q { margin: 0 0 18px; }
+.proof .more-q { margin: 12px 0 0; }
+.more-q summary { font-family: var(--mono); font-size: 0.78rem; color: var(--ink); padding: 8px 0; }
+.more-q .prompts, .more-q .quotes { margin-top: 10px; }
 
-/* -- 4. connect ------------------------------------------------------------ */
-.connect { background: var(--bg); border-top: 1px solid var(--line); padding: 54px 22px 60px; }
-/* Below the fold the steps sit on solid ground, so they take the plain --dim
-   the hero could not use over the video. */
-.steps-connect { color: var(--dim); margin: 18px 0 24px; }
+/* -- the Skool password box (inside 4.) ------------------------------------ */
 .pwcard {
   background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-  padding: 16px 18px; margin-bottom: 24px; max-width: 62ch;
+  padding: 16px 18px; margin: 34px 0 0; max-width: 62ch;
 }
 .pwcard h3 {
   font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em;
@@ -538,15 +545,10 @@ footer .unofficial { color: var(--brand); }
   font-family: var(--mono); font-size: 1.02rem; color: var(--coral);
   margin-bottom: 15px;
 }
-.way-price span { color: var(--muted); font-size: 0.72rem; }
-.way-facts { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; }
-.way-facts dt {
-  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted); padding-top: 0.25em;
-}
-.way-facts dd { color: #CFC8C1; font-size: 0.84rem; line-height: 1.5; }
-.way-facts a { color: #CFC8C1; text-underline-offset: 3px; }
-.way-facts a:hover { color: var(--ink); }
+.way-price span { color: var(--dim); font-size: 0.72rem; }
+.way-line { color: #CFC8C1; font-size: 0.84rem; line-height: 1.55; }
+.way-line a { color: #CFC8C1; text-underline-offset: 3px; }
+.way-line a:hover { color: var(--ink); }
 .ways-note {
   color: var(--dim); font-size: 0.82rem; line-height: 1.65;
   max-width: 62ch; margin: 22px 0 0;
@@ -554,14 +556,7 @@ footer .unofficial { color: var(--brand); }
 .ways-note a { color: var(--ink); text-underline-offset: 3px; }
 .ways-note a:hover { color: var(--brand); }
 .ways .cta { margin-top: 18px; }
-/* Like .fineprint, minus its scrim: this sits on solid ground. */
-.trust {
-  display: flex; flex-wrap: wrap; justify-content: center;
-  gap: 4px clamp(14px, 2.5vw, 30px);
-  font-family: var(--mono); font-size: 0.66rem; line-height: 1.8;
-  color: #B4ADA6; text-align: center; margin: 22px auto 0;
-}
-.trust span { text-wrap: balance; }
+.price-line { font-family: var(--mono); font-size: 0.74rem; color: #CFC8C1; margin-top: 10px; }
 .faqline {
   text-align: center; margin-top: 20px;
   font-family: var(--mono); font-size: 0.7rem; color: var(--dim);
@@ -648,14 +643,12 @@ input, textarea { cursor: text; }
   .social a { padding: 6px; gap: 0; }
   .social span { display: none; }
   .social svg { width: 17px; height: 17px; flex-basis: 17px; }
-  .social .skool-mark { width: 17px; height: 17px; flex-basis: 17px; }
   .prompts { grid-template-columns: 1fr; }
-  /* Three proof cards side by side would be ~110px wide on a phone; the
-     numbers are the whole point, so they stack instead of shrinking. */
-  .proof-grid { grid-template-columns: 1fr; }
+  /* Four short number cards fit two-up on a phone (~165px each). */
+  .proof-grid { grid-template-columns: 1fr 1fr; }
   .ways-grid { grid-template-columns: 1fr; }
 }
-/* Tablets: the proof cards still fit two-up before they have to stack. */
+/* Tablets: the four proof cards go two-up. */
 @media (min-width: 701px) and (max-width: 900px) {
   .proof-grid { grid-template-columns: 1fr 1fr; }
 }
@@ -696,11 +689,18 @@ input, textarea { cursor: text; }
   </a>
 
   <nav class="social" aria-label="catknows elsewhere">
-    <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener"
+    <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener"
        aria-label="The catknows Skool community">
-      <!-- Skool's own "sk" app icon (Niklas, 2026-11-18). The page still says
-           independent & unofficial, not affiliated with Skool. -->
-      <img class="skool-mark" alt="" width="15" height="15" src="data:image/png;base64,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">
+      <!-- Our own rounded-tile glyph, not Skool's logo: the page states it is
+           independent & unofficial, and their mark in our header would read as
+           a partnership. Naming them in the label is fine; wearing their mark
+           is not. -->
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+           stroke-width="1.7" stroke-linejoin="round">
+        <rect x="3.2" y="3.2" width="17.6" height="17.6" rx="5.4"/>
+        <path d="M14.6 9.1c-.5-.9-1.5-1.4-2.6-1.4-1.5 0-2.5.8-2.5 1.9 0 2.6 5.4 1.3 5.4 4.1
+                 0 1.3-1.2 2.2-2.9 2.2-1.3 0-2.4-.5-2.9-1.5" stroke-linecap="round"/>
+      </svg>
       <span>Skool community</span>
     </a>
     <a href="https://github.com/nklsschroeer707/catknows" target="_blank" rel="noopener"
@@ -745,8 +745,7 @@ input, textarea { cursor: text; }
 <div class="shell">
 
 <main>
-  <h1>Ask the AI you already use about your own Skool community, and
-      <em>it actually knows the answer.</em></h1>
+  <h1>Ask your AI about your Skool community. <em>It knows the answer.</em></h1>
 
   <!-- The typed demo is gone: the background clip now shows a real catknows
        conversation, so a second mock chat only competed with it. -->
@@ -754,7 +753,7 @@ input, textarea { cursor: text; }
   <!-- The three steps and the copyable MCP link are back on the first screen
        (Niklas 2026-11-14, as in 675fbee): the visitor who already knows what
        catknows is should not have to scroll for the one thing they came for.
-       The longer pitch moved down into "What it can work out for you". -->
+       The longer pitch moved down into "Ask what you want to know". -->
   <ol class="steps">
     <li><span>Create an account</span></li>
     <li><span>Connect Skool</span></li>
@@ -768,7 +767,10 @@ input, textarea { cursor: text; }
     </li>
   </ol>
 
-  <a class="cta" href="/auth/login?register=1">Start Now!</a>
+  <a class="cta" href="/auth/login?register=1">Create my account</a>
+  <!-- The price on the first screen (2026-11-15, Hormozi landing pages: say the
+       price early and plainly). Same two amounts as the pricing section. -->
+  <p class="price-line">$7 a month on my server. Free on your own computer.</p>
 </main>
 
 </div>
@@ -776,7 +778,7 @@ input, textarea { cursor: text; }
 <!-- The small print rides above the footer: it has to stay on the page, but it
      was making the hero block long enough to fight the headline. -->
 <p class="fineprint">
-  <span>Hosted in Germany. Your Skool data isn&rsquo;t stored: fetched, answered, gone.</span>
+  <span>Hosted in Germany. I do not store your Skool data.</span>
   <span>Your Skool password goes to Skool, <a href="/privacy">nowhere else</a>.</span>
 </p>
 
@@ -797,199 +799,144 @@ input, textarea { cursor: text; }
 <!-- Below the fold. A section after the footer is odd markup, but the footer
      is the hero screen's bottom edge and that screen is measured to the pixel;
      moving it under this section would change what every visitor sees first. -->
+<!-- 2. Three questions with their result, the rest folded away. Click copies
+     the question (same handler for .jobs and .prompts). -->
 <section class="ask" id="ask" aria-labelledby="ask-title">
   <div class="ask-shell">
     <p class="kicker">ASK IN PLAIN WORDS</p>
-    <h2 id="ask-title">What it can work out for you</h2>
-    <p class="ask-lead">What you want to know about your community is never on
-       one screen. It is in the member list, in the posts, in the comments, in
-       your DMs, and catknows lets the AI you already use read all of that in
-       one pass. It runs on your own Skool login, so it sees what you see and
-       not a line more, and anything it writes waits for your yes before it
-       goes out.</p>
-
-    <!-- The four big ones: each is a whole job, so each gets its own card with
-         the result spelled out underneath. Click still copies the question,
-         same handler as the short list below. -->
+    <h2 id="ask-title">Ask what you want to know</h2>
+    <p class="ask-lead">Your answers are in your members, posts, comments and DMs.
+       catknows reads all of it for you. Tap a question to copy it.</p>
     <ol class="jobs">
       <li>
-        <button type="button" data-state="copy">Read my posts, my comments and my member profiles. What do these specific people actually need next, and write me the three posts that give it to them.</button>
-        <p class="job-out">Three drafts written for the people who are already in your community, not for a general audience.</p>
+        <button type="button" data-state="copy">Who joined this month but never posted?</button>
+        <p class="job-out">You get the names. Say hi to them today.</p>
       </li>
       <li>
-        <button type="button" data-state="copy">I want to teach [what you know]. Ask me what you need, then build the whole classroom: modules, lessons, the text inside them. Leave it unpublished so I can look first.</button>
-        <p class="job-out">A complete course sitting unpublished in your classroom, ready for you to read through and change before anyone sees it.</p>
+        <button type="button" data-state="copy">Read my last 50 posts. What do my members struggle with?</button>
+        <p class="job-out">You get their top problems, in their own words.</p>
       </li>
       <li>
-        <button type="button" data-state="copy">I am number [12] in my category. Take the five above me: what are they doing differently from me, and which of it could I change next week?</button>
-        <p class="job-out">A short list of differences you can act on, sorted by what is actually in your hands.</p>
-      </li>
-      <li>
-        <button type="button" data-state="copy">My customer is [who you sell to]. Which Skool communities are full of them, and which of those would be worth running ads against?</button>
-        <p class="job-out">A ranked list of communities to target, so you buy attention where your buyer already spends it.</p>
+        <button type="button" data-state="copy">I want to teach [what you know]. Build the whole course and leave it unpublished.</button>
+        <p class="job-out">You get a full course in your classroom. You check it before anyone sees it.</p>
       </li>
     </ol>
-
-    <h3 class="ask-sub">And the everyday things, every day</h3>
-    <ul class="prompts">
-      <li><button type="button" data-state="copy">Who joined this month but never posted?</button></li>
-      <li><button type="button" data-state="copy">Who was active in June and has gone quiet since?</button></li>
-      <li><button type="button" data-state="copy">Who is about to leave, and why do you think so?</button></li>
-      <li><button type="button" data-state="copy">Summarize my unread DMs and draft replies to the ones that cannot wait.</button></li>
-      <li><button type="button" data-state="copy">Who liked my last three posts and is still on the free tier?</button></li>
-      <li><button type="button" data-state="copy">Read the last 50 posts. What do my members actually struggle with?</button></li>
-      <li><button type="button" data-state="copy">Which questions were asked twice and never answered?</button></li>
-      <li><button type="button" data-state="copy">Write my monthly report: growth, top posts, who needs a check-in.</button></li>
-      <li><button type="button" data-state="copy">Who else is ranking in my category, what do they charge, and what does none of them promise?</button></li>
-    </ul>
-    <p class="ask-note">It sees what your own Skool login sees. Writes are
-       draft first: you read the exact text, you say yes.</p>
-    <a class="cta" href="/auth/login?register=1">Ask your first question</a>
+    <details class="more-q">
+      <summary>More questions</summary>
+      <ul class="prompts">
+        <li><button type="button" data-state="copy">Who was active in June and has gone quiet since?</button></li>
+        <li><button type="button" data-state="copy">Summarize my unread DMs and draft replies to the ones that cannot wait.</button></li>
+        <li><button type="button" data-state="copy">Which questions were asked twice and never answered?</button></li>
+        <li><button type="button" data-state="copy">Write my monthly report: growth, top posts, who needs a check-in.</button></li>
+        <li><button type="button" data-state="copy">I am number [12] in my category. What do the five above me do differently?</button></li>
+      </ul>
+    </details>
+    <p class="ask-note">It sees only what your own Skool login sees.
+       Anything it writes waits for your yes.</p>
   </div>
 </section>
 
-<!-- 3. The proof. Every number below was pulled with catknows itself, out of
-     catnose, which is my own community — not a customer's. Each block carries
-     the date it was measured, so it ages honestly instead of hardening into a
-     claim. -->
+<!-- 3. The proof (rebuilt 2026-11-15). Numbers come from the autopilot's daily
+     reading of catnose (vault: skool-mirror/trends), each with its date. Quotes
+     are word for word from public catnose posts, no DMs, no names until the
+     people agree. List: vault stimmen-community-2026-11-15. -->
 <section class="proof" id="proof" aria-labelledby="proof-title">
   <div class="ask-shell">
-    <p class="kicker">MEASURED, NOT CLAIMED</p>
-    <h2 id="proof-title">What it found in my own community</h2>
-    <p class="ask-lead">catknows is built on the community I run myself,
-       <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">catnose</a>.
-       These are its own numbers, pulled with the same tools you would be
-       using. Each one carries the day it was read.</p>
-
+    <p class="kicker">MY OWN COMMUNITY, IN NUMBERS</p>
+    <h2 id="proof-title">I run my own Skool community with it</h2>
+    <p class="ask-lead">My community is
+       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>.
+       I use catknows there every day. These numbers come from Skool,
+       read on <time datetime="2026-11-15">15 November 2026</time>.</p>
     <div class="proof-grid">
       <article class="proof-card">
-        <p class="proof-tool">get_discovery_rank</p>
-        <p class="proof-num">#11,844</p>
-        <p class="proof-cap">overall on Skool&rsquo;s Discovery, and
-           <strong>#1,544</strong> in the Tech category, read on
-           <time datetime="2026-08-25">25 August 2026</time>. The same query on
-           <time datetime="2026-08-10">10 August 2026</time> read
-           #28,302 overall and #3,409 in Tech.</p>
+        <p class="proof-num">118</p>
+        <p class="proof-cap"><strong>members.</strong> On 25 August it had 44.</p>
       </article>
-
       <article class="proof-card">
-        <p class="proof-tool">get_admin_metrics</p>
-        <p class="proof-num">18 &rarr; 44</p>
-        <p class="proof-cap">members over the 30 days from
-           <time datetime="2026-07-26">26 July</time> to
-           <time datetime="2026-08-24">24 August 2026</time>, with active
-           members going <strong>8 &rarr; 43</strong>. Read on
-           <time datetime="2026-08-25">25 August 2026</time>.</p>
+        <p class="proof-num">55</p>
+        <p class="proof-cap"><strong>joined in the last 30 days.</strong> 398 people visited, so 14&nbsp;% joined.</p>
       </article>
-
       <article class="proof-card">
-        <p class="proof-tool">list_members</p>
-        <p class="proof-num">18 of 44</p>
-        <p class="proof-cap">members have never posted, and
-           <strong>4</strong> have been quiet for more than a week. Read on
-           <time datetime="2026-08-25">25 August 2026</time>. Names stay in my
-           community; the count is all that is shown here.</p>
+        <p class="proof-num">#7,562</p>
+        <p class="proof-cap"><strong>on Skool Discovery.</strong> On 10 August it was #28,302.</p>
+      </article>
+      <article class="proof-card">
+        <p class="proof-num">3,468</p>
+        <p class="proof-cap"><strong>requests answered</strong> on my server in 30 days, for 28 people.</p>
       </article>
     </div>
-
-    <p class="proof-note">These are readings from one community, my own. They
-       say what catknows found, not what it caused, and nothing here is a
-       forecast of what your own numbers will do.</p>
+    
+    <div class="quotes">
+      <blockquote><p>&ldquo;Got catknows connected to Claude in a couple of minutes. &hellip; The part I appreciate most is that it's draft-first: it shows me the exact post before anything goes live.&rdquo;</p><cite>Owner of a Skool community with 2,600+ members, 17 August 2026</cite></blockquote>
+      <blockquote><p>&ldquo;With one prompt, we can now analyse all those comments, identify the biggest overlaps and see which events have the strongest interest inside the community.&rdquo;</p><cite>Owner of a trail running community, 15 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;It helped me sort through my notifications and DMs, let me know what's urgent, drafted replies&hellip;&rdquo;</p><cite>catnose member, 5 November 2026</cite></blockquote>
+    </div>
+    <details class="more-q">
+      <summary>16 more from my community</summary>
+      <div class="quotes">
+      <blockquote><p>&ldquo;I installed it yesterday and I'm loving it! It makes working with Claude soooooo much easier!!&rdquo;</p><cite>catnose member, 12 November 2026</cite></blockquote>
+      <blockquote><p>&ldquo;I have tested CatKnows, used it and loved it. This is brilliant.&rdquo;</p><cite>catnose member, 8 November 2026</cite></blockquote>
+      <blockquote><p>&ldquo;&hellip;catknows, it is a fabulous tool&rdquo;</p><cite>catnose member, 5 November 2026</cite></blockquote>
+      <blockquote><p>&ldquo;It took me a while to set up Catknows, but once I did, it immediately started working really smoothly &hellip; without hours of research time.&rdquo;</p><cite>catnose member, 4 November 2026</cite></blockquote>
+      <blockquote><p>&ldquo;I love how it helps turn community insights into actionable ideas.&rdquo;</p><cite>catnose member, 2 November 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Hope your tool will help them as much as it helps me.&rdquo;</p><cite>catnose member, 31 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Catknows is the best thing you never knew you needed and you'll never turn back!&rdquo;</p><cite>catnose member, 26 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;I have already used this tool by the way!! ITS AMAZING!&rdquo;</p><cite>catnose member, 20 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;&hellip;I asked to dive in the community to find every person who have ever made a post or a comment about [Topic] and it gave me a list. It helped&rdquo;</p><cite>catnose member, 11 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Just did it now in about 30 seconds, no on boarding needed.&rdquo;</p><cite>catnose member, 11 October 2026</cite></blockquote>
+      <blockquote><p>&ldquo;&hellip;I love the fact that when I am doing something and asking Claude something, it goes and asks catknows someone's level in the community if it is relevant to the query&rdquo;</p><cite>catnose member, 17 September 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Catknows already works beautifully&rdquo;</p><cite>catnose member, 6 September 2026</cite></blockquote>
+      <blockquote><p>&ldquo;I am up and running in a matter of minutes, once I got my head around how the MCP connects to Claude.&rdquo;</p><cite>catnose member, 16 August 2026</cite></blockquote>
+      <blockquote><p>&ldquo;The hosted version is what changes everything for normal users. &hellip; I'm using hosted catknows to write this very comment.&rdquo;</p><cite>catnose member, 14 August 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Making catknows genuinely open source doesn't just make it free, it puts the power back in the hands of the people whose data it is in the first place.&rdquo;</p><cite>catnose member, 7 August 2026</cite></blockquote>
+      <blockquote><p>&ldquo;Catknows returned the real numbers, day by day, exactly right! Not guesses. REAL DATA!!!&rdquo;</p><cite>catnose member, 14 November 2026</cite></blockquote>
+      </div>
+    </details>
+    <p class="proof-note">All quotes are from public posts in catnose, word for word. This is one community, my own. Your numbers will be different.</p>
+    <a class="cta" href="/auth/login?register=1">Create my account</a>
   </div>
 </section>
 
-<!-- 4. Connect. The measured drop-off: 534 visits to this page against 12 to
-     the connect step, and two users who stopped at the Skool password prompt.
-     So the worry gets answered here, where it starts, not on the FAQ page. -->
-<section class="connect" id="connect" aria-labelledby="connect-title">
-  <div class="ask-shell">
-    <p class="kicker">THREE STEPS, ABOUT TWO MINUTES</p>
-    <h2 id="connect-title">Connecting it</h2>
-
-    <!-- Same three steps as the first screen; the copy button lives up there
-         (one id, one handler), here the link is just shown. -->
-    <ol class="steps steps-connect">
-      <li><span>Create an account</span></li>
-      <li><span>Connect Skool</span></li>
-      <li><span>Add it to your AI: <code>mcp.catknows.app/mcp</code></span></li>
-    </ol>
-
-    <!-- Step 2 is where people stop, so it gets answered in full. -->
-    <div class="pwcard">
-      <h3>About step 2, the Skool password</h3>
-      <ul class="pwlist">
-        <li>Your password goes to <strong>Skool</strong> and nowhere else.</li>
-        <li>You type it on <strong>Skool&rsquo;s own login page</strong>, opened
-            in a real browser on the server and streamed to your screen.</li>
-        <li>What is kept is only the <strong>encrypted session</strong> that
-            login produces, never the password itself.</li>
-        <li>You can <strong>delete that session</strong> at any time, from the
-            account menu at the top of this page.</li>
-      </ul>
-    </div>
-
-    <a class="cta" href="/auth/login?register=1">Connect Skool</a>
-    <p class="trust">
-      <span>Hosted in Germany</span>
-      <span>Your password goes to Skool, nowhere else</span>
-      <span>Draft first: nothing posts without your yes</span>
-      <span>Open source, read every line</span>
-      <span>Disconnect any time</span>
-    </p>
-  </div>
-</section>
-
-<!-- 5. Two honest ways to run it. Not a tier ladder: the free one is the full
-     one. $7 buys the machine it runs on, not more features. Paid through the
-     catnose community on Skool since 2026-11-14 (catknows/billing.py). -->
+<!-- 4. Two ways to run it, then the Skool password. The password box used to
+     be its own "Connecting it" section; it is short now and sits last, where
+     the decision is made. Paid through catnose since 2026-11-14 (billing.py). -->
 <section class="ways" id="pricing" aria-labelledby="ways-title">
   <div class="ask-shell">
     <p class="kicker">TWO WAYS TO RUN IT</p>
-    <h2 id="ways-title">Run it yourself, or let me run it</h2>
-    <p class="ask-lead">Same tool either way. The question is only whose
-       machine it runs on.</p>
-
+    <h2 id="ways-title">Free on your computer, or $7 on mine</h2>
     <div class="ways-grid">
       <article class="way">
-        <h3>On your own machine</h3>
-        <p class="way-price">Free<span>, and staying that way</span></p>
-        <dl class="way-facts">
-          <dt>Runs on</dt>
-          <dd>your computer, your account, your connection</dd>
-          <dt>Limits</dt>
-          <dd>none, everything is on, writing included</dd>
-          <dt>Costs</dt>
-          <dd>a terminal, and your computer has to be running</dd>
-          <dt>For</dt>
-          <dd>anyone who hosts it themselves and wants full control</dd>
-        </dl>
+        <h3>On your computer</h3>
+        <p class="way-price">Free<span>, and it stays free</span></p>
+        <p class="way-line">Everything is on, writing too. Your computer must be on, and you need a terminal.</p>
       </article>
-
       <article class="way way-hosted">
         <h3>On my server</h3>
         <p class="way-price">$7<span> a month, or $77 a year</span></p>
-        <dl class="way-facts">
-          <dt>Runs on</dt>
-          <dd>a server in N&uuml;rnberg, Germany</dd>
-          <dt>Limits</dt>
-          <dd>posts and comments are paused
-              (<a href="/faq">the FAQ says why</a>)</dd>
-          <dt>Costs</dt>
-          <dd>Premium in catnose, my Skool community, paid on Skool</dd>
-          <dt>For</dt>
-          <dd>anyone who just wants to use it, phone included</dd>
-        </dl>
+        <p class="way-line">Works on your phone too. Posts and comments are paused (<a href="/faq">the FAQ says why</a>). Server in N&uuml;rnberg, Germany.</p>
       </article>
     </div>
+    
+    <blockquote class="price-quote"><p>&ldquo;$7/month is a steal!&rdquo;</p><cite>catnose member, 11 October 2026</cite></blockquote>
+    <p class="ways-note">You pay for hosted with Premium in
+       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>,
+       my Skool community. Use the same Skool account you connect here.
+       Skool takes the payment, I never see your card.
+       Made your catknows account before 18 November 2026, 9am Berlin time? Then hosted stays free for you.
+       The free way stays the full way. That's a promise.</p>
+    <a class="cta" href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">Get Premium in catnose</a>
 
-    <p class="ways-note">You pay for hosted inside
-       <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">catnose</a>,
-       my community on Skool: join, pick Premium, and use the same Skool account
-       you connect here. Skool takes the payment, I never see your card. If you
-       made your catknows account before 18 November 2026, 9am Berlin time, hosted
-       stays free for you. And the free way stays the full way, that's a promise.</p>
-    <a class="cta" href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">Get Premium in catnose</a>
-    <p class="faqline">More questions? <a href="/faq">Read the FAQ</a>, limits included.</p>
+    <div class="pwcard">
+      <h3>Your Skool password stays with Skool</h3>
+      <ul class="pwlist">
+        <li>You type it on Skool&rsquo;s own login page.</li>
+        <li>I keep only the encrypted session, never the password.</li>
+        <li>You can delete that session at any time, in your account menu.</li>
+        <li>Open source: you can read every line.</li>
+      </ul>
+    </div>
+    <p class="faqline">More questions? <a href="/faq">Read the FAQ</a>.</p>
   </div>
 </section>
 
@@ -1161,14 +1108,6 @@ input, textarea { cursor: text; }
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (st) {
       if (!st || !st.signed_in) return;
-      /* Signed in already: the big buttons would land on the registration
-         form again (Mindy, 2026-11-18). Let them connect Skool instead. */
-      if (!st.skool_connected) {
-        document.querySelectorAll('a.cta[href*="register=1"]').forEach(function (a) {
-          a.setAttribute('href', '#');
-          a.setAttribute('data-connect-skool', '');
-        });
-      }
       var dot = document.getElementById('acct-dot');
       var panel = document.getElementById('acct-panel');
       var who = '<div class="who">' + esc(st.email) + '</div>';
