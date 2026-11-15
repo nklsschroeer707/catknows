@@ -163,8 +163,8 @@ whether your account may use the tools, the server compares the Skool user id
 inside your stored Skool session (§2.2) with a list of the Skool user ids that
 currently hold a paid tier (Premium or VIP) in catnose. That list holds ids,
 tier and state (active or cancelling), no names and no email addresses. I read
-it from catnose's ordinary member list, as the owner of that community, about
-every 6 hours, and copy it to the server. No payment data is involved: Skool
+it from catnose's ordinary member list, as the owner of that community, when
+someone joins and otherwise about every hour, and copy it to the server. No payment data is involved: Skool
 processes the payment, and I neither receive nor store card or billing details.
 
 Founders (accounts created before 18 November 2026, 9am Berlin time) and gift
@@ -219,7 +219,7 @@ tools.
 | Usage records (§2.5) | 30 days |
 | Write-audit log (§2.6) | 90 days |
 | Failed-login counters | Reset on success, or after 12 hours |
-| Payer list (§2.7) | Replaced with every new list, about every 6 hours |
+| Payer list (§2.7) | Replaced with every new list, about every hour |
 | Refusal note (§2.7) | Until you pay again, or your account is deleted |
 
 An account that is never confirmed by email is removed after 30 days.

@@ -80,8 +80,8 @@ $7 a month or $77 a year. You pay inside
 catknows.app and I never see your card.
 
 Use the same Skool account there that you connected to catknows. That is how
-the server knows it is you: about every 6 hours it checks catnose's member
-list for Premium and VIP.
+the server knows it is you: when you join catnose with Premium it checks within
+minutes, otherwise once an hour.
 
 ### I signed up early
 
@@ -92,8 +92,7 @@ hosted stays free for you. No upgrade needed.
 
 Hosted keeps working until your paid period ends. After that the tools pause
 and you get one email. Your account, your login and your connected Skool
-session stay, nothing gets deleted. Upgrade again and it works again within
-about 6 hours.
+session stay, nothing gets deleted. Upgrade again and it works again within the hour.
 
 ### What is VIP then?
 

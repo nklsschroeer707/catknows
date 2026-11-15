@@ -8,7 +8,7 @@ How the list gets here, and why it is not fetched from this box:
 
 * The operator's own automation (one long-lived browser session, not this
   server) reads catnose's ordinary members page with the ``tiers=premium,vip``
-  filter every 6 hours. No billing or payout endpoint, ever.
+  filter, on every join and otherwise hourly. No billing or payout endpoint, ever.
 * It pushes the result over SSH with a key that can do nothing else
   (``command=`` in authorized_keys runs ``deploy/billing/receive.sh``). That
   script calls ``python -m catknows.billing receive``, which stores the list
@@ -50,7 +50,7 @@ REFUSAL = (
     "community on Skool, and the Skool account connected here is not on one right "
     "now. Nothing was deleted: the catknows account, the login and the connected "
     "Skool session are all still there. Upgrade in catnose with the same Skool "
-    "account and the tools work again within about 6 hours: " + COMMUNITY_URL
+    "account and the tools work again within the hour: " + COMMUNITY_URL
 )
 
 MAX_LIST_AGE = timedelta(hours=36)
@@ -390,7 +390,7 @@ Nothing got deleted. Your catknows account, your login and your connected
 Skool session are all still there.
 
 To turn the tools back on, upgrade in catnose with the same Skool account you
-connected to catknows. It works again within about 6 hours:
+connected to catknows. It works again within the hour:
 {url}
 
 Questions? Just reply to this mail.
