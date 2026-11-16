@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>catknows. Your Skool data, in your AI</title>
-<meta name="description" content="catknows connects your Skool community to the AI you already use. Open source and hosted in Germany. Free on your own computer, or $7 a month on my server.">
+<meta name="description" content="catknows connects your Skool account to the AI you already use. Open source and hosted in Germany. Free on your own computer, or $7 a month on my server.">
 <style>
 /* Tokens: catknows Style Guide v3 (nimcat/docs/design/catknows_style_guide.md)
    §3.1 brand, §3.2 semantic, §3.3 warm-dark neutrals, §3.4 hero glow, §19 dark
@@ -448,6 +448,12 @@ footer .unofficial { color: var(--brand); }
 .jobs > li:hover button::after, .jobs button.done::after { opacity: 1; }
 .jobs button.done::after { color: var(--ok); }
 .jobs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 8px; }
+/* What paid Skool tools sell this as, struck through (2026-11-16, catnose tone). */
+.job-was {
+  margin: 10px 13px 0; font-family: var(--mono); font-size: 0.66rem; letter-spacing: .06em;
+  color: #C9C3BD; text-decoration: line-through; text-decoration-color: var(--brand);
+  text-decoration-thickness: 2px;
+}
 /* The result, set apart from the question so the two never read as one block. */
 .job-out {
   color: #CFC8C1; font-size: 0.83rem; line-height: 1.6;
@@ -745,7 +751,7 @@ input, textarea { cursor: text; }
 <div class="shell">
 
 <main>
-  <h1>Ask your AI about your Skool community. <em>It knows the answer.</em></h1>
+  <h1>Still paying $99 a month to read Skool? <em>Just ask your AI.</em></h1>
 
   <!-- The typed demo is gone: the background clip now shows a real catknows
        conversation, so a second mock chat only competed with it. -->
@@ -803,32 +809,36 @@ input, textarea { cursor: text; }
      the question (same handler for .jobs and .prompts). -->
 <section class="ask" id="ask" aria-labelledby="ask-title">
   <div class="ask-shell">
-    <p class="kicker">ASK IN PLAIN WORDS</p>
-    <h2 id="ask-title">Ask what you want to know</h2>
-    <p class="ask-lead">Your answers are in your members, posts, comments and DMs.
-       catknows reads all of it for you. Tap a question to copy it.</p>
+    <p class="kicker">WHAT OTHERS SELL YOU</p>
+    <h2 id="ask-title">Ask for it instead</h2>
+    <p class="ask-lead">Paid Skool tools sell you lists and dashboards.
+       Your AI makes them when you ask. Tap a question to copy it.</p>
     <ol class="jobs">
       <li>
-        <button type="button" data-state="copy">Who joined this month but never posted?</button>
-        <p class="job-out">You get the names. Say hi to them today.</p>
+        <p class="job-was">churn alerts</p>
+        <button type="button" data-state="copy">Who pays me but has gone quiet since last month?</button>
+        <p class="job-out">You get the names. Say hi before they leave.</p>
       </li>
       <li>
-        <button type="button" data-state="copy">Read my last 50 posts. What do my members struggle with?</button>
-        <p class="job-out">You get their top problems, in their own words.</p>
+        <p class="job-was">niche research</p>
+        <button type="button" data-state="copy">Show me the top Skool communities about [my topic]. What do they charge?</button>
+        <p class="job-out">You get names, sizes and prices. You see where you fit.</p>
       </li>
       <li>
-        <button type="button" data-state="copy">I want to teach [what you know]. Build the whole course and leave it unpublished.</button>
-        <p class="job-out">You get a full course in your classroom. You check it before anyone sees it.</p>
+        <p class="job-was">affiliate picks</p>
+        <button type="button" data-state="copy">Which communities in [category] earn the most and grow the fastest?</button>
+        <p class="job-out">You get the top earners. You promote the ones that fit you.</p>
       </li>
     </ol>
     <details class="more-q">
       <summary>More questions</summary>
       <ul class="prompts">
-        <li><button type="button" data-state="copy">Who was active in June and has gone quiet since?</button></li>
-        <li><button type="button" data-state="copy">Summarize my unread DMs and draft replies to the ones that cannot wait.</button></li>
-        <li><button type="button" data-state="copy">Which questions were asked twice and never answered?</button></li>
-        <li><button type="button" data-state="copy">Write my monthly report: growth, top posts, who needs a check-in.</button></li>
+        <li><button type="button" data-state="copy">Sort my members into fans, lurkers and people about to leave.</button></li>
+        <li><button type="button" data-state="copy">Build me a dashboard: members, MRR, churn, top posts.</button></li>
+        <li><button type="button" data-state="copy">Read the join answers. Who could buy my coaching?</button></li>
         <li><button type="button" data-state="copy">I am number [12] in my category. What do the five above me do differently?</button></li>
+        <li><button type="button" data-state="copy">What did I miss in my Skool communities this week?</button></li>
+        <li><button type="button" data-state="copy">Which questions were asked twice and never answered?</button></li>
       </ul>
     </details>
     <p class="ask-note">It sees only what your own Skool login sees.
