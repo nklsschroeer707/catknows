@@ -23,13 +23,13 @@ Skool has no API. catknows is the one.
 [![Playwright](https://img.shields.io/badge/playwright-driven-2EAD33.svg?style=flat-square&logo=playwright&logoColor=white)](https://playwright.dev)
 [![Platform](https://img.shields.io/badge/macOS%20·%20Linux%20·%20Windows-lightgrey.svg?style=flat-square)](#quick-start)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](#contributing)
-[![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/catnose/about)
+[![Skool community](https://img.shields.io/badge/Skool-visit%20us%20here-DF1A1A.svg?style=flat-square)](https://www.skool.com/cat-knows-1423/about)
 
 **Stop paying to read your own Skool data. catknows is the bridge between Skool and every AI tool — pull your members, posts, comments, DMs and the discovery leaderboard straight into Claude, ChatGPT or Cursor, into a clean Obsidian vault or raw JSON — and let your AI route it on to Notion & friends. Now you can finally talk to your own data. Free, open source, yours.**
 
 <br>
 
-### ▸ [**Join the community → skool.com/catnose**](https://www.skool.com/catnose/about) ◂
+### ▸ [**Join the community → skool.com/cat-knows-1423**](https://www.skool.com/cat-knows-1423/about) ◂
 
 *You're not a customer here — you're a co-builder. Ask, request features, show what you built.* 🐈
 
@@ -364,7 +364,7 @@ yours. catknows removes the fee and the middleman — it just gives you the acce
 - **You decide where it goes.** Today it pulls your data into a vault. Whether it
   grows churn reports, outreach drafts, dashboards — or stays a clean data tap —
   is up to the people who use it. File an issue, open a PR, or say what you need
-  in the [Skool community](https://www.skool.com/catnose/about). No pricing page
+  in the [Skool community](https://www.skool.com/cat-knows-1423/about). No pricing page
   decides for you.
 
 If catknows saves you a subscription and you *want* to buy me a
@@ -376,7 +376,7 @@ no strings.
 [catknows.app](https://catknows.app) runs this same code on a server in Germany
 for people who don't want to install anything. **That one is a different deal:**
 a server costs money every month, so hosted is paid: $7 a month or $77 a year,
-as Premium in the [catnose community](https://www.skool.com/catnose/about) on
+as Premium in the [catnose community](https://www.skool.com/cat-knows-1423/about) on
 Skool. Accounts made before 1 November 2026 keep it free.
 
 **What you're reading here never changes.** The code in this repo is MIT and
@@ -417,7 +417,7 @@ who use it. The Skool community is the workshop: ask questions, request features
 show what you built on top of your data, or help shape the roadmap. You're not a
 customer here — you're a co-builder.
 
-### ▸ [**Visit us here → skool.com/catnose**](https://www.skool.com/catnose/about) ◂
+### ▸ [**Visit us here → skool.com/cat-knows-1423**](https://www.skool.com/cat-knows-1423/about) ◂
 
 ## License
 
