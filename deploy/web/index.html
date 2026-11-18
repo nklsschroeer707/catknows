@@ -131,6 +131,7 @@ header > .account { justify-self: end; }
 }
 .social a:hover { color: var(--ink); border-color: var(--line); }
 .social svg { width: 15px; height: 15px; flex: 0 0 15px; }
+.social .skool-mark { width: 15px; height: 15px; flex: 0 0 15px; border-radius: 4px; }
 
 .account { position: relative; }
 .account summary {
@@ -650,6 +651,7 @@ input, textarea { cursor: text; }
   .social a { padding: 6px; gap: 0; }
   .social span { display: none; }
   .social svg { width: 17px; height: 17px; flex-basis: 17px; }
+  .social .skool-mark { width: 17px; height: 17px; flex-basis: 17px; }
   .prompts { grid-template-columns: 1fr; }
   /* Four short number cards fit two-up on a phone (~165px each). */
   .proof-grid { grid-template-columns: 1fr 1fr; }
@@ -696,18 +698,11 @@ input, textarea { cursor: text; }
   </a>
 
   <nav class="social" aria-label="catknows elsewhere">
-    <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener"
+    <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener"
        aria-label="The catknows Skool community">
-      <!-- Our own rounded-tile glyph, not Skool's logo: the page states it is
-           independent & unofficial, and their mark in our header would read as
-           a partnership. Naming them in the label is fine; wearing their mark
-           is not. -->
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
-           stroke-width="1.7" stroke-linejoin="round">
-        <rect x="3.2" y="3.2" width="17.6" height="17.6" rx="5.4"/>
-        <path d="M14.6 9.1c-.5-.9-1.5-1.4-2.6-1.4-1.5 0-2.5.8-2.5 1.9 0 2.6 5.4 1.3 5.4 4.1
-                 0 1.3-1.2 2.2-2.9 2.2-1.3 0-2.4-.5-2.9-1.5" stroke-linecap="round"/>
-      </svg>
+      <!-- Skool's own "sk" app icon (Niklas, 2026-11-18). The page still says
+           independent & unofficial, not affiliated with Skool. -->
+      <img class="skool-mark" alt="" width="15" height="15" src="data:image/png;base64,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">
       <span>Skool community</span>
     </a>
     <a href="https://github.com/nklsschroeer707/catknows" target="_blank" rel="noopener"
@@ -859,7 +854,7 @@ input, textarea { cursor: text; }
     <p class="kicker">MY OWN COMMUNITY, IN NUMBERS</p>
     <h2 id="proof-title">I run my own Skool community with it</h2>
     <p class="ask-lead">My community is
-       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>.
+       <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">catnose</a>.
        I use catknows there every day. These numbers come from Skool,
        read on <time datetime="2026-11-15">15 November 2026</time>.</p>
     <div class="proof-grid">
@@ -934,12 +929,12 @@ input, textarea { cursor: text; }
     
     <blockquote class="price-quote"><p>&ldquo;$7/month is a steal!&rdquo;</p><cite>catnose member, 11 October 2026</cite></blockquote>
     <p class="ways-note">You pay for hosted with Premium in
-       <a href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">catnose</a>,
+       <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">catnose</a>,
        my Skool community. Use the same Skool account you connect here.
        Skool takes the payment, I never see your card.
        Made your catknows account before 18 November 2026, 9am Berlin time? Then hosted stays free for you.
        The free way stays the full way. That's a promise.</p>
-    <a class="cta" href="https://www.skool.com/catnose/about" target="_blank" rel="noopener">Get Premium in catnose</a>
+    <a class="cta" href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">Get Premium in catnose</a>
 
     <div class="pwcard">
       <h3>Your Skool password stays with Skool</h3>
@@ -1122,6 +1117,14 @@ input, textarea { cursor: text; }
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (st) {
       if (!st || !st.signed_in) return;
+      /* Signed in already: the big buttons would land on the registration
+         form again (Mindy, 2026-11-18). Let them connect Skool instead. */
+      if (!st.skool_connected) {
+        document.querySelectorAll('a.cta[href*="register=1"]').forEach(function (a) {
+          a.setAttribute('href', '#');
+          a.setAttribute('data-connect-skool', '');
+        });
+      }
       var dot = document.getElementById('acct-dot');
       var panel = document.getElementById('acct-panel');
       var who = '<div class="who">' + esc(st.email) + '</div>';
@@ -1233,9 +1236,15 @@ input, textarea { cursor: text; }
       } else if (m.type === 'done') {
         sstage.hidden = true;
         var who = m.skool ? ' as ' + m.skool : '';
+        // A different email at Skool than at catknows is normal, so this is a
+        // success either way: green, then reload so the page shows the next
+        // step. Left uncoloured it read as a failure, and onclose overwrote it
+        // with "Stream closed." (Karen, 17.11.2026).
         if (m.mismatch) {
-          ssay('Connected' + who + ' — note this is a different email than your ' +
-               'catknows account. If that was not intended, disconnect and connect again.');
+          ssay('Connected' + who + '. Your Skool session is stored, encrypted. ' +
+               'Your Skool email differs from your catknows email, which is fine. ' +
+               'Wrong Skool account? Disconnect and connect again.', 'ok');
+          setTimeout(function () { location.reload(); }, 6000);
         } else {
           ssay('Connected' + who + '. Your Skool session is stored, encrypted.', 'ok');
           setTimeout(function () { location.reload(); }, 1400);

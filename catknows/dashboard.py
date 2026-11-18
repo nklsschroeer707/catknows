@@ -782,10 +782,12 @@ go.onclick=function(){
       if(m.mismatch){
         // Not an error: worth a look, because it's how you notice you signed
         // into the wrong Skool account.
-        say('Connected'+who+' — note that this is a different email than your '
-            +'catknows account. If that was not intended, delete the session '
-            +'and connect again.','');
-        stage.style.display='none';
+        // Still a success: green and reload, like the plain case. Uncoloured it
+        // read as a failure and onclose overwrote it with "Stream closed."
+        say('Connected'+who+'. Your Skool session is stored, encrypted. Your '
+            +'Skool email differs from your catknows email, which is fine. Wrong '
+            +'Skool account? Delete the session and connect again.','ok');
+        stage.style.display='none'; setTimeout(function(){location.reload();},6000);
       } else {
         say('Connected'+who+'. Your Skool session is stored, encrypted.','ok');
         stage.style.display='none'; setTimeout(function(){location.reload();},1400);
