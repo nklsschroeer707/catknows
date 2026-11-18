@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import datetime
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 import urllib.error
@@ -421,10 +423,54 @@ async def password_login(request):
 # -- pages ---------------------------------------------------------------------
 
 
+LIVE_NUMBERS = Path(os.environ.get(
+    "CATKNOWS_LIVE_NUMBERS", "/var/lib/catknows-web/numbers.json"))
+_LIVE_INTS = ("members", "signups", "visitors", "join_pct", "rank", "requests", "people")
+_LIVE_SPAN = re.compile(r'<span data-live="([a-z_]+)">[^<]*</span>')
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+_LIVE_DATE = re.compile(r'<time data-live="date" datetime="[^"]*">[^<]*</time>')
+
+
+def _live_numbers(path: Path | None = None) -> dict[str, str] | None:
+    """The proof section's numbers, written once a day by the autopilot.
+
+    Only whole numbers and an ISO date get through, formatted here, so the
+    file can never put markup on the page. Anything odd → None, and the page
+    keeps the numbers it was published with.
+    """
+    try:
+        raw = json.loads((path or LIVE_NUMBERS).read_text())
+        out = {}
+        for k in _LIVE_INTS:
+            v = raw[k]
+            if type(v) is not int or not 0 <= v < 10**9:
+                return None
+            out[k] = f"{v:,}"
+        day = datetime.date.fromisoformat(raw["date"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    out["date_iso"] = day.isoformat()
+    out["date_text"] = f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+    return out
+
+
+def _fill_live(page: str, nums: dict[str, str] | None) -> str:
+    if not nums:
+        return page
+    page = _LIVE_SPAN.sub(
+        lambda m: (f'<span data-live="{m[1]}">{nums[m[1]]}</span>'
+                   if m[1] in nums else m[0]), page)
+    return _LIVE_DATE.sub(
+        f'<time data-live="date" datetime="{nums["date_iso"]}">{nums["date_text"]}</time>',
+        page)
+
+
 async def home(request):
     index = WEB / "index.html"
     if index.exists():
-        return FileResponse(index)
+        return HTMLResponse(_fill_live(index.read_text(), _live_numbers()),
+                            headers={"Cache-Control": "no-cache"})
     return HTMLResponse("<h1>catknows</h1><p><a href='/auth/login'>Sign in</a></p>")
 
 
@@ -1036,7 +1082,30 @@ def _self_check() -> None:
             path_params = {"asset": bad}
         assert asyncio.run(background_video(MReq())).status_code == 404, bad
 
-    print("dashboard self-check OK (opaque sessions, PKCE, CSRF, page allowlist, panel)")
+    # Live numbers: only whole numbers and a date reach the page; a bad file
+    # leaves the published fallback untouched.
+    import tempfile
+    page = (WEB / "index.html").read_text()
+    assert len(_LIVE_SPAN.findall(page)) == 7 and _LIVE_DATE.search(page), \
+        "proof section lost its data-live markers"
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "n.json"
+        good = {"date": "2026-11-18", "members": 128, "signups": 64, "visitors": 436,
+                "join_pct": 15, "rank": 7037, "requests": 3875, "people": 32}
+        f.write_text(json.dumps(good))
+        filled = _fill_live(page, _live_numbers(f))
+        assert '<span data-live="rank">7,037</span>' in filled
+        assert '<time data-live="date" datetime="2026-11-18">18 November 2026</time>' in filled
+        for bad in ({**good, "rank": "<b>1</b>"}, {**good, "members": True},
+                    {**good, "date": "soon"}, {k: v for k, v in good.items() if k != "people"}):
+            f.write_text(json.dumps(bad))
+            assert _live_numbers(f) is None, bad
+        f.write_text("{not json")
+        assert _live_numbers(f) is None
+        assert _fill_live(page, None) == page
+    assert _live_numbers(Path("/nonexistent/numbers.json")) is None
+
+    print("dashboard self-check OK (opaque sessions, PKCE, CSRF, page allowlist, panel, live numbers)")
 
 
 if __name__ == "__main__":

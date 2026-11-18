@@ -846,7 +846,9 @@ input, textarea { cursor: text; }
 </section>
 
 <!-- 3. The proof (rebuilt 2026-11-15). Numbers come from the autopilot's daily
-     reading of catnose (vault: skool-mirror/trends), each with its date. Quotes
+     reading of catnose (vault: skool-mirror/trends), each with its date.
+     data-live spans are filled in by dashboard.home from the daily numbers
+     file (autopilot.website_zahlen); the values here are the fallback. Quotes
      are word for word from public catnose posts, no DMs, no names until the
      people agree. List: vault stimmen-community-2026-11-15. -->
 <section class="proof" id="proof" aria-labelledby="proof-title">
@@ -856,23 +858,23 @@ input, textarea { cursor: text; }
     <p class="ask-lead">My community is
        <a href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">catnose</a>.
        I use catknows there every day. These numbers come from Skool,
-       read on <time datetime="2026-11-15">15 November 2026</time>.</p>
+       read on <time data-live="date" datetime="2026-11-15">15 November 2026</time>.</p>
     <div class="proof-grid">
       <article class="proof-card">
-        <p class="proof-num">118</p>
+        <p class="proof-num"><span data-live="members">118</span></p>
         <p class="proof-cap"><strong>members.</strong> On 25 August it had 44.</p>
       </article>
       <article class="proof-card">
-        <p class="proof-num">55</p>
-        <p class="proof-cap"><strong>joined in the last 30 days.</strong> 398 people visited, so 14&nbsp;% joined.</p>
+        <p class="proof-num"><span data-live="signups">55</span></p>
+        <p class="proof-cap"><strong>joined in the last 30 days.</strong> <span data-live="visitors">398</span> people visited, so <span data-live="join_pct">14</span>&nbsp;% joined.</p>
       </article>
       <article class="proof-card">
-        <p class="proof-num">#7,562</p>
+        <p class="proof-num">#<span data-live="rank">7,562</span></p>
         <p class="proof-cap"><strong>on Skool Discovery.</strong> On 10 August it was #28,302.</p>
       </article>
       <article class="proof-card">
-        <p class="proof-num">3,468</p>
-        <p class="proof-cap"><strong>requests answered</strong> on my server in 30 days, for 28 people.</p>
+        <p class="proof-num"><span data-live="requests">3,468</span></p>
+        <p class="proof-cap"><strong>requests answered</strong> on my server in 30 days, for <span data-live="people">28</span> people.</p>
       </article>
     </div>
     
