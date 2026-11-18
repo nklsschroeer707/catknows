@@ -75,7 +75,7 @@ whatever happens to the rest.
 ### Hosted
 
 $7 a month or $77 a year. You pay inside
-[catnose](https://www.skool.com/catnose/about), my community on Skool: Premium
+[catnose](https://www.skool.com/cat-knows-1423/about), my community on Skool: Premium
 (or VIP) unlocks hosted. Skool takes the payment, so there is no checkout on
 catknows.app and I never see your card.
 

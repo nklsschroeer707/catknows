@@ -32,7 +32,7 @@ already use" over "your AI".
 
 Never: `CatKnows`, `Catknows`, `catknwes`, `cat-knows-1423`, `cat-knows.com`.
 The hyphenated domain is legacy and points at nothing — catknows lives on
-GitHub and at skool.com/catnose.
+GitHub and at skool.com/cat-knows-1423.
 
 ## The signature
 

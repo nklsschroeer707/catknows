@@ -42,7 +42,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-COMMUNITY_URL = "https://www.skool.com/catnose/about"
+COMMUNITY_URL = "https://www.skool.com/cat-knows-1423/about"
 
 # Shown to the AI client (and so to the person) when a tool is refused.
 REFUSAL = (
