@@ -1166,6 +1166,14 @@ input, textarea { cursor: text; }
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (st) {
       if (!st || !st.signed_in) return;
+      /* Signed in already: the big buttons would land on the registration
+         form again (Mindy, 2026-11-18). Let them connect Skool instead. */
+      if (!st.skool_connected) {
+        document.querySelectorAll('a.cta[href*="register=1"]').forEach(function (a) {
+          a.setAttribute('href', '#');
+          a.setAttribute('data-connect-skool', '');
+        });
+      }
       var dot = document.getElementById('acct-dot');
       var panel = document.getElementById('acct-panel');
       var who = '<div class="who">' + esc(st.email) + '</div>';
