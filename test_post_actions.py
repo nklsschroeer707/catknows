@@ -54,6 +54,8 @@ from pathlib import Path
 
 os.environ["CATKNOWS_ALLOW_WRITE"] = "1"  # the write tools only exist with this
 os.environ["CATKNOWS_WRITE_GAP_S"] = "0"  # not a test of the write gap (test_write_gap.py is)
+# Never the real ~/.catknows/writes.jsonl: the autopilot counts its lines as real writes (14.11.2026)
+os.environ["CATKNOWS_AUDIT_LOG"] = str(Path(tempfile.mkdtemp()) / "writes.jsonl")
 
 from catknows import audit
 from catknows.client import SkoolClient

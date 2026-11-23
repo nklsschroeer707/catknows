@@ -9,6 +9,17 @@ MCP client — a long-running MCP server keeps old code until reconnected.
 > people who never open this repo — see `BRAND.md` §"The changelog comment is
 > written for users, not for developers".
 
+## 2026-11-23
+
+### Fixed
+- **`update_course_item` works on pages and folders again.** Since 2026-11-13
+  every update of a page or folder failed with a bare error, while creating and
+  deleting worked. Skool answers the read before the update with an empty 400
+  for anything that is not a course; that answer was mistaken for a network
+  failure, and after a network failure nothing is sent. An empty 4xx now keeps
+  its status. Run against Skool on 2026-11-23: a draft page was created,
+  updated, read back and deleted. Reported by Lau Brizuela.
+
 ## 2026-11-13
 
 Version 0.2.0. The server now has 31 tools, 63 with `CATKNOWS_ALLOW_WRITE=1`.
