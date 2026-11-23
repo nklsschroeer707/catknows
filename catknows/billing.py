@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 COMMUNITY_URL = "https://www.skool.com/cat-knows-1423/about"
+PLANS_URL = "https://www.skool.com/cat-knows-1423/plans"  # Skool's own plan picker, public
 
 # Shown to the AI client (and so to the person) when a tool is refused.
 REFUSAL = (
@@ -225,6 +226,22 @@ def refusal(subject: str, skool_id: str, now: datetime | None = None) -> str:
     except Exception as e:  # never take the tools down over the paid check
         print(f"catknows: billing check failed open — {type(e).__name__}", file=sys.stderr)
     return ""
+
+
+def paused(subject: str, skool_id: str, now: datetime | None = None) -> bool:
+    """Should the dashboard tell this account its tools are paused? Never raises.
+
+    Stricter than `refusal`: on a list that cannot be trusted the tools keep
+    refusing who was refused before, but the page says nothing. Someone who
+    upgraded while the list was stuck must not read "paused" next to a payment.
+    """
+    if not armed():
+        return False
+    try:
+        state, now = _cached_state(), now or _now()
+        return state.list_trusted(now)[0] and state.refused(subject, skool_id, now)
+    except Exception:
+        return False
 
 
 # -- receiving the list -----------------------------------------------------------

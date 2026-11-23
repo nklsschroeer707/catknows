@@ -314,6 +314,21 @@ h1 em { font-style: normal; color: var(--brand); }
 }
 .cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
+/* Signed in, but the paid check has paused the tools (billing.py). Hidden
+   until /auth/status says so; then it is the first thing on the page. */
+.paused {
+  background: var(--card); border: 1px solid var(--warn); border-radius: 12px;
+  padding: 16px 18px; margin: 0 0 18px; max-width: 54ch;
+}
+.paused[hidden] { display: none; }
+.paused h2 {
+  font-size: 1.05rem; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 9px;
+}
+.paused p { font-size: 0.92rem; line-height: 1.55; color: #CFC8C1; margin-bottom: 8px; }
+.paused .cta { margin-top: 12px; }
+.paused-more { display: inline-block; margin: 12px 0 0 16px; font-size: 0.88rem; color: #CFC8C1; }
+
 /* Its own scrim: the clip runs bright right here (desk lamp, keyboard glow),
    and small mono type at 0.66rem needs the full 4.5:1. */
 /* Three sentences, three slots. They sit side by side when there is room and
@@ -747,6 +762,14 @@ input, textarea { cursor: text; }
 <div class="shell">
 
 <main>
+  <aside class="paused" id="paused-note" hidden>
+    <h2><span class="acct-dot warn"></span> Your tools are paused</h2>
+    <p>Hosted needs Premium or VIP in catnose, my Skool community.
+       Upgrade with the Skool account you connected here and it works again within the hour.</p>
+    <p>Your account, your login and your Skool connection stay as they are :)</p>
+    <a class="cta" href="https://www.skool.com/cat-knows-1423/plans" target="_blank" rel="noopener">Get Premium in catnose</a>
+    <a class="paused-more" href="https://www.skool.com/cat-knows-1423/about" target="_blank" rel="noopener">Open the community</a>
+  </aside>
   <h1>Still paying $99 a month to read Skool? <em>Just ask your AI.</em></h1>
 
   <!-- The typed demo is gone: the background clip now shows a real catknows
@@ -1120,17 +1143,38 @@ input, textarea { cursor: text; }
     .then(function (st) {
       if (!st || !st.signed_in) return;
       /* Signed in already: the big buttons would land on the registration
-         form again (Mindy, 2026-11-18). Let them connect Skool instead. */
-      if (!st.skool_connected) {
-        document.querySelectorAll('a.cta[href*="register=1"]').forEach(function (a) {
+         form again (Mindy, 2026-11-18; Li, 2026-11-23, with Skool connected).
+         Whatever comes next for this visitor, it is never "create account". */
+      var plans = 'https://www.skool.com/cat-knows-1423/plans';
+      document.querySelectorAll('a.cta[href*="register=1"]').forEach(function (a) {
+        if (st.paused) {
+          a.setAttribute('href', plans);
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener');
+          a.textContent = 'Get Premium in catnose';
+        } else if (!st.skool_connected) {
           a.setAttribute('href', '#');
           a.setAttribute('data-connect-skool', '');
-        });
-      }
+          a.textContent = 'Connect Skool';
+        } else {
+          a.style.display = 'none'; /* all set: step 3 is right above */
+        }
+      });
       var dot = document.getElementById('acct-dot');
       var panel = document.getElementById('acct-panel');
       var who = '<div class="who">' + esc(st.email) + '</div>';
-      if (st.skool_connected) {
+      if (st.paused) {
+        /* The paid check paused the tools (billing.py). Say it where they look. */
+        document.getElementById('paused-note').hidden = false;
+        dot.className = 'acct-dot warn';
+        panel.innerHTML = who +
+          '<div class="state"><span class="acct-dot warn"></span> Tools paused</div>' +
+          '<a class="acct-btn" href="' + plans + '" target="_blank" rel="noopener">Get Premium in catnose</a>' +
+          '<div class="acct-links" style="margin-top:8px">' +
+          '<a href="#" data-connect-skool>Reconnect</a> &middot; ' +
+          '<a href="#" data-disconnect-skool>Disconnect</a> &middot; ' +
+          '<a href="/auth/logout">Log out</a></div>';
+      } else if (st.skool_connected) {
         dot.className = 'acct-dot ok';
         panel.innerHTML = who +
           '<div class="state"><span class="acct-dot ok"></span> Skool connected</div>' +

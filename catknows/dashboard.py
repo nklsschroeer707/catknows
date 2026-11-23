@@ -338,10 +338,27 @@ async def status(request):
     /connect on purpose; this only says signed-in and Skool-connected."""
     s = _current(request)
     if s is None:
-        return JSONResponse({"signed_in": False, "skool_connected": False})
+        return JSONResponse({"signed_in": False, "skool_connected": False, "paused": False})
     stored = sessions.enabled() and sessions.load(s["subject"]) is not None
     return JSONResponse(
-        {"signed_in": True, "email": s["email"], "skool_connected": stored})
+        {"signed_in": True, "email": s["email"], "skool_connected": stored,
+         "paused": _paused(s["subject"])})
+
+
+def _paused(subject: str) -> bool:
+    """Are this account's tools paused by the paid check (billing.py)?
+
+    Li Briki, 2026-11-23: paused within the hour of signing up, and the page
+    said nothing, so she registered again six times. Asks the same list the
+    MCP server refuses on. Unsure means no notice.
+    """
+    from . import billing
+
+    try:
+        cookie = sessions.load(subject) if sessions.enabled() else None
+        return bool(cookie) and billing.paused(subject, billing.skool_user_id(cookie))
+    except Exception:
+        return False
 
 
 async def password_login(request):
@@ -515,6 +532,7 @@ async def connect(request):
         me["email"], stored,
         skool=sessions.label(me["subject"]) if stored else "",
         cleared=bool(me.get("cleared")),
+        paused=stored and _paused(me["subject"]),
     ))
 
 
@@ -717,18 +735,20 @@ def _page_error(msg: str) -> str:
     )
 
 
-def _panel(email: str, stored: bool, skool: str, cleared: bool) -> str:
+def _panel(email: str, stored: bool, skool: str, cleared: bool, paused: bool = False) -> str:
     """The little account window, top right: what is connected, and is it live.
 
-    Green means a Skool session is stored *and* the account is cleared — the
-    two conditions a tool call actually needs. Amber means one of them is
-    missing, and the card below says which. It deliberately does not claim the
+    Green means a Skool session is stored, the account is cleared and the paid
+    check lets it through — what a tool call actually needs. Amber means one of
+    them is missing, and the card below says which. It deliberately does not claim the
     Skool cookie is still valid: only a request to Skool could answer that, and
     a green dot bought with a request on every page load is a poor trade.
     """
     from html import escape
 
-    if stored and cleared:
+    if stored and paused:
+        cls, who = "off", "Tools paused"
+    elif stored and cleared:
         cls, who = "on", skool or "Skool connected"
     elif stored:
         cls, who = "off", (skool or "Skool connected") + " — confirm your email"
@@ -743,10 +763,25 @@ def _panel(email: str, stored: bool, skool: str, cleared: bool) -> str:
     )
 
 
-def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = True) -> str:
+PAUSED_NOTE = (
+    '<h2>Your tools are paused</h2>'
+    '<p>Hosted needs Premium or VIP in catnose, my Skool community. Upgrade with '
+    'the Skool account you connected here and it works again within the hour.</p>'
+    '<p>Your account, your login and your Skool connection stay as they are :)</p>'
+    '<p><a href="{plans}" target="_blank" rel="noopener">Get Premium in catnose</a> · '
+    '<a href="{url}" target="_blank" rel="noopener">Open the community</a></p>'
+)
+
+
+def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = True,
+                  paused: bool = False) -> str:
     from html import escape
 
-    if not cleared:
+    from .billing import COMMUNITY_URL, PLANS_URL
+
+    if stored and paused:
+        state = PAUSED_NOTE.format(url=COMMUNITY_URL, plans=PLANS_URL)
+    elif not cleared:
         # Since the manual gate came out (2026-08-14) this means one thing: the
         # address is not confirmed yet. Naming it beats letting them connect
         # Skool and meet an unexplained 401 at the first tool call.
@@ -762,7 +797,7 @@ def _page_connect(email: str, stored: bool, skool: str = "", cleared: bool = Tru
 
     # The wordmark and the way home live in the shell; this heading names the
     # task the visitor came for.
-    body = f"""{_panel(email, stored, skool, cleared)}
+    body = f"""{_panel(email, stored, skool, cleared, paused)}
 <h1>Connect Skool</h1>
 <div class="sub">Signed in as {escape(email or 'your account')} &middot;
 <a href="/auth/logout">sign out</a></div>
@@ -1025,7 +1060,7 @@ def _self_check() -> None:
 
     sid2 = _new_session("subject-2", "s@t.u")
     anon = json.loads(asyncio.run(status(Req())).body)
-    assert anon == {"signed_in": False, "skool_connected": False}, anon
+    assert anon == {"signed_in": False, "skool_connected": False, "paused": False}, anon
     known = json.loads(asyncio.run(status(Req(sid2))).body)
     assert known["signed_in"] is True and known["email"] == "s@t.u", known
 
