@@ -849,8 +849,11 @@ class SkoolHTTP:
                 # (checked before the empty-body retry below).
                 raise SkoolHTTPError(
                     f"HTTP {code} on {shown}: {_answer_excerpt(path, body, 300)}", code)
-            if code == 202 or not body.strip():
-                # ISR deferred: page still building. Wait and retry.
+            if code == 202 or (not body.strip() and not 400 <= code < 500):
+                # ISR deferred: page still building. Wait and retry. An empty
+                # 4xx is an answer, not a deferral (a folder or page answers
+                # GET /courses/{id} with an empty 400): raised below, with its
+                # status, which `update_course_item` reads as "not a root unit".
                 last_err = f"HTTP {code} deferred/empty"
                 if attempt < MAX_RETRIES_202:
                     time.sleep(RETRY_202_DELAY_S)
