@@ -50,6 +50,9 @@ mcp.catknows.app {
 			fields {
 				request>headers>Authorization delete
 				request>headers>Cookie delete
+				# Query strings have carried passwords and OAuth codes.
+				request>uri regexp "\?.*" "?[cut]"
+				request>headers>Referer regexp "\?.*" "?[cut]"
 			}
 		}
 	}
@@ -81,6 +84,9 @@ auth.catknows.app {
 			fields {
 				request>headers>Authorization delete
 				request>headers>Cookie delete
+				# Query strings have carried passwords and OAuth codes.
+				request>uri regexp "\?.*" "?[cut]"
+				request>headers>Referer regexp "\?.*" "?[cut]"
 			}
 		}
 	}
@@ -132,6 +138,9 @@ catknows.app {
 			fields {
 				request>headers>Authorization delete
 				request>headers>Cookie delete
+				# Query strings have carried passwords and OAuth codes.
+				request>uri regexp "\?.*" "?[cut]"
+				request>headers>Referer regexp "\?.*" "?[cut]"
 			}
 		}
 	}

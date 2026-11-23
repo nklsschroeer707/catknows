@@ -28,6 +28,7 @@ import contextlib
 import datetime
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -967,6 +968,29 @@ app = Starlette(
 )
 
 
+class _NoQuery(logging.Filter):
+    """Cut the query string from uvicorn's access line. Found 2026-11-23: a
+    scriptless submit of the sign-in form logged `GET /?email=…&password=…`;
+    /auth/callback carries the OAuth code the same way."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5 and "?" in str(args[2]):
+            record.args = (*args[:2], str(args[2]).split("?", 1)[0] + "?[cut]", *args[3:])
+        return True
+
+
+def access_log_config() -> dict:
+    import copy
+
+    from uvicorn.config import LOGGING_CONFIG
+
+    cfg = copy.deepcopy(LOGGING_CONFIG)
+    cfg["filters"] = {"no_query": {"()": _NoQuery}}
+    cfg["handlers"]["access"]["filters"] = ["no_query"]
+    return cfg
+
+
 def main() -> None:
     import uvicorn
 
@@ -995,6 +1019,7 @@ def main() -> None:
         app,
         host=_env("CATKNOWS_DASHBOARD_HOST", "127.0.0.1"),
         port=int(_env("CATKNOWS_DASHBOARD_PORT", "8001")),
+        log_config=access_log_config(),
         # Behind Caddy: it terminates TLS and sets the forwarded headers.
         proxy_headers=True,
         forwarded_allow_ips="127.0.0.1",

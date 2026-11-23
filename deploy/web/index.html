@@ -742,7 +742,8 @@ input, textarea { cursor: text; }
     </summary>
     <div class="acct-panel" id="acct-panel">
       <!-- default: not signed in; the script swaps this after /auth/status -->
-      <form id="login-form">
+      <!-- method=post: a submit without the script must not put the password in the URL -->
+      <form id="login-form" method="post" action="/auth/password">
         <input class="acct-input" type="email" name="email" placeholder="email"
                required autocomplete="email">
         <input class="acct-input" type="password" name="password" placeholder="password"
